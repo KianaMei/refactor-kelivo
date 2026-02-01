@@ -2,6 +2,18 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type ThemePalette = 'blue' | 'purple' | 'green' | 'orange' | 'pink' | 'teal' | 'red' | 'yellow'
 
+export type AppLanguage = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'ko-KR' | 'ru-RU' | 'system'
+
+export const LANGUAGE_LABELS: Record<AppLanguage, string> = {
+  'system': '跟随系统',
+  'zh-CN': '简体中文',
+  'zh-TW': '繁體中文',
+  'en-US': 'English',
+  'ja-JP': '日本語',
+  'ko-KR': '한국어',
+  'ru-RU': 'Русский',
+}
+
 export type TopicPosition = 'left' | 'right'
 
 export type ChatMessageBackgroundStyle = 'none' | 'bubble' | 'card'
@@ -80,10 +92,33 @@ export type SettingsMenuKey =
   | 'tts'
   | 'networkProxy'
   | 'backup'
+  | 'data'
   | 'about'
+
+// ============ 助手配置 ============
+export interface AssistantConfig {
+  id: string
+  name: string
+  avatar: string                // emoji 或图片路径
+  avatarType: 'emoji' | 'image' // 头像类型
+  systemPrompt: string          // 系统提示词
+  isDefault: boolean            // 是否为默认助手
+  // 模型绑定（可选，若不设置则使用全局默认）
+  boundModelProvider: string | null
+  boundModelId: string | null
+  // 高级设置
+  temperature?: number          // 温度
+  topP?: number                 // Top P
+  maxTokens?: number            // 最大输出 Token
+  // 元数据
+  createdAt: string
+  updatedAt: string
+}
 
 // ============ 显示设置 ============
 export interface DisplaySettings {
+  // 语言
+  language: AppLanguage
   // 主题
   themePalette: ThemePalette
   usePureBackground: boolean
@@ -163,6 +198,17 @@ export interface AppConfigV2 {
   // Translate 默认模型（等价于旧版 translateModelProvider/translateModelId）
   translateModelProvider: string | null
   translateModelId: string | null
+  // 标题生成模型
+  titleModelProvider: string | null
+  titleModelId: string | null
+  titlePrompt: string
+  // 摘要生成模型
+  summaryModelProvider: string | null
+  summaryModelId: string | null
+  summaryPrompt: string
+  // 助手配置
+  assistantsOrder: string[]
+  assistantConfigs: Record<string, AssistantConfig>
   // 显示设置
   display: DisplaySettings
   ui: UiStateV2
@@ -271,6 +317,29 @@ export function createDefaultProviderConfig(id: string, name?: string): Provider
   }
 }
 
+export const DEFAULT_TITLE_PROMPT = '使用四到五个字直接返回这句话的简要主题，不要解释、不要标点、不要语气词、不要多余文本。如果没有主题，请直接返回"闲聊"。'
+export const DEFAULT_SUMMARY_PROMPT = '请用简洁的语言总结以上对话内容，不超过100字。'
+
+export function createDefaultAssistantConfig(id: string, name: string, options?: Partial<AssistantConfig>): AssistantConfig {
+  const now = nowIso()
+  return {
+    id,
+    name,
+    avatar: '🤖',
+    avatarType: 'emoji',
+    systemPrompt: '',
+    isDefault: false,
+    boundModelProvider: null,
+    boundModelId: null,
+    temperature: undefined,
+    topP: undefined,
+    maxTokens: undefined,
+    createdAt: now,
+    updatedAt: now,
+    ...options
+  }
+}
+
 export function createDefaultConfig(): AppConfigV2 {
   return {
     version: 2,
@@ -285,6 +354,20 @@ export function createDefaultConfig(): AppConfigV2 {
     currentModelId: null,
     translateModelProvider: null,
     translateModelId: null,
+    titleModelProvider: null,
+    titleModelId: null,
+    titlePrompt: DEFAULT_TITLE_PROMPT,
+    summaryModelProvider: null,
+    summaryModelId: null,
+    summaryPrompt: DEFAULT_SUMMARY_PROMPT,
+    assistantsOrder: ['default'],
+    assistantConfigs: {
+      default: createDefaultAssistantConfig('default', '默认助手', {
+        avatar: '🤖',
+        systemPrompt: 'You are a helpful assistant.',
+        isDefault: true
+      })
+    },
     display: createDefaultDisplaySettings(),
     ui: {
       desktop: {
@@ -302,6 +385,7 @@ export function createDefaultConfig(): AppConfigV2 {
 
 export function createDefaultDisplaySettings(): DisplaySettings {
   return {
+    language: 'system',
     themePalette: 'blue',
     usePureBackground: false,
     chatMessageBackgroundStyle: 'bubble',
@@ -370,6 +454,26 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
   const ui = normalizeUi(cfg['ui'], def.ui)
   const display = normalizeDisplaySettings(cfg['display'], def.display)
 
+  // 处理助手配置
+  let assistantsOrder = Array.isArray(cfg['assistantsOrder'])
+    ? (cfg['assistantsOrder'].filter((x) => typeof x === 'string') as string[])
+    : def.assistantsOrder
+
+  const assistantConfigsRaw = cfg['assistantConfigs']
+  let assistantConfigs: Record<string, AssistantConfig> = {}
+  if (isRecord(assistantConfigsRaw)) {
+    for (const [key, value] of Object.entries(assistantConfigsRaw)) {
+      const norm = normalizeAssistantConfig(key, value)
+      if (norm) assistantConfigs[key] = norm
+    }
+  }
+
+  // assistantConfigs 为空时，注入内置默认助手
+  if (Object.keys(assistantConfigs).length === 0) {
+    assistantConfigs = def.assistantConfigs
+    assistantsOrder = def.assistantsOrder
+  }
+
   return {
     version: 2,
     themeMode,
@@ -380,8 +484,50 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
     translateModelProvider:
       typeof cfg['translateModelProvider'] === 'string' ? (cfg['translateModelProvider'] as string) : null,
     translateModelId: typeof cfg['translateModelId'] === 'string' ? (cfg['translateModelId'] as string) : null,
+    titleModelProvider:
+      typeof cfg['titleModelProvider'] === 'string' ? (cfg['titleModelProvider'] as string) : null,
+    titleModelId: typeof cfg['titleModelId'] === 'string' ? (cfg['titleModelId'] as string) : null,
+    titlePrompt: typeof cfg['titlePrompt'] === 'string' ? (cfg['titlePrompt'] as string) : def.titlePrompt,
+    summaryModelProvider:
+      typeof cfg['summaryModelProvider'] === 'string' ? (cfg['summaryModelProvider'] as string) : null,
+    summaryModelId: typeof cfg['summaryModelId'] === 'string' ? (cfg['summaryModelId'] as string) : null,
+    summaryPrompt: typeof cfg['summaryPrompt'] === 'string' ? (cfg['summaryPrompt'] as string) : def.summaryPrompt,
+    assistantsOrder: assistantsOrder.length ? assistantsOrder : Object.keys(assistantConfigs),
+    assistantConfigs,
     display,
     ui
+  }
+}
+
+function normalizeAssistantConfig(id: string, input: unknown): AssistantConfig | null {
+  if (!isRecord(input)) return null
+  const name = typeof input['name'] === 'string' ? input['name'] : id
+  const avatar = typeof input['avatar'] === 'string' ? input['avatar'] : '🤖'
+  const avatarType = input['avatarType'] === 'image' ? 'image' : 'emoji'
+  const systemPrompt = typeof input['systemPrompt'] === 'string' ? input['systemPrompt'] : ''
+  const isDefault = typeof input['isDefault'] === 'boolean' ? input['isDefault'] : false
+  const boundModelProvider = typeof input['boundModelProvider'] === 'string' ? input['boundModelProvider'] : null
+  const boundModelId = typeof input['boundModelId'] === 'string' ? input['boundModelId'] : null
+  const temperature = typeof input['temperature'] === 'number' ? input['temperature'] : undefined
+  const topP = typeof input['topP'] === 'number' ? input['topP'] : undefined
+  const maxTokens = typeof input['maxTokens'] === 'number' ? input['maxTokens'] : undefined
+  const createdAt = typeof input['createdAt'] === 'string' ? input['createdAt'] : nowIso()
+  const updatedAt = typeof input['updatedAt'] === 'string' ? input['updatedAt'] : nowIso()
+
+  return {
+    id,
+    name,
+    avatar,
+    avatarType,
+    systemPrompt,
+    isDefault,
+    boundModelProvider,
+    boundModelId,
+    temperature,
+    topP,
+    maxTokens,
+    createdAt,
+    updatedAt
   }
 }
 
@@ -448,7 +594,12 @@ function normalizeDisplaySettings(input: unknown, fallback: DisplaySettings): Di
     ? (input['desktopContentWidth'] as 'narrow' | 'wide')
     : fallback.desktopContentWidth
 
+  const language = (['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'ru-RU', 'system'] as const).includes(input['language'] as any)
+    ? (input['language'] as AppLanguage)
+    : fallback.language
+
   return {
+    language,
     themePalette,
     usePureBackground: bool(input['usePureBackground'], fallback.usePureBackground),
     chatMessageBackgroundStyle,
@@ -494,6 +645,7 @@ function isSettingsMenuKey(v: string): v is SettingsMenuKey {
     v === 'tts' ||
     v === 'networkProxy' ||
     v === 'backup' ||
+    v === 'data' ||
     v === 'about'
   )
 }

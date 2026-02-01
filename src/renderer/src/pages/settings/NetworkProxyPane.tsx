@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { Globe, Wifi, Shield } from 'lucide-react'
 import type { AppConfig } from '../../../../shared/types'
 
 export interface ProxySettings {
   enabled: boolean
-  type: 'http' | 'socks5'
+  type: 'http' | 'https' | 'socks5'
   host: string
   port: string
   username: string
@@ -11,16 +12,13 @@ export interface ProxySettings {
 }
 
 export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
-  const { config, onSave } = props
-
-  // 代理设置目前存储在 config 的 proxy 字段（需要扩展 types.ts，这里先用本地 state 演示）
   const [proxy, setProxy] = useState<ProxySettings>(() => ({
     enabled: false,
     type: 'http',
     host: '127.0.0.1',
     port: '8080',
     username: '',
-    password: ''
+    password: '',
   }))
 
   const [testUrl, setTestUrl] = useState('https://www.google.com')
@@ -36,7 +34,7 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
     setTesting(true)
     setTestResult(null)
     try {
-      // 这里只是模拟测试，实际需要通过主进程发起带代理的请求
+      // 模拟测试，实际通过主进程发起带代理的请求
       await new Promise((r) => setTimeout(r, 1000))
       setTestResult({ ok: true, message: '连接成功' })
     } catch (e) {
@@ -47,14 +45,18 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
   }
 
   return (
-    <div style={styles.root}>
-      <div style={styles.header}>网络代理</div>
-      <div style={styles.divider} />
+    <div style={s.root}>
+      <div style={s.header}>网络代理</div>
 
+      {/* 代理配置 */}
       <div className="settingsCard">
-        <div style={styles.cardTitle}>全局代理设置</div>
+        <div style={{ ...s.cardTitle, display: 'flex', alignItems: 'center' }}>
+          <Shield size={15} style={{ marginRight: 6 }} />
+          全局代理设置
+        </div>
 
-        <LabeledRow label="启用代理">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>启用代理</span>
           <button
             type="button"
             className={`toggle ${proxy.enabled ? 'toggleOn' : ''}`}
@@ -62,25 +64,26 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
           >
             <div className="toggleThumb" />
           </button>
-        </LabeledRow>
+        </div>
+        <div style={s.divider} />
 
-        <RowDivider />
-
-        <LabeledRow label="代理类型">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>代理类型</span>
           <select
             className="select"
             style={{ width: 140 }}
             value={proxy.type}
-            onChange={(e) => updateProxy({ type: e.target.value as 'http' | 'socks5' })}
+            onChange={(e) => updateProxy({ type: e.target.value as ProxySettings['type'] })}
           >
             <option value="http">HTTP</option>
+            <option value="https">HTTPS</option>
             <option value="socks5">SOCKS5</option>
           </select>
-        </LabeledRow>
+        </div>
+        <div style={s.divider} />
 
-        <RowDivider />
-
-        <LabeledRow label="服务器地址">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>服务器地址</span>
           <input
             className="input"
             style={{ width: 200 }}
@@ -88,11 +91,11 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
             value={proxy.host}
             onChange={(e) => updateProxy({ host: e.target.value })}
           />
-        </LabeledRow>
+        </div>
+        <div style={s.divider} />
 
-        <RowDivider />
-
-        <LabeledRow label="端口">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>端口</span>
           <input
             className="input"
             style={{ width: 100 }}
@@ -100,11 +103,11 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
             value={proxy.port}
             onChange={(e) => updateProxy({ port: e.target.value })}
           />
-        </LabeledRow>
+        </div>
+        <div style={s.divider} />
 
-        <RowDivider />
-
-        <LabeledRow label="用户名（可选）">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>用户名（可选）</span>
           <input
             className="input"
             style={{ width: 160 }}
@@ -112,11 +115,11 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
             value={proxy.username}
             onChange={(e) => updateProxy({ username: e.target.value })}
           />
-        </LabeledRow>
+        </div>
+        <div style={s.divider} />
 
-        <RowDivider />
-
-        <LabeledRow label="密码（可选）">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>密码（可选）</span>
           <input
             className="input"
             type="password"
@@ -125,13 +128,18 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
             value={proxy.password}
             onChange={(e) => updateProxy({ password: e.target.value })}
           />
-        </LabeledRow>
+        </div>
       </div>
 
+      {/* 测试连接 */}
       <div className="settingsCard">
-        <div style={styles.cardTitle}>测试连接</div>
+        <div style={{ ...s.cardTitle, display: 'flex', alignItems: 'center' }}>
+          <Wifi size={15} style={{ marginRight: 6 }} />
+          测试连接
+        </div>
 
-        <LabeledRow label="测试 URL">
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>测试 URL</span>
           <input
             className="input"
             style={{ width: 280 }}
@@ -139,12 +147,18 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
             value={testUrl}
             onChange={(e) => setTestUrl(e.target.value)}
           />
-        </LabeledRow>
+        </div>
+        <div style={s.divider} />
 
-        <RowDivider />
-
-        <div style={{ padding: '8px 4px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="button" className="btn btn-primary" onClick={testConnection} disabled={testing}>
+        <div style={{ padding: '8px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={testConnection}
+            disabled={testing}
+            style={{ gap: 4 }}
+          >
+            <Globe size={13} />
             {testing ? '测试中...' : '测试连接'}
           </button>
           {testResult && (
@@ -155,77 +169,32 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
         </div>
       </div>
 
+      {/* 说明 */}
       <div className="settingsCard">
-        <div style={styles.cardTitle}>说明</div>
-        <div style={styles.note}>
-          <p>• 全局代理会应用于所有 AI API 请求。</p>
-          <p>• 你也可以在每个供应商单独配置代理，优先级高于全局代理。</p>
-          <p>• SOCKS5 代理支持 TCP 连接，适用于大多数场景。</p>
+        <div style={s.cardTitle}>说明</div>
+        <div style={s.hint}>
+          <p>全局代理会应用于所有 AI API 请求。</p>
+          <p>你也可以在每个供应商单独配置代理，优先级高于全局代理。</p>
+          <p>HTTP 代理仅代理 HTTP 请求，HTTPS 代理可代理加密连接。</p>
+          <p>SOCKS5 代理支持 TCP 连接，适用于大多数场景。</p>
         </div>
       </div>
     </div>
   )
 }
 
-function RowDivider() {
-  return <div style={styles.rowDivider} />
-}
-
-function LabeledRow(props: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={styles.labeledRow}>
-      <div style={styles.rowLabel}>{props.label}</div>
-      <div style={styles.rowTrailing}>{props.children}</div>
-    </div>
-  )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  root: {
-    padding: '16px 16px 32px',
-    maxWidth: 800,
-    margin: '0 auto'
-  },
-  header: {
-    fontSize: 16,
-    fontWeight: 700,
-    marginBottom: 8
-  },
-  divider: {
-    height: 1,
-    background: 'var(--border)',
-    marginBottom: 12
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: 700,
-    marginBottom: 8,
-    padding: '0 4px'
-  },
-  rowDivider: {
-    height: 1,
-    background: 'var(--border)',
-    margin: '4px 8px',
-    opacity: 0.5
-  },
+const s: Record<string, React.CSSProperties> = {
+  root: { padding: 20, maxWidth: 640, margin: '0 auto' },
+  header: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
+  cardTitle: { fontSize: 15, fontWeight: 700, marginBottom: 10 },
   labeledRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '8px 4px',
-    gap: 12
+    padding: '8px 0',
+    gap: 12,
   },
-  rowLabel: {
-    fontSize: 14,
-    flex: 1
-  },
-  rowTrailing: {
-    flexShrink: 0
-  },
-  note: {
-    fontSize: 13,
-    lineHeight: 1.8,
-    opacity: 0.8,
-    padding: '4px'
-  }
+  rowLabel: { fontSize: 14, flex: 1 },
+  divider: { height: 1, background: 'var(--border)', margin: '4px 0', opacity: 0.5 },
+  hint: { fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)', marginTop: 8 },
 }
