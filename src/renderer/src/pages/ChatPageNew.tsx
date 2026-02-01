@@ -1,15 +1,14 @@
 /**
  * 聊天页面 - 重构版
  * 对齐旧版 Kelivo 的 home_page.dart
- * 包括：三栏布局（会话列表 + 消息区 + 右侧面板）
+ * 包括：双栏布局（会话列表 + 消息区）
  */
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { Settings, ChevronRight, ChevronLeft, AlertCircle } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle } from 'lucide-react'
 
 import type { AppConfig } from '../../../shared/types'
 import type { ChatMessageInput } from '../../../shared/chat'
 import { ConversationSidebar, type Conversation } from './chat/ConversationSidebar'
-import { ChatRightPanel } from './chat/ChatRightPanel'
 import { MessageBubble, type ChatMessage } from './chat/MessageBubble'
 import { ChatInputBar, type Attachment, type MentionedModel } from './chat/ChatInputBar'
 
@@ -73,7 +72,6 @@ export function ChatPage(props: Props) {
   const [mentionedModels, setMentionedModels] = useState<MentionedModel[]>([])
 
   // UI 状态
-  const [rightOpen, setRightOpen] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const streamingRef = useRef<{ streamId: string; convId: string; msgId: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -439,9 +437,6 @@ export function ChatPage(props: Props) {
           <button type="button" className="btn" onClick={openModelPicker}>
             切换模型
           </button>
-          <button type="button" className="btn btn-icon" onClick={() => setRightOpen((v) => !v)} title={rightOpen ? '隐藏右侧' : '显示右侧'}>
-            {rightOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
         </div>
 
         {/* 默认模型提示 */}
@@ -496,17 +491,9 @@ export function ChatPage(props: Props) {
           onRemoveMention={(m) => setMentionedModels((prev) => prev.filter((x) => x.modelId !== m.modelId || x.providerId !== m.providerId))}
           quickPhrases={quickPhrases}
           onQuickPhrase={(content) => setDraft((prev) => prev + content)}
+          onOpenModelPicker={openModelPicker}
         />
       </div>
-
-      {/* 右侧工具面板 */}
-      {rightOpen && (
-        <ChatRightPanel
-          config={config}
-          currentProvider={currentProvider}
-          onOpenSettings={props.onOpenSettings}
-        />
-      )}
 
       {/* 模型选择弹窗 */}
       {modelPickerOpen && (

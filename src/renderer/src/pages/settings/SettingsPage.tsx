@@ -111,7 +111,7 @@ export function SettingsPage(props: { config: AppConfig; onSave: (next: AppConfi
       case 'display':
         return <DisplayPane config={props.config} onSave={props.onSave} />
       case 'assistant':
-        return <AssistantPane />
+        return <AssistantPane config={props.config} onSave={props.onSave} />
       case 'defaultModel':
         return <DefaultModelPane config={props.config} onSave={props.onSave} />
       case 'search':
