@@ -1,0 +1,21 @@
+appId: com.kelivo.refactor
+productName: Kelivo
+directories:
+  buildResources: build
+files:
+  - "**/*"
+  - "!**/{.vscode,.github,.yarn,.husky}/**"
+  - "!**/{src,test,tests,__tests__,coverage}/**"
+  - "!**/*.map"
+  - "!**/*.ts"
+  - "!**/*.tsx"
+  - "!**/*.md"
+  - "!tasks/**"
+win:
+  target:
+    - target: nsis
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
