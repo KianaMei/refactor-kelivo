@@ -3,6 +3,7 @@ import { join } from 'path'
 
 import { registerConfigIpc } from './configIpc'
 import { registerChatIpc } from './chatIpc'
+import { registerChatStreamIpc, cleanupChatStreamRequests } from './chatStreamIpc'
 import { registerModelsIpc } from './modelsIpc'
 import { registerAvatarIpc } from './avatarIpc'
 import { registerProviderBundleIpc } from './providerBundleIpc'
@@ -71,6 +72,7 @@ app.whenReady().then(() => {
   // IPC 统一在主进程注册（仅暴露必要能力到 renderer）。
   registerConfigIpc()
   registerChatIpc()
+  registerChatStreamIpc() // 流式聊天 API
   registerModelsIpc()
   registerAvatarIpc()
   registerProviderBundleIpc()
@@ -83,5 +85,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  cleanupChatStreamRequests() // 清理所有进行中的请求
   if (process.platform !== 'darwin') app.quit()
 })

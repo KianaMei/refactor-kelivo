@@ -90,6 +90,140 @@ function formatFetchError(err: unknown): string {
   return String(err)
 }
 
+// ============================================================================
+// 模型列表获取函数
+// ============================================================================
+
+interface ProviderConfig {
+  name: string
+  baseUrl: string
+  apiKey: string
+  vertexAI?: boolean
+  projectId?: string
+  location?: string
+}
+
+/** 获取 OpenAI 兼容 API 的模型列表 */
+async function fetchOpenAIModels(provider: ProviderConfig): Promise<string[]> {
+  const url = joinUrl(provider.baseUrl, '/models')
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${provider.apiKey}`,
+        Accept: 'application/json'
+      }
+    })
+  } catch (e) {
+    const safeHost = (() => {
+      try {
+        return new URL(url).origin
+      } catch {
+        return provider.baseUrl
+      }
+    })()
+    throw new Error(`获取模型列表失败（${provider.name} · ${safeHost}）：${formatFetchError(e)}`)
+  }
+
+  if (!resp.ok) {
+    const text = await safeReadText(resp)
+    throw new Error(`HTTP ${resp.status}: ${text}`)
+  }
+
+  const data = (await resp.json()) as any
+  const rawList = Array.isArray(data?.data) ? data.data : []
+  return rawList
+    .map((m: any) => (typeof m?.id === 'string' ? m.id : typeof m?.name === 'string' ? m.name : null))
+    .filter((x: any) => typeof x === 'string' && x.trim().length > 0) as string[]
+}
+
+/** 获取 Google Gemini API 的模型列表 */
+async function fetchGoogleModels(provider: ProviderConfig): Promise<string[]> {
+  // Google Gemini API: GET /models?key=API_KEY
+  const baseUrl = provider.baseUrl.endsWith('/') ? provider.baseUrl.slice(0, -1) : provider.baseUrl
+  const url = `${baseUrl}/models?key=${provider.apiKey}`
+  
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' }
+    })
+  } catch (e) {
+    throw new Error(`获取模型列表失败（${provider.name}）：${formatFetchError(e)}`)
+  }
+
+  if (!resp.ok) {
+    const text = await safeReadText(resp)
+    throw new Error(`HTTP ${resp.status}: ${text}`)
+  }
+
+  const data = (await resp.json()) as any
+  // Google 返回 { models: [{ name: "models/gemini-pro", ... }] }
+  const rawList = Array.isArray(data?.models) ? data.models : []
+  return rawList
+    .map((m: any) => {
+      // name 格式为 "models/gemini-pro"，取出模型 ID
+      const name = typeof m?.name === 'string' ? m.name : ''
+      return name.startsWith('models/') ? name.substring(7) : name
+    })
+    .filter((x: string) => x.trim().length > 0 && !x.includes('embedding'))
+}
+
+/** 获取 Anthropic Claude API 的模型列表 */
+async function fetchClaudeModels(provider: ProviderConfig): Promise<string[]> {
+  // Claude API: GET /models (with x-api-key header)
+  const url = joinUrl(provider.baseUrl, '/models')
+  
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-api-key': provider.apiKey,
+        'anthropic-version': '2023-06-01',
+        Accept: 'application/json'
+      }
+    })
+  } catch (e) {
+    throw new Error(`获取模型列表失败（${provider.name}）：${formatFetchError(e)}`)
+  }
+
+  if (!resp.ok) {
+    // Claude 可能不支持 /models 端点，返回默认列表
+    if (resp.status === 404) {
+      return getDefaultClaudeModels()
+    }
+    const text = await safeReadText(resp)
+    throw new Error(`HTTP ${resp.status}: ${text}`)
+  }
+
+  const data = (await resp.json()) as any
+  // Claude 返回 { data: [{ id: "claude-3-opus-...", ... }] }
+  const rawList = Array.isArray(data?.data) ? data.data : []
+  const ids = rawList
+    .map((m: any) => typeof m?.id === 'string' ? m.id : null)
+    .filter((x: any) => typeof x === 'string' && x.trim().length > 0) as string[]
+  
+  // 如果没有获取到模型，返回默认列表
+  return ids.length > 0 ? ids : getDefaultClaudeModels()
+}
+
+/** Claude 默认模型列表 */
+function getDefaultClaudeModels(): string[] {
+  return [
+    'claude-sonnet-4-20250514',
+    'claude-opus-4-20250514',
+    'claude-3-7-sonnet-20250219',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-haiku-20241022',
+    'claude-3-opus-20240229',
+    'claude-3-sonnet-20240229',
+    'claude-3-haiku-20240307'
+  ]
+}
+
 export function registerModelsIpc(): void {
   ipcMain.handle(IpcChannel.ModelsList, async (_event, params: ModelsListParams) => {
     const cfg = await loadConfig()
@@ -97,45 +231,21 @@ export function registerModelsIpc(): void {
     if (!provider) throw new Error(`未找到供应商：${params.providerId}`)
 
     const kind = provider.providerType ?? 'openai'
-    // 旧版里 OpenAI/Gemini/Claude 各有不同接口；这里先把 openai-compatible 拉通。
-    if (kind !== 'openai') {
-      throw new Error(`当前暂不支持该供应商类型的模型列表获取：${kind}`)
-    }
-
+    
     if (!provider.apiKey) throw new Error('该供应商未配置 API Key')
 
-    const url = joinUrl(provider.baseUrl, '/models')
-    let resp: Response
-    try {
-      resp = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${provider.apiKey}`,
-          Accept: 'application/json'
-        }
-      })
-    } catch (e) {
-      const safeHost = (() => {
-        try {
-          const u = new URL(url)
-          return u.origin
-        } catch {
-          return provider.baseUrl
-        }
-      })()
-      throw new Error(`获取模型列表失败（${provider.name} · ${safeHost}）：${formatFetchError(e)}`)
-    }
+    let ids: string[] = []
 
-    if (!resp.ok) {
-      const text = await safeReadText(resp)
-      throw new Error(`HTTP ${resp.status}: ${text}`)
+    if (kind === 'google') {
+      // Google Gemini API
+      ids = await fetchGoogleModels(provider)
+    } else if (kind === 'claude') {
+      // Anthropic Claude API
+      ids = await fetchClaudeModels(provider)
+    } else {
+      // OpenAI 兼容 API
+      ids = await fetchOpenAIModels(provider)
     }
-
-    const data = (await resp.json()) as any
-    const rawList = Array.isArray(data?.data) ? data.data : []
-    const ids = rawList
-      .map((m: any) => (typeof m?.id === 'string' ? m.id : typeof m?.name === 'string' ? m.name : null))
-      .filter((x: any) => typeof x === 'string' && x.trim().length > 0) as string[]
 
     const uniq = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b))
 
