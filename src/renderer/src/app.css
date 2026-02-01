@@ -561,6 +561,16 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .attachmentPreviewRemove { position: absolute; top: -4px; right: -4px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; }
 .chatInputMain { display: flex; align-items: flex-end; gap: 6px; }
 .chatInputTools { display: flex; gap: 2px; }
+.chatInputToolbar { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; gap: 4px; }
+.chatInputToolGroup { display: flex; align-items: center; gap: 2px; }
+.btn-compact { width: 30px; height: 30px; padding: 0; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.btn-active { color: var(--primary) !important; background: var(--primary-bg) !important; }
+.toolBadge { position: absolute; top: -2px; right: -2px; min-width: 14px; height: 14px; font-size: 9px; font-weight: 700; color: #fff; background: var(--primary); border-radius: 7px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
+
+@keyframes popoverIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .chatInputTextarea { flex: 1; padding: 8px 12px; border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 14px; resize: none; outline: none; min-height: 36px; max-height: 180px; }
 .chatInputTextarea:focus { border-color: var(--primary); }
 .chatInputTextarea::placeholder { color: var(--text-3); }
