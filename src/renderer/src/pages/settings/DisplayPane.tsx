@@ -1,5 +1,7 @@
-import { Moon, Monitor, Sun } from 'lucide-react'
-import type { AppConfig, DisplaySettings, ThemeMode, ThemePalette, ChatMessageBackgroundStyle, TopicPosition } from '../../../../shared/types'
+import { Moon, Monitor, Sun, Languages, ChevronDown } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import type { AppConfig, DisplaySettings, ThemeMode, ThemePalette, ChatMessageBackgroundStyle, TopicPosition, AppLanguage } from '../../../../shared/types'
+import { LANGUAGE_LABELS } from '../../../../shared/types'
 
 export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
   const { config, onSave } = props
@@ -20,6 +22,15 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
     <div style={styles.root}>
       <div style={styles.header}>显示</div>
       <div style={styles.divider} />
+
+      <SettingsCard title="语言" icon={<Languages size={15} />}>
+        <LabeledRow label="应用语言">
+          <LanguageSelector value={display.language} onChange={(v) => updateDisplay({ language: v })} />
+        </LabeledRow>
+        <div style={{ padding: '4px 8px', fontSize: 12, color: 'var(--text-secondary)' }}>
+          修改语言后需要重启应用才能完全生效
+        </div>
+      </SettingsCard>
 
       <SettingsCard title="显示">
         <LabeledRow label="颜色模式">
@@ -183,10 +194,13 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
 
 // ========== 子组件 ==========
 
-function SettingsCard(props: { title: string; children: React.ReactNode }) {
+function SettingsCard(props: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="settingsCard">
-      <div style={styles.cardTitle}>{props.title}</div>
+      <div style={styles.cardTitle}>
+        {props.icon && <span style={{ marginRight: 6, display: 'inline-flex', verticalAlign: 'middle' }}>{props.icon}</span>}
+        {props.title}
+      </div>
       {props.children}
     </div>
   )
@@ -314,6 +328,58 @@ function PaletteSelector(props: { value: ThemePalette; onChange: (v: ThemePalett
   )
 }
 
+function LanguageSelector(props: { value: AppLanguage; onChange: (v: AppLanguage) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const languages: AppLanguage[] = ['system', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'ru-RU']
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [open])
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="btn btn-ghost"
+        onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}
+      >
+        <span>{LANGUAGE_LABELS[props.value]}</span>
+        <ChevronDown size={14} style={{ opacity: 0.5, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.2s' }} />
+      </button>
+
+      {open && (
+        <div style={styles.dropdown}>
+          {languages.map((lang) => (
+            <button
+              key={lang}
+              type="button"
+              className={`btn btn-ghost ${props.value === lang ? 'segmentedItemActive' : ''}`}
+              style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 12px' }}
+              onClick={() => {
+                props.onChange(lang)
+                setOpen(false)
+              }}
+            >
+              {LANGUAGE_LABELS[lang]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ========== 样式 ==========
 
 const styles: Record<string, React.CSSProperties> = {
@@ -364,5 +430,21 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--panel-2)',
     borderRadius: 10,
     padding: 3
+  },
+  dropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    right: 0,
+    marginTop: 4,
+    minWidth: 160,
+    background: 'var(--panel)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    zIndex: 100,
+    padding: 4,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 2
   }
 }
