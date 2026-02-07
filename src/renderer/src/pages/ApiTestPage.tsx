@@ -17,10 +17,14 @@ import {
   ExternalLink,
   Zap,
   Settings,
-  Play
+  Play,
+  X
 } from 'lucide-react'
 import { MarkdownView } from '../components/MarkdownView'
+import { CustomSelect } from '../components/ui/CustomSelect'
+import { BrandAvatar } from './settings/providers/components/BrandAvatar'
 import type { AppConfig } from '../../../shared/types'
+import { useDeleteConfirm } from '../hooks/useDeleteConfirm'
 
 interface ApiTestConfig {
   id: string
@@ -108,6 +112,7 @@ export function ApiTestPage(props: Props) {
     configId: '',
     name: ''
   })
+  const configDeleteConfirm = useDeleteConfirm()
 
   // 同步活动配置到编辑状态
   useEffect(() => {
@@ -331,18 +336,13 @@ export function ApiTestPage(props: Props) {
       <div className="apiTestConfigPanel frosted">
         {/* 配置选择器 */}
         <div className="apiTestConfigHeader">
-          <select
-            className="select"
+          <CustomSelect
             value={activeConfigId}
-            onChange={(e) => setActiveConfigId(e.target.value)}
-            style={{ flex: 1 }}
-          >
-            {configs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            onChange={setActiveConfigId}
+            options={configs.map(c => ({ value: c.id, label: c.name }))}
+            className="select"
+            width="100%"
+          />
           <button type="button" className="btn btn-icon" onClick={handleAddConfig} title="添加配置">
             <Plus size={16} />
           </button>
@@ -355,27 +355,52 @@ export function ApiTestPage(props: Props) {
             <Edit2 size={16} />
           </button>
           {configs.length > 1 && (
-            <button
-              type="button"
-              className="btn btn-icon"
-              onClick={() => handleDeleteConfig(activeConfigId)}
-              title="删除配置"
-            >
-              <Trash2 size={16} />
-            </button>
+            configDeleteConfirm.isConfirming(activeConfigId) ? (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  onClick={() => configDeleteConfirm.confirmDelete(activeConfigId, () => handleDeleteConfig(activeConfigId))}
+                  title="确认删除"
+                  style={{ color: 'var(--danger)' }}
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  onClick={() => configDeleteConfirm.cancelConfirm()}
+                  title="取消"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-icon"
+                onClick={() => configDeleteConfirm.startConfirm(activeConfigId)}
+                title="删除配置"
+              >
+                <Trash2 size={16} />
+              </button>
+            )
           )}
         </div>
 
-        {/* 供应商选择 */}
+        {/* 供应商选择 (使用 Radix UI 重构) */}
         <div className="apiTestField">
           <label>供应商</label>
-          <select className="select" value={selectedProvider} onChange={(e) => handleProviderChange(e.target.value)}>
-            {Object.entries(PROVIDER_PRESETS).map(([key, preset]) => (
-              <option key={key} value={key}>
-                {preset.name}
-              </option>
-            ))}
-          </select>
+          <CustomSelect
+            value={selectedProvider}
+            onChange={handleProviderChange}
+            options={Object.entries(PROVIDER_PRESETS).map(([key, preset]) => ({
+              value: key,
+              label: preset.name,
+              icon: <BrandAvatar name={preset.name} size={16} square />
+            }))}
+            className="select"
+          />
         </div>
 
         {/* API Key */}
@@ -423,20 +448,18 @@ export function ApiTestPage(props: Props) {
           )}
 
           {models.length > 0 && (
-            <select
-              className="select"
-              value={selectedModel ?? ''}
-              onChange={(e) => {
-                setSelectedModel(e.target.value)
-                updateActiveConfig({ selectedModel: e.target.value })
-              }}
-              style={{ marginTop: 8 }}
-            >
-              <option value="" disabled>选择模型</option>
-              {models.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <div style={{ marginTop: 8 }}>
+              <CustomSelect
+                value={selectedModel ?? ''}
+                onChange={(val) => {
+                  setSelectedModel(val)
+                  updateActiveConfig({ selectedModel: val })
+                }}
+                options={models.map(m => ({ value: m, label: m }))}
+                placeholder="选择模型"
+                className="select"
+              />
+            </div>
           )}
 
           {/* 手动输入模型 */}

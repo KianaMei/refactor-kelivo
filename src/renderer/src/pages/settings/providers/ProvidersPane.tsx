@@ -3,6 +3,7 @@ import { createDefaultProviderConfig, type AppConfig, type ProviderConfigV2 } fr
 import type { ImportedProvider } from '../../../../../shared/providerCodec'
 import { ProviderCard } from './ProviderCard'
 import { ConfirmDialog } from './dialogs/ConfirmDialog'
+import { useConfirm } from '../../../hooks/useConfirm'
 import { ImportProviderDialog } from './dialogs/ImportProviderDialog'
 import { ProviderDetailPane } from './ProviderDetailPane'
 import { ExportProviderDialog } from './dialogs/ExportProviderDialog'
@@ -63,6 +64,7 @@ export function ProvidersPane(props: {
   onSave: (next: AppConfig) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
+  const confirm = useConfirm()
 
   // 详情页状态
   const [detailProviderId, setDetailProviderId] = useState<string | null>(null)
@@ -345,9 +347,13 @@ export function ProvidersPane(props: {
         providersOrder: nextOrder
       })
     } catch (e) {
-      window.alert(`导入失败: ${e instanceof Error ? e.message : String(e)}`)
+      void confirm({
+        title: '导入失败',
+        message: e instanceof Error ? e.message : String(e),
+        confirmText: '知道了'
+      })
     }
-  }, [props])
+  }, [props, confirm])
 
   const existingProviderIds = useMemo(
     () => new Set(Object.keys(props.config.providerConfigs)),
@@ -455,7 +461,11 @@ export function ProvidersPane(props: {
                         type="button"
                         onClick={() => {
                           setSelectionExportMenuOpen(false)
-                          window.alert('二维码导出功能开发中...')
+                          void confirm({
+                            title: '功能开发中',
+                            message: '二维码导出功能正在开发中，敬请期待。',
+                            confirmText: '知道了'
+                          })
                         }}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -477,8 +487,14 @@ export function ProvidersPane(props: {
                   type="button"
                   className="toolbar-text-btn danger"
                   onClick={() => {
-                    if (!window.confirm(`确定删除选中的 ${selectedIds.size} 个供应商吗？`)) return
                     void (async () => {
+                      const ok = await confirm({
+                        title: '删除供应商',
+                        message: `确定删除选中的 ${selectedIds.size} 个供应商吗？此操作不可撤销。`,
+                        confirmText: '删除',
+                        danger: true
+                      })
+                      if (!ok) return
                       const nextConfigs = { ...props.config.providerConfigs }
                       for (const id of selectedIds) {
                         delete nextConfigs[id]
@@ -598,7 +614,11 @@ export function ProvidersPane(props: {
                     type="button"
                     onClick={() => {
                       setExportMenuOpen(false)
-                      window.alert('二维码导出功能开发中...')
+                      void confirm({
+                        title: '功能开发中',
+                        message: '二维码导出功能正在开发中，敬请期待。',
+                        confirmText: '知道了'
+                      })
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -648,7 +668,11 @@ export function ProvidersPane(props: {
                     type="button"
                     onClick={() => {
                       setImportMenuOpen(false)
-                      window.alert('二维码导入功能开发中...')
+                      void confirm({
+                        title: '功能开发中',
+                        message: '二维码导入功能正在开发中，敬请期待。',
+                        confirmText: '知道了'
+                      })
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

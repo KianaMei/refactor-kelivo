@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ProviderConfigV2 } from '../../../../../../shared/types'
+import { CustomSelect } from '../../../../components/ui/CustomSelect'
 import { useDialogClose } from '../../../../hooks/useDialogClose'
 
 const PROVIDER_TYPES = [
@@ -71,22 +72,17 @@ export function ProviderSettingsDialog({
         <div style={{ padding: '8px 16px 16px' }}>
           {/* 供应商类型 */}
           <SettingRow label="供应商类型">
-            <select
-              className="input-detail"
-              style={{ width: '100%' }}
+            <CustomSelect
               value={providerType}
-              onChange={(e) => {
-                const v = e.target.value as 'openai' | 'google' | 'claude'
+              onChange={(val) => {
+                const v = val as 'openai' | 'google' | 'claude'
                 setProviderType(v)
                 void saveField({ providerType: v })
               }}
-            >
-              {PROVIDER_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+              options={PROVIDER_TYPES}
+              className="input-detail"
+              width="100%"
+            />
           </SettingRow>
 
           {/* 多 Key 模式 */}

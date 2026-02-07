@@ -1,41 +1,96 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+/**
+ * 翻译页面
+ * 对齐 Flutter Kelivo 的 desktop_translate_page.dart
+ * 双栏布局：左侧输入，右侧输出
+ * 控制栏：语言下拉 + 翻译按钮（居中），复制按钮（右侧）
+ * 顶栏右侧：可点击的模型胶囊（品牌图标 + 模型名），点击弹出 ModelSelectPopover
+ */
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { Languages, ChevronDown, Copy, Eraser, Square, Check, Bot } from 'lucide-react'
 
 import type { ChatMessageInput } from '../../../shared/chat'
-import type { AppConfig } from '../../../shared/types'
+import type { AppConfig, ProviderConfigV2 } from '../../../shared/types'
+import { DEFAULT_TRANSLATE_PROMPT } from '../../../shared/types'
+import { getBrandIcon } from '../utils/brandAssets'
+import { DesktopPopover } from '../components/DesktopPopover'
+import { ModelSelectPopover } from '../components/ModelSelectPopover'
 
-type Lang = { code: string; label: string }
+type Lang = { code: string; flag: string; label: string }
 
 const languages: Lang[] = [
-  { code: 'en', label: '英语' },
-  { code: 'zh-CN', label: '简体中文' },
-  { code: 'zh-TW', label: '繁体中文' },
-  { code: 'ja', label: '日语' },
-  { code: 'ko', label: '韩语' },
-  { code: 'fr', label: '法语' },
-  { code: 'de', label: '德语' },
-  { code: 'es', label: '西班牙语' },
-  { code: 'it', label: '意大利语' }
+  { code: 'zh-CN', flag: '🇨🇳', label: '简体中文' },
+  { code: 'en', flag: '🇺🇸', label: '英语' },
+  { code: 'zh-TW', flag: '🇹🇼', label: '繁体中文' },
+  { code: 'ja', flag: '🇯🇵', label: '日语' },
+  { code: 'ko', flag: '🇰🇷', label: '韩语' },
+  { code: 'fr', flag: '🇫🇷', label: '法语' },
+  { code: 'de', flag: '🇩🇪', label: '德语' },
+  { code: 'es', flag: '🇪🇸', label: '西班牙语' },
+  { code: 'it', flag: '🇮🇹', label: '意大利语' }
 ]
 
-export function TranslatePage(props: { config: AppConfig; onOpenDefaultModelSettings: () => void }) {
+export function TranslatePage(props: {
+  config: AppConfig
+  onSave: (next: AppConfig) => Promise<void>
+  onOpenDefaultModelSettings: () => void
+}) {
   const [source, setSource] = useState('')
   const [output, setOutput] = useState('')
-  const [target, setTarget] = useState<string>('en')
+  const [targetLang, setTargetLang] = useState<Lang>(languages[1])
   const [isTranslating, setIsTranslating] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const streamingRef = useRef<{ streamId: string } | null>(null)
 
+  function safeUuid(): string {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
+    }
+  }
+  const modelBtnRef = useRef<HTMLButtonElement>(null)
+
   const model = useMemo(() => {
-    const providerId = props.config.translateModelProvider ?? props.config.currentModelProvider
-    const modelId = props.config.translateModelId ?? props.config.currentModelId
-    const provider = providerId ? props.config.providerConfigs[providerId] ?? null : null
+    const providerId =
+      props.config.translateModelProvider ?? props.config.currentModelProvider
+    const modelId =
+      props.config.translateModelId ?? props.config.currentModelId
+    const provider = providerId
+      ? (props.config.providerConfigs[providerId] ?? null)
+      : null
     return { providerId, modelId, provider }
   }, [props.config])
 
+  const providers = useMemo<ProviderConfigV2[]>(() => {
+    return Object.values(props.config.providerConfigs).filter(
+      (p): p is ProviderConfigV2 => !!p && Array.isArray(p.models) && p.models.length > 0
+    )
+  }, [props.config.providerConfigs])
+
+  // Set default language based on system locale
+  useEffect(() => {
+    const lang = navigator.language.toLowerCase()
+    if (lang.startsWith('zh')) {
+      setTargetLang(languages.find((l) => l.code === 'en') ?? languages[1])
+    } else {
+      setTargetLang(languages.find((l) => l.code === 'zh-CN') ?? languages[0])
+    }
+  }, [])
+
+  // Stream listeners
   useEffect(() => {
     const offChunk = window.api.chat.onChunk((evt) => {
       const st = streamingRef.current
       if (!st || st.streamId !== evt.streamId) return
-      if (evt.chunk.content) setOutput((prev) => prev + evt.chunk.content)
+      if (evt.chunk.content) {
+        setOutput((prev) => {
+          if (!prev) {
+            return evt.chunk.content.replace(/^\s+/, '')
+          }
+          return prev + evt.chunk.content
+        })
+      }
       if (evt.chunk.isDone) {
         streamingRef.current = null
         setIsTranslating(false)
@@ -44,7 +99,7 @@ export function TranslatePage(props: { config: AppConfig; onOpenDefaultModelSett
     const offError = window.api.chat.onError((evt) => {
       const st = streamingRef.current
       if (!st || st.streamId !== evt.streamId) return
-      setOutput((prev) => (prev ? prev + '\n\n' : '') + `【错误】${evt.message}`)
+      setOutput((prev) => (prev ? prev + '\n\n' : '') + `[error] ${evt.message}`)
       streamingRef.current = null
       setIsTranslating(false)
     })
@@ -54,119 +109,383 @@ export function TranslatePage(props: { config: AppConfig; onOpenDefaultModelSett
     }
   }, [])
 
-  async function translate() {
+  const handleSelectModel = useCallback(
+    async (providerId: string, modelId: string) => {
+      await props.onSave({
+        ...props.config,
+        translateModelProvider: providerId,
+        translateModelId: modelId
+      })
+    },
+    [props]
+  )
+
+  const translate = useCallback(async () => {
     const text = source.trim()
-    if (!text) return
-    if (isTranslating) return
+    if (!text || isTranslating) return
     if (!model.providerId || !model.modelId) {
       setOutput('请先配置翻译/对话默认模型。')
       props.onOpenDefaultModelSettings()
       return
     }
 
+    const promptTemplate = props.config.translatePrompt ?? DEFAULT_TRANSLATE_PROMPT
+    const prompt = promptTemplate
+      .replaceAll('{source_text}', text)
+      .replaceAll('{target_lang}', targetLang.label)
+
     setOutput('')
     setIsTranslating(true)
-    const langName = languages.find((l) => l.code === target)?.label ?? target
-    const prompt = `请把下面文本翻译成${langName}，只输出翻译结果：\n\n${text}`
-    const messages: ChatMessageInput[] = [{ role: 'user', content: prompt }]
 
+    const messages: ChatMessageInput[] = [{ role: 'user', content: prompt }]
     try {
-      const streamId = await window.api.chat.startStream({
+      const streamId = safeUuid()
+      streamingRef.current = { streamId }
+      await window.api.chat.startStream({
+        streamId,
         providerId: model.providerId,
         modelId: model.modelId,
         messages
       })
-      streamingRef.current = { streamId }
     } catch (e) {
-      setOutput(`【错误】${e instanceof Error ? e.message : String(e)}`)
+      setOutput(`[error] ${e instanceof Error ? e.message : String(e)}`)
+      streamingRef.current = null
       setIsTranslating(false)
     }
-  }
+  }, [source, isTranslating, model, targetLang, props])
 
-  function stop() {
+  const stop = useCallback(() => {
     const st = streamingRef.current
     if (!st) return
     void window.api.chat.abort(st.streamId)
-  }
+  }, [])
+
+  const clearAll = useCallback(() => {
+    const st = streamingRef.current
+    if (st) void window.api.chat.abort(st.streamId)
+    streamingRef.current = null
+    setIsTranslating(false)
+    setSource('')
+    setOutput('')
+  }, [])
+
+  const copyOutput = useCallback(() => {
+    if (!output) return
+    void navigator.clipboard.writeText(output)
+  }, [output])
+
+  // Brand icon for current model
+  const brandIcon = model.modelId ? getBrandIcon(model.modelId) : null
 
   return (
-    <div style={styles.root}>
+    <div style={s.root}>
+      {/* Top bar - model capsule on right (clickable) */}
       <div className="chatTopBar frosted">
-        <div style={{ fontWeight: 700 }}>翻译</div>
         <div style={{ flex: 1 }} />
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          模型：{model.provider ? model.provider.name : '未设置'} {model.modelId ? `· ${model.modelId}` : ''}
+        <button
+          ref={modelBtnRef}
+          type="button"
+          className="chatTopBarModelCapsule"
+          onClick={() => {
+            if (!isTranslating) setModelPickerOpen(true)
+          }}
+          style={{ opacity: isTranslating ? 0.5 : 1 }}
+        >
+          {brandIcon ? (
+            <img src={brandIcon} alt="" style={{ width: 18, height: 18 }} />
+          ) : (
+            <Bot size={18} style={{ opacity: 0.6 }} />
+          )}
+          <span className="chatTopBarModelText">
+            {model.modelId ?? '未设置'}{model.provider ? <span className="chatTopBarModelProvider"> | {model.provider.name}</span> : null}
+          </span>
+        </button>
+      </div>
+
+      {/* Model select popover */}
+      <DesktopPopover
+        anchorRef={modelBtnRef}
+        open={modelPickerOpen}
+        onClose={() => setModelPickerOpen(false)}
+        minWidth={600}
+        maxHeight={600}
+        placement="below"
+      >
+        <ModelSelectPopover
+          providers={providers}
+          currentProviderId={model.providerId ?? undefined}
+          currentModelId={model.modelId ?? undefined}
+          onSelect={(pid, mid) => void handleSelectModel(pid, mid)}
+          onClose={() => setModelPickerOpen(false)}
+        />
+      </DesktopPopover>
+
+      {/* Control row: language dropdown + translate button (center), copy (right) */}
+      <div style={s.controlRow}>
+        <div style={{ flex: 1 }} />
+        <div style={s.controlCenter}>
+          {/* Language dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              style={s.langBtn}
+              onClick={() => setMenuOpen(!menuOpen)}
+              disabled={isTranslating}
+            >
+              <span style={{ fontSize: 16 }}>{targetLang.flag}</span>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{targetLang.label}</span>
+              <ChevronDown
+                size={14}
+                style={{
+                  opacity: 0.6,
+                  transform: menuOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.2s'
+                }}
+              />
+            </button>
+            {menuOpen && (
+              <>
+                <div style={s.menuBackdrop} onClick={() => setMenuOpen(false)} />
+                <div style={s.langMenu}>
+                  {languages.map((lang) => (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      style={{
+                        ...s.langMenuItem,
+                        fontWeight: lang.code === targetLang.code ? 600 : 400,
+                        color:
+                          lang.code === targetLang.code
+                            ? 'var(--primary)'
+                            : 'var(--text)'
+                      }}
+                      onClick={() => {
+                        setTargetLang(lang)
+                        setMenuOpen(false)
+                      }}
+                    >
+                      <span style={{ fontSize: 16 }}>{lang.flag}</span>
+                      <span>{lang.label}</span>
+                      {lang.code === targetLang.code && (
+                        <Check size={14} style={{ color: 'var(--primary)' }} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Translate / Stop button */}
+          <button
+            type="button"
+            style={s.translateBtn}
+            onClick={isTranslating ? stop : () => void translate()}
+          >
+            {isTranslating ? (
+              <>
+                <Square size={16} />
+                <span>停止</span>
+              </>
+            ) : (
+              <>
+                <Languages size={16} />
+                <span>翻译</span>
+              </>
+            )}
+          </button>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn"
+            onClick={copyOutput}
+            disabled={!output}
+          >
+            复制
+          </button>
         </div>
       </div>
 
-      <div style={styles.body}>
-        <div style={styles.left}>
-          <div style={styles.panelHeader} className="frosted">
-            <div style={{ fontWeight: 700 }}>原文</div>
-            <div style={{ flex: 1 }} />
-            <select className="select" value={target} onChange={(e) => setTarget(e.target.value)}>
-              {languages.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-            {isTranslating ? (
-              <button type="button" className="btn" onClick={stop}>
-                停止
-              </button>
-            ) : (
-              <button type="button" className="btn btn-primary" onClick={() => void translate()}>
-                翻译
-              </button>
-            )}
-          </div>
-          <textarea style={styles.textarea} value={source} onChange={(e) => setSource(e.target.value)} />
-        </div>
-
-        <div style={styles.right}>
-          <div style={styles.panelHeader} className="frosted">
-            <div style={{ fontWeight: 700 }}>译文</div>
-            <div style={{ flex: 1 }} />
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void navigator.clipboard.writeText(output)}
-              disabled={!output}
-            >
-              复制
-            </button>
-          </div>
-          <textarea style={styles.textarea} value={output} readOnly />
-        </div>
+      {/* Two panes */}
+      <div style={s.panes}>
+        <PaneContainer
+          actionIcon={<Eraser size={15} />}
+          actionLabel="清除"
+          onAction={clearAll}
+        >
+          <textarea
+            style={s.textarea}
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            placeholder="输入要翻译的文本..."
+          />
+        </PaneContainer>
+        <div style={{ width: 1, background: 'var(--border)' }} />
+        <PaneContainer
+          actionIcon={<Copy size={15} />}
+          actionLabel="复制"
+          onAction={copyOutput}
+        >
+          <textarea
+            style={s.textarea}
+            value={output}
+            readOnly
+            placeholder="翻译结果..."
+          />
+        </PaneContainer>
       </div>
     </div>
   )
 }
 
-const styles: Record<string, any> = {
-  root: { height: '100%', display: 'flex', flexDirection: 'column' },
-  body: { flex: 1, display: 'flex', minHeight: 0 },
-  left: { flex: 1, borderRight: '1px solid var(--border)', minWidth: 0, display: 'flex', flexDirection: 'column' },
-  right: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' },
-  panelHeader: {
-    height: 44,
-    borderBottom: '1px solid var(--border)',
+/** Pane with hover-reveal action button (matches Flutter _PaneContainer) */
+function PaneContainer(props: {
+  children: React.ReactNode
+  actionIcon: React.ReactNode
+  actionLabel: string
+  onAction: () => void
+}) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div
+      style={s.pane}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {props.children}
+      <button
+        type="button"
+        style={{
+          ...s.paneAction,
+          opacity: hovered ? 1 : 0,
+          pointerEvents: hovered ? 'auto' : 'none'
+        }}
+        onClick={props.onAction}
+      >
+        {props.actionIcon}
+        <span>{props.actionLabel}</span>
+      </button>
+    </div>
+  )
+}
+
+const s: Record<string, React.CSSProperties> = {
+  root: {
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column'
+  },
+  controlRow: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '10px 16px',
+    gap: 12
+  },
+  controlCenter: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12
+  },
+  langBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '7px 12px',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    cursor: 'pointer',
+    transition: 'border-color 0.15s'
+  },
+  menuBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 99
+  },
+  langMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    marginTop: 4,
+    minWidth: 160,
+    maxHeight: 300,
+    overflowY: 'auto',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+    padding: '4px 0',
+    zIndex: 100
+  },
+  langMenuItem: {
     display: 'flex',
     alignItems: 'center',
     gap: 10,
-    padding: '0 12px'
+    width: '100%',
+    padding: '8px 12px',
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    fontSize: 14,
+    textAlign: 'left' as const,
+    transition: 'background 0.1s'
+  },
+  translateBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 18px',
+    borderRadius: 10,
+    border: 'none',
+    background: 'var(--primary)',
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: 14,
+    cursor: 'pointer',
+    transition: 'background 0.15s'
+  },
+  panes: {
+    flex: 1,
+    display: 'flex',
+    minHeight: 0
+  },
+  pane: {
+    flex: 1,
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0
   },
   textarea: {
     flex: 1,
     minHeight: 0,
-    padding: 12,
+    padding: '12px 16px',
     border: 'none',
     outline: 'none',
     resize: 'none',
     background: 'transparent',
     color: 'var(--text)',
     font: 'inherit',
+    fontSize: 15,
     lineHeight: 1.5
+  },
+  paneAction: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 10px',
+    borderRadius: 8,
+    border: 'none',
+    background: 'var(--surface-3)',
+    color: 'var(--text-2)',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    transition: 'opacity 0.15s, background 0.15s'
   }
 }

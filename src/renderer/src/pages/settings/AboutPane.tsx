@@ -318,8 +318,8 @@ function LinkRow(props: { icon: React.ReactNode; label: string; onClick: () => v
 }
 
 const s: Record<string, React.CSSProperties> = {
-  root: { padding: 20, maxWidth: 640, margin: '0 auto' },
-  header: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
+  root: { padding: '16px 16px 32px', maxWidth: 960, margin: '0 auto' },
+  header: { fontSize: 16, fontWeight: 700, marginBottom: 8 },
   cardTitle: { fontSize: 15, fontWeight: 700, marginBottom: 10 },
   divider: { height: 1, background: 'var(--border)', margin: '4px 0', opacity: 0.5 },
   hint: { fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)', marginTop: 8 },

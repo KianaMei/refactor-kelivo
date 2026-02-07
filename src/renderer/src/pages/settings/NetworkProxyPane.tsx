@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Globe, Wifi, Shield } from 'lucide-react'
 import type { AppConfig } from '../../../../shared/types'
+import { CustomSelect } from '../../components/ui/CustomSelect'
 
 export interface ProxySettings {
   enabled: boolean
@@ -69,16 +70,17 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
 
         <div style={s.labeledRow}>
           <span style={s.rowLabel}>代理类型</span>
-          <select
-            className="select"
-            style={{ width: 140 }}
+          <CustomSelect
             value={proxy.type}
-            onChange={(e) => updateProxy({ type: e.target.value as ProxySettings['type'] })}
-          >
-            <option value="http">HTTP</option>
-            <option value="https">HTTPS</option>
-            <option value="socks5">SOCKS5</option>
-          </select>
+            onChange={(val) => updateProxy({ type: val as ProxySettings['type'] })}
+            options={[
+              { value: 'http', label: 'HTTP' },
+              { value: 'https', label: 'HTTPS' },
+              { value: 'socks5', label: 'SOCKS5' },
+            ]}
+            className="select"
+            width={140}
+          />
         </div>
         <div style={s.divider} />
 
@@ -184,8 +186,8 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
 }
 
 const s: Record<string, React.CSSProperties> = {
-  root: { padding: 20, maxWidth: 640, margin: '0 auto' },
-  header: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
+  root: { padding: '16px 16px 32px', maxWidth: 960, margin: '0 auto' },
+  header: { fontSize: 16, fontWeight: 700, marginBottom: 8 },
   cardTitle: { fontSize: 15, fontWeight: 700, marginBottom: 10 },
   labeledRow: {
     display: 'flex',

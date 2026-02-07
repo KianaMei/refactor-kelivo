@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Play, Square, Volume2, Plus, Trash2, Settings2, Check } from 'lucide-react'
+import { Play, Square, Volume2, Plus, Trash2, Settings2, Check, X } from 'lucide-react'
+import { useDeleteConfirm } from '../../hooks/useDeleteConfirm'
+import { CustomSelect } from '../../components/ui/CustomSelect'
 
 interface TtsService {
   id: string
@@ -46,6 +48,7 @@ export function TtsPane() {
   const [services, setServices] = useState<TtsService[]>(defaultServices)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [testText, setTestText] = useState('你好，这是语音合成测试。Hello, this is a TTS test.')
+  const ttsDeleteConfirm = useDeleteConfirm()
   const [playing, setPlaying] = useState(false)
 
   function updateService(id: string, patch: Partial<TtsService>) {
@@ -157,19 +160,16 @@ export function TtsPane() {
           {/* 语音选择 */}
           <div style={s.labeledRow}>
             <span style={s.rowLabel}>语音</span>
-            <select
-              className="select"
-              style={{ width: 200 }}
+            <CustomSelect
               value={selected.voice}
-              onChange={(e) => updateService(selected.id, { voice: e.target.value })}
-            >
-              {voices.map((v) => (
-                <option key={v.value} value={v.value}>{v.label}</option>
-              ))}
-              {selected.type === 'custom' && (
-                <option value={selected.voice}>{selected.voice || '自定义语音'}</option>
-              )}
-            </select>
+              onChange={(val) => updateService(selected.id, { voice: val })}
+              options={[
+                ...voices.map((v) => ({ value: v.value, label: v.label })),
+                ...(selected.type === 'custom' ? [{ value: selected.voice || 'custom', label: selected.voice || '自定义语音' }] : [])
+              ]}
+              className="select"
+              width={200}
+            />
           </div>
           <div style={s.divider} />
 
@@ -225,10 +225,23 @@ export function TtsPane() {
             <>
               <div style={s.divider} />
               <div style={{ padding: '8px 0' }}>
-                <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteService(selected.id)} style={{ gap: 4 }}>
-                  <Trash2 size={13} />
-                  删除此服务
-                </button>
+                {ttsDeleteConfirm.isConfirming(selected.id) ? (
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => ttsDeleteConfirm.confirmDelete(selected.id, () => deleteService(selected.id))} style={{ gap: 4 }}>
+                      <Check size={13} />
+                      确认删除
+                    </button>
+                    <button type="button" className="btn btn-sm" onClick={() => ttsDeleteConfirm.cancelConfirm()} style={{ gap: 4 }}>
+                      <X size={13} />
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => ttsDeleteConfirm.startConfirm(selected.id)} style={{ gap: 4 }}>
+                    <Trash2 size={13} />
+                    删除此服务
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -277,8 +290,8 @@ export function TtsPane() {
 }
 
 const s: Record<string, React.CSSProperties> = {
-  root: { padding: 20, maxWidth: 640, margin: '0 auto' },
-  header: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
+  root: { padding: '16px 16px 32px', maxWidth: 960, margin: '0 auto' },
+  header: { fontSize: 16, fontWeight: 700, marginBottom: 8 },
   cardTitle: { fontSize: 15, fontWeight: 700, marginBottom: 10 },
   labeledRow: {
     display: 'flex',

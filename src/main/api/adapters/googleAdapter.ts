@@ -12,7 +12,7 @@ import type {
   TokenUsage
 } from '../../../shared/chatStream'
 import { emptyUsage, mergeUsage } from '../../../shared/chatStream'
-import { postJsonStream, parseSSELine } from '../streamingHttpClient'
+import { postJsonStream, parseSSELine, readErrorBody } from '../streamingHttpClient'
 import {
   apiModelId,
   effectiveApiKey,
@@ -54,14 +54,14 @@ function extractGeminiThoughtMeta(raw: string): GeminiSignatureMeta {
   try {
     const matches = [...raw.matchAll(GEMINI_THOUGHT_SIG_COMMENT)]
     if (matches.length === 0) return { cleanedText: raw, images: [] }
-    
+
     const m = matches[matches.length - 1]
     const payloadRaw = (m[1] || '').trim()
     let data: Record<string, unknown> = {}
     try {
       data = JSON.parse(payloadRaw)
     } catch { /* empty */ }
-    
+
     let textKey: string | undefined
     let textVal: unknown
     const text = data.text as Record<string, unknown> | undefined
@@ -70,7 +70,7 @@ function extractGeminiThoughtMeta(raw: string): GeminiSignatureMeta {
       textVal = text.v ?? text.val
       if (textKey && textKey.trim() === '') textKey = undefined
     }
-    
+
     const images: Array<{ k: string; v: unknown }> = []
     const imgList = data.images
     if (Array.isArray(imgList)) {
@@ -81,7 +81,7 @@ function extractGeminiThoughtMeta(raw: string): GeminiSignatureMeta {
         if (k && v !== undefined) images.push({ k, v })
       }
     }
-    
+
     const cleaned = raw.replace(GEMINI_THOUGHT_SIG_COMMENT, '').trimEnd()
     return { cleanedText: cleaned, textKey, textValue: textVal, images }
   } catch {
@@ -99,7 +99,7 @@ function buildGeminiThoughtSigComment(options: {
   const imgs = imageSigs.filter(e => e.k && e.v !== undefined)
   const hasText = textKey && textValue !== undefined
   if (!hasText && imgs.length === 0) return ''
-  
+
   const payload: Record<string, unknown> = {}
   if (hasText) payload.text = { k: textKey, v: textValue }
   if (imgs.length > 0) payload.images = imgs
@@ -115,7 +115,7 @@ function applyGeminiThoughtSignatures(
   const hasText = meta.textKey && meta.textValue !== undefined
   const hasImages = meta.images.length > 0
   const hasAny = hasText || hasImages
-  
+
   if (hasAny) {
     if (hasText) {
       for (const part of parts) {
@@ -168,11 +168,11 @@ function collectThoughtSigCommentFromParts(parts: unknown[]): string {
   let textKey: string | undefined
   let textVal: unknown
   const images: Array<{ k: string; v: unknown }> = []
-  
+
   for (const p of parts) {
     if (!p || typeof p !== 'object') continue
     const part = p as Record<string, unknown>
-    
+
     let sigKey: string | undefined
     let sigVal: unknown
     if ('thoughtSignature' in part) {
@@ -182,11 +182,11 @@ function collectThoughtSigCommentFromParts(parts: unknown[]): string {
       sigKey = 'thought_signature'
       sigVal = part.thought_signature
     }
-    
+
     const hasText = typeof part.text === 'string' && part.text.length > 0
     const hasInline = typeof part.inlineData === 'object' || typeof part.inline_data === 'object' ||
-                      typeof part.fileData === 'object' || typeof part.file_data === 'object'
-    
+      typeof part.fileData === 'object' || typeof part.file_data === 'object'
+
     if (hasText && sigKey && textKey === undefined) {
       textKey = sigKey
       textVal = sigVal
@@ -195,7 +195,7 @@ function collectThoughtSigCommentFromParts(parts: unknown[]): string {
       images.push({ k: sigKey, v: sigVal })
     }
   }
-  
+
   return buildGeminiThoughtSigComment({ textKey, textValue: textVal, imageSigs: images })
 }
 
@@ -232,24 +232,24 @@ function budgetToThinkingLevel(budget?: number): string {
 function resolveThinkingBudget(model: string, userBudget?: number): number | null {
   const category = getThinkingModelCategory(model)
   const hasBudget = userBudget !== undefined
-  
+
   switch (category) {
     case 'pro':
       if (!hasBudget) return -1
       if (userBudget === -1) return -1
       return Math.max(PRO_THINKING_MIN, Math.min(PRO_THINKING_MAX, userBudget))
-    
+
     case 'flash':
       if (!hasBudget) return -1
       if (userBudget === -1 || userBudget === 0) return userBudget
       return Math.max(0, Math.min(FLASH_THINKING_MAX, userBudget))
-    
+
     case 'flashLite':
     case 'robotics':
       if (!hasBudget) return 0
       if (userBudget === -1 || userBudget === 0) return userBudget
       return Math.max(FLASH_LITE_THINKING_MIN, Math.min(FLASH_LITE_THINKING_MAX, userBudget))
-    
+
     default:
       if (!hasBudget) return null
       return Math.max(0, Math.min(FLASH_THINKING_MAX, userBudget))
@@ -260,10 +260,10 @@ function resolveThinkingBudget(model: string, userBudget?: number): number | nul
 function parseCitations(gm: unknown): Array<{ id: string; index: number; title: string; url: string }> {
   const out: Array<{ id: string; index: number; title: string; url: string }> = []
   if (!gm || typeof gm !== 'object') return out
-  
+
   const chunks = (gm as Record<string, unknown>).groundingChunks
   if (!Array.isArray(chunks)) return out
-  
+
   let idx = 1
   const seen = new Set<string>()
   for (const ch of chunks) {
@@ -271,11 +271,11 @@ function parseCitations(gm: unknown): Array<{ id: string; index: number; title: 
     const chObj = ch as Record<string, unknown>
     const web = (chObj.web ?? chObj.webSite ?? chObj.webPage) as Record<string, unknown> | undefined
     if (!web || typeof web !== 'object') continue
-    
+
     const uri = ((web.uri ?? web.url) as string || '').toString()
     if (!uri || seen.has(uri)) continue
     seen.add(uri)
-    
+
     const title = ((web.title ?? web.name ?? uri) as string).toString()
     const id = `c${idx.toString().padStart(2, '0')}`
     out.push({ id, index: idx, title, url: uri })
@@ -288,7 +288,7 @@ function parseCitations(gm: unknown): Array<{ id: string; index: number; title: 
 function parseTextAndImages(raw: string): { text: string; images: Array<{ type: 'url' | 'data' | 'path'; value: string }> } {
   const images: Array<{ type: 'url' | 'data' | 'path'; value: string }> = []
   let text = raw
-  
+
   // Parse markdown images ![...](...)
   const mdImageRe = /!\[[^\]]*\]\(([^)]+)\)/g
   let match
@@ -303,14 +303,14 @@ function parseTextAndImages(raw: string): { text: string; images: Array<{ type: 
     }
     text = text.replace(match[0], '')
   }
-  
+
   // Parse [image:path] format
   const customImageRe = /\[image:([^\]]+)\]/g
   while ((match = customImageRe.exec(raw)) !== null) {
     images.push({ type: 'path', value: match[1] })
     text = text.replace(match[0], '')
   }
-  
+
   return { text: text.trim(), images }
 }
 
@@ -321,17 +321,17 @@ async function downloadRemoteAsBase64(
   signal?: AbortSignal
 ): Promise<string> {
   const headers: Record<string, string> = {}
-  
+
   if (config.vertexAI) {
     const token = await maybeVertexAccessToken(config)
     if (token) headers['Authorization'] = `Bearer ${token}`
     const proj = (config.projectId ?? '').trim()
     if (proj) headers['X-Goog-User-Project'] = proj
   }
-  
+
   const resp = await fetch(url, { headers, signal })
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-  
+
   const buffer = await resp.arrayBuffer()
   return Buffer.from(buffer).toString('base64')
 }
@@ -339,14 +339,14 @@ async function downloadRemoteAsBase64(
 /** Get Vertex AI access token from service account JSON */
 async function maybeVertexAccessToken(cfg: ProviderConfigV2): Promise<string | null> {
   if (!cfg.vertexAI) return null
-  
+
   const jsonStr = (cfg.serviceAccountJson ?? '').trim()
   if (!jsonStr) {
     // Fall back to API key
     if (cfg.apiKey) return cfg.apiKey
     return null
   }
-  
+
   // TODO: Implement Google Service Account JWT authentication
   // For now, fall back to API key
   if (cfg.apiKey) return cfg.apiKey
@@ -391,9 +391,9 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     extraBody,
     signal
   } = params
-  
+
   const upstreamModelId = apiModelId(config, modelId)
-  
+
   // Build endpoint
   let baseUrl: string
   if (config.vertexAI && config.location?.trim() && config.projectId?.trim()) {
@@ -404,7 +404,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     const base = config.baseUrl.endsWith('/') ? config.baseUrl.slice(0, -1) : config.baseUrl
     baseUrl = `${base}/models/${upstreamModelId}:streamGenerateContent`
   }
-  
+
   // Build query params
   const url = new URL(baseUrl)
   if (!config.vertexAI) {
@@ -412,26 +412,26 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     if (eff) url.searchParams.set('key', eff)
   }
   url.searchParams.set('alt', 'sse')
-  
+
   // 判断是否需要持久化 thought_signature
   const persistGeminiThoughtSigs = upstreamModelId.toLowerCase().includes('gemini-3')
-  
+
   // Convert messages to Google contents format
   const contents: Array<Record<string, unknown>> = []
-  
+
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     const msgRole = msg.role
     const isLast = i === messages.length - 1
     const rawContent = typeof msg.content === 'string' ? msg.content : ''
-    
+
     // 提取签名元数据
     const meta = extractGeminiThoughtMeta(rawContent)
     const raw = meta.cleanedText
-    
+
     // Handle tool result messages
     if (msgRole === 'tool') {
-      const toolName = (msg as Record<string, unknown>).name as string || ''
+      const toolName = msg.name || ''
       let responseObj: Record<string, unknown>
       try {
         responseObj = JSON.parse(raw)
@@ -444,18 +444,18 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       })
       continue
     }
-    
+
     // Handle assistant messages with tool_calls
-    const toolCalls = (msg as Record<string, unknown>).tool_calls as Array<Record<string, unknown>> | undefined
+    const toolCalls = msg.tool_calls
     if (msgRole === 'assistant' && toolCalls?.length) {
       if (raw) {
         contents.push({ role: 'model', parts: [{ text: raw }] })
       }
-      
+
       for (const tc of toolCalls) {
         const fn = tc.function as Record<string, unknown> | undefined
         if (!fn) continue
-        
+
         const name = (fn.name as string) || ''
         const argsRaw = fn.arguments
         let args: Record<string, unknown>
@@ -466,40 +466,43 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
         } else {
           args = {}
         }
-        
+
         const functionCallObj = { name, args }
         const partObj: Record<string, unknown> = { functionCall: functionCallObj }
-        
+
         // Preserve thought_signature at part level
-        if (fn.thought_signature !== undefined) {
-          partObj.thought_signature = fn.thought_signature
-        } else if (fn.thoughtSignature !== undefined) {
-          partObj.thoughtSignature = fn.thoughtSignature
-        } else if (tc.thought_signature !== undefined) {
-          partObj.thought_signature = tc.thought_signature
-        } else if (tc.thoughtSignature !== undefined) {
-          partObj.thoughtSignature = tc.thoughtSignature
+        const fnAny = fn as any
+        const tcAny = tc as any
+
+        if (fnAny.thought_signature !== undefined) {
+          partObj.thought_signature = fnAny.thought_signature
+        } else if (fnAny.thoughtSignature !== undefined) {
+          partObj.thoughtSignature = fnAny.thoughtSignature
+        } else if (tcAny.thought_signature !== undefined) {
+          partObj.thought_signature = tcAny.thought_signature
+        } else if (tcAny.thoughtSignature !== undefined) {
+          partObj.thoughtSignature = tcAny.thoughtSignature
         } else if (persistGeminiThoughtSigs) {
           partObj.thoughtSignature = 'context_engineering_is_the_way_to_go'
         }
-        
+
         contents.push({ role: 'model', parts: [partObj] })
       }
       continue
     }
-    
+
     // Handle regular user/assistant messages
     const role = msgRole === 'assistant' ? 'model' : 'user'
     const parts: Array<Record<string, unknown>> = []
-    
+
     const hasMarkdownImages = raw.includes('![') && raw.includes('](')
     const hasCustomImages = raw.includes('[image:')
     const hasAttachedImages = isLast && role === 'user' && userImagePaths?.length
-    
+
     if (hasMarkdownImages || hasCustomImages || hasAttachedImages) {
       const parsed = parseTextAndImages(raw)
       if (parsed.text) parts.push({ text: parsed.text })
-      
+
       for (const ref of parsed.images) {
         if (ref.type === 'data') {
           const idx = ref.value.indexOf('base64,')
@@ -518,7 +521,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
           parts.push({ text: `(image) ${ref.value}` })
         }
       }
-      
+
       if (hasAttachedImages) {
         for (const p of userImagePaths!) {
           if (p.startsWith('data:')) {
@@ -540,36 +543,36 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     } else {
       if (raw) parts.push({ text: raw })
     }
-    
+
     // Apply signatures to model messages
     if (role === 'model' && parts.length > 0) {
       applyGeminiThoughtSignatures(meta, parts, persistGeminiThoughtSigs)
     }
-    
+
     if (parts.length > 0) {
       contents.push({ role, parts })
     }
   }
-  
+
   // Check Gemini 3 and thinking config
   const isGemini3 = isGemini3Model(upstreamModelId)
   const budgetForGemini25 = isGemini3 ? undefined : effortToBudget(thinkingBudget, upstreamModelId)
   const resolvedBudget = isGemini3 ? undefined : resolveThinkingBudget(upstreamModelId, budgetForGemini25 ?? undefined)
   const off = isGemini3 ? (thinkingBudget === 0) : (resolvedBudget === 0)
-  
+
   // Built-in tools
   const builtIns = builtInTools(config, modelId)
   const isOfficialGemini = !config.vertexAI
   const builtInToolEntries: Array<Record<string, unknown>> = []
-  if (isOfficialGemini && builtIns.length > 0) {
-    if (builtIns.includes('search')) {
+  if (isOfficialGemini && builtIns.size > 0) {
+    if (builtIns.has('search')) {
       builtInToolEntries.push({ google_search: {} })
     }
-    if (builtIns.includes('url_context')) {
+    if (builtIns.has('url_context')) {
       builtInToolEntries.push({ url_context: {} })
     }
   }
-  
+
   // Map tools to Gemini format
   let geminiTools: Array<Record<string, unknown>> | undefined
   if (builtInToolEntries.length === 0 && tools?.length) {
@@ -586,32 +589,32 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     }
     if (decls.length > 0) geminiTools = [{ function_declarations: decls }]
   }
-  
+
   // Multi-round tool loop
   let convo = [...contents]
   let usage: TokenUsage = emptyUsage()
   let totalTokens = 0
   const builtinCitations: Array<{ id: string; index: number; title: string; url: string }> = []
-  
+
   // Signature collection
   let responseTextThoughtSigKey: string | undefined
   let responseTextThoughtSigVal: unknown
   const responseImageThoughtSigs: Array<{ k: string; v: unknown }> = []
-  
+
   let iterations = 0
-  
+
   while (iterations < maxToolLoopIterations) {
     iterations++
-    
+
     // Build generation config
     const gen: Record<string, unknown> = {}
     if (temperature !== undefined) gen.temperature = temperature
     if (topP !== undefined) gen.topP = topP
     if (maxTokens && maxTokens > 0) gen.maxOutputTokens = maxTokens
-    
+
     // Check if reasoning model
-    const isReasoning = upstreamModelId.toLowerCase().includes('-2.5-') || 
-                        upstreamModelId.toLowerCase().includes('-3-')
+    const isReasoning = upstreamModelId.toLowerCase().includes('-2.5-') ||
+      upstreamModelId.toLowerCase().includes('-3-')
     if (isReasoning) {
       const thinkingConfig: Record<string, unknown> = {
         includeThoughts: !off
@@ -623,7 +626,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       }
       gen.thinkingConfig = thinkingConfig
     }
-    
+
     const body: Record<string, unknown> = {
       contents: convo
     }
@@ -633,7 +636,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     } else if (geminiTools?.length) {
       body.tools = geminiTools
     }
-    
+
     // Build headers
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -647,7 +650,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     }
     Object.assign(headers, customHeaders(config, modelId))
     if (extraHeaders) Object.assign(headers, extraHeaders)
-    
+
     // Apply custom body
     const extra = customBody(config, modelId)
     if (Object.keys(extra).length > 0) Object.assign(body, extra)
@@ -656,7 +659,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
         body[k] = typeof v === 'string' ? parseOverrideValue(v) : v
       }
     }
-    
+
     // Send request
     const resp = await postJsonStream({
       url: url.toString(),
@@ -664,15 +667,15 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       body,
       signal
     })
-    
-    if (!resp.ok) {
-      const errorBody = await resp.text()
-      throw new Error(`HTTP ${resp.status}: ${errorBody}`)
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      const errorBody = await readErrorBody(resp.rawStream)
+      throw new Error(`HTTP ${resp.statusCode}: ${errorBody}`)
     }
-    
-    const reader = resp.body?.getReader()
+
+    const reader = resp.rawStream?.getReader()
     if (!reader) throw new Error('No response body')
-    
+
     const decoder = new TextDecoder()
     let buffer = ''
     const calls: Array<{
@@ -685,26 +688,26 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     }> = []
     let imageOpen = false
     let imageMime = 'image/png'
-    
+
     try {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        
+
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
-        
+
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed || !trimmed.startsWith('data:')) continue
-          
+
           const data = trimmed.substring(5).trim()
           if (!data) continue
-          
+
           try {
             const obj = JSON.parse(data) as Record<string, unknown>
-            
+
             // Parse usage
             const um = obj.usageMetadata as Record<string, unknown> | undefined
             if (um) {
@@ -718,30 +721,30 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
               })
               totalTokens = usage.totalTokens
             }
-            
+
             // Parse candidates
             const candidates = obj.candidates as Array<Record<string, unknown>> | undefined
             if (candidates?.length) {
               let textDelta = ''
               let reasoningDelta = ''
               let finishReason: string | undefined
-              
+
               for (const cand of candidates) {
                 const content = cand.content as Record<string, unknown> | undefined
                 const parts = content?.parts as Array<Record<string, unknown>> | undefined
                 if (!parts) continue
-                
+
                 for (const p of parts) {
                   const t = (p.text as string) || ''
                   const thought = p.thought as boolean || false
-                  
+
                   if (t) {
                     if (thought) {
                       reasoningDelta += t
                     } else {
                       textDelta += t
                     }
-                    
+
                     // Collect text part signature
                     if (persistGeminiThoughtSigs && !responseTextThoughtSigKey) {
                       if ('thoughtSignature' in p) {
@@ -753,7 +756,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                       }
                     }
                   }
-                  
+
                   // Parse inline image
                   const inline = (p.inlineData ?? p.inline_data) as Record<string, unknown> | undefined
                   if (inline) {
@@ -766,7 +769,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                         imageOpen = true
                       }
                       textDelta += imgData
-                      
+
                       // Collect inline_data signature
                       if (persistGeminiThoughtSigs) {
                         if ('thoughtSignature' in p) {
@@ -777,7 +780,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                       }
                     }
                   }
-                  
+
                   // Parse fileData
                   const fileData = (p.fileData ?? p.file_data) as Record<string, unknown> | undefined
                   if (fileData) {
@@ -795,7 +798,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                       } catch { /* ignore */ }
                     }
                   }
-                  
+
                   // Function call
                   const fc = p.functionCall as Record<string, unknown> | undefined
                   if (fc) {
@@ -807,7 +810,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                     } else if (typeof rawArgs === 'string' && rawArgs) {
                       try { args = JSON.parse(rawArgs) } catch { /* empty */ }
                     }
-                    
+
                     let thoughtSigKey: string | undefined
                     let thoughtSigVal: unknown
                     if ('thoughtSignature' in fc) {
@@ -817,7 +820,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                       thoughtSigKey = 'thought_signature'
                       thoughtSigVal = fc.thought_signature
                     }
-                    
+
                     const id = `call_${Date.now()}`
                     yield {
                       content: '',
@@ -826,7 +829,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                       usage,
                       toolCalls: [{ id, name, arguments: args }]
                     }
-                    
+
                     let resText = ''
                     if (onToolCall) {
                       resText = await onToolCall(name, args) || ''
@@ -838,7 +841,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                         toolResults: [{ id, name, arguments: args, content: resText }]
                       }
                     }
-                    
+
                     calls.push({
                       id,
                       name,
@@ -849,10 +852,10 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                     })
                   }
                 }
-                
+
                 const fr = cand.finishReason as string | undefined
                 if (fr) finishReason = fr
-                
+
                 // Parse grounding metadata
                 const gm = cand.groundingMetadata ?? obj.groundingMetadata
                 const cite = parseCitations(gm)
@@ -873,14 +876,14 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
                   }
                 }
               }
-              
+
               if (reasoningDelta) {
                 yield { content: '', reasoning: reasoningDelta, isDone: false, totalTokens, usage }
               }
               if (textDelta) {
                 yield { content: textDelta, isDone: false, totalTokens, usage }
               }
-              
+
               if (finishReason && calls.length === 0) {
                 if (imageOpen) {
                   yield { content: ')', isDone: false, totalTokens, usage }
@@ -917,12 +920,12 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     } finally {
       reader.releaseLock()
     }
-    
+
     if (imageOpen) {
       yield { content: ')', isDone: false, totalTokens, usage }
       imageOpen = false
     }
-    
+
     if (calls.length === 0) {
       // Output signature comment
       if (persistGeminiThoughtSigs) {
@@ -938,20 +941,20 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       yield { content: '', isDone: true, totalTokens, usage }
       return
     }
-    
+
     // Append function calls and responses to conversation
     for (const c of calls) {
       const functionCallObj = { name: c.name, args: c.args }
       const partObj: Record<string, unknown> = { functionCall: functionCallObj }
-      
+
       if (c.thoughtSigKey && c.thoughtSigVal !== undefined) {
         partObj[c.thoughtSigKey] = c.thoughtSigVal
       } else if (persistGeminiThoughtSigs) {
         partObj.thoughtSignature = 'context_engineering_is_the_way_to_go'
       }
-      
+
       convo.push({ role: 'model', parts: [partObj] })
-      
+
       let responseObj: Record<string, unknown>
       try {
         responseObj = JSON.parse(c.result)
@@ -963,11 +966,11 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
         parts: [{ functionResponse: { name: c.name, response: responseObj } }]
       })
     }
-    
+
     // Clear calls for next iteration
     calls.length = 0
   }
-  
+
   // Max iterations reached
   yield { content: '', isDone: true, totalTokens, usage }
 }

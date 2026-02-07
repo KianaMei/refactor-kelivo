@@ -2,6 +2,12 @@ appId: com.kelivo.refactor
 productName: Kelivo
 directories:
   buildResources: build
+extraResources:
+  - from: resources/agent-bridge
+    to: agent-bridge
+asarUnpack:
+  - "**/node_modules/@anthropic-ai/claude-agent-sdk/**"
+  - "**/node_modules/@openai/codex-sdk/**"
 files:
   - "**/*"
   - "!**/{.vscode,.github,.yarn,.husky}/**"
@@ -18,4 +24,6 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-
+npmRebuild: true
+nodeGypRebuild: false
+buildDependenciesFromSource: false

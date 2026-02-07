@@ -19,5 +19,78 @@ export const IpcChannel = {
   ProviderBundleImport: 'provider-bundle:import',
 
   DialogSaveFile: 'dialog:save-file',
-  DialogOpenFile: 'dialog:open-file'
+  DialogOpenFile: 'dialog:open-file',
+
+  // Database — Conversations
+  DbConversationList: 'db:conversation:list',
+  DbConversationGet: 'db:conversation:get',
+  DbConversationCreate: 'db:conversation:create',
+  DbConversationUpdate: 'db:conversation:update',
+  DbConversationDelete: 'db:conversation:delete',
+  DbConversationRegenerateTitle: 'db:conversation:regenerateTitle',
+  DbConversationSearch: 'db:conversation:search',
+  DbConversationMessageCount: 'db:conversation:messageCount',
+  DbConversationAssistantCount: 'db:conversation:assistantCount',
+
+  // Database — Messages
+  DbMessageList: 'db:message:list',
+  DbMessageCreate: 'db:message:create',
+  DbMessageCreateBatch: 'db:message:createBatch',
+  DbMessageUpdate: 'db:message:update',
+  DbMessageDelete: 'db:message:delete',
+  DbMessageVersions: 'db:message:versions',
+  DbMessageSearch: 'db:message:search',
+  DbMessageNextSortOrder: 'db:message:nextSortOrder',
+
+  // Database — Workspaces
+  DbWorkspaceList: 'db:workspace:list',
+  DbWorkspaceGet: 'db:workspace:get',
+  DbWorkspaceCreate: 'db:workspace:create',
+  DbWorkspaceUpdate: 'db:workspace:update',
+  DbWorkspaceDelete: 'db:workspace:delete',
+  DbWorkspaceChildren: 'db:workspace:children',
+
+  // Database — Memories
+  DbMemoryList: 'db:memory:list',
+  DbMemoryCreate: 'db:memory:create',
+  DbMemoryDelete: 'db:memory:delete',
+  DbMemoryDeleteByAssistant: 'db:memory:deleteByAssistant',
+
+  // Database — Agent Sessions
+  DbAgentSessionList: 'db:agentSession:list',
+  DbAgentSessionGet: 'db:agentSession:get',
+  DbAgentSessionCreate: 'db:agentSession:create',
+  DbAgentSessionUpdate: 'db:agentSession:update',
+  DbAgentSessionDelete: 'db:agentSession:delete',
+
+  // Database — Agent Messages
+  DbAgentMessageList: 'db:agentMessage:list',
+  DbAgentMessageCreate: 'db:agentMessage:create',
+  DbAgentMessageUpdate: 'db:agentMessage:update',
+  DbAgentMessageDelete: 'db:agentMessage:delete',
+
+  // Backup
+  BackupExportLocal: 'backup:exportLocal',
+  BackupImportLocal: 'backup:importLocal',
+  BackupWebdavTest: 'backup:webdav:test',
+  BackupWebdavBackup: 'backup:webdav:backup',
+  BackupWebdavProgress: 'backup:webdav:progress',
+  BackupWebdavList: 'backup:webdav:list',
+  BackupWebdavRestore: 'backup:webdav:restore',
+  BackupWebdavDelete: 'backup:webdav:delete',
+  BackupClearData: 'backup:clearData',
+  BackupOpenDataDir: 'backup:openDataDir',
+  BackupGetDataPath: 'backup:getDataPath',
+
+  // Agent Runtime
+  AgentRunStart: 'agent:runStart',
+  AgentRunAbort: 'agent:runAbort',
+  AgentPermissionRespond: 'agent:permissionRespond',
+  AgentEvent: 'agent:event',
+
+  // Dependencies / SDKs
+  DepsGetStatus: 'deps:getStatus',
+  DepsInstall: 'deps:install',
+  DepsUninstall: 'deps:uninstall',
+  DepsProgress: 'deps:progress'
 } as const

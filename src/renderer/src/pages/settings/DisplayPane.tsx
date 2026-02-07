@@ -1,7 +1,38 @@
-import { Moon, Monitor, Sun, Languages, ChevronDown } from 'lucide-react'
+import { Moon, Monitor, Sun, Languages, ChevronDown, RotateCw } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import type { AppConfig, DisplaySettings, ThemeMode, ThemePalette, ChatMessageBackgroundStyle, TopicPosition, AppLanguage } from '../../../../shared/types'
 import { LANGUAGE_LABELS } from '../../../../shared/types'
+import { ThemePalettes, paletteIds } from '../../../../shared/palettes'
+
+// 常用应用字体列表
+const APP_FONTS: { value: string; label: string }[] = [
+  { value: '', label: '系统默认' },
+  { value: 'Microsoft YaHei', label: '微软雅黑' },
+  { value: 'PingFang SC', label: '苹方' },
+  { value: 'SimHei', label: '黑体' },
+  { value: 'SimSun', label: '宋体' },
+  { value: 'Noto Sans SC', label: 'Noto Sans SC' },
+  { value: 'Segoe UI', label: 'Segoe UI' },
+  { value: 'SF Pro Text', label: 'SF Pro' },
+  { value: 'Helvetica Neue', label: 'Helvetica Neue' },
+  { value: 'Arial', label: 'Arial' },
+  { value: 'Roboto', label: 'Roboto' }
+]
+
+// 常用代码字体列表
+const CODE_FONTS: { value: string; label: string }[] = [
+  { value: '', label: '系统等宽' },
+  { value: 'JetBrains Mono', label: 'JetBrains Mono' },
+  { value: 'Fira Code', label: 'Fira Code' },
+  { value: 'Consolas', label: 'Consolas' },
+  { value: 'Cascadia Code', label: 'Cascadia Code' },
+  { value: 'Source Code Pro', label: 'Source Code Pro' },
+  { value: 'Menlo', label: 'Menlo' },
+  { value: 'Monaco', label: 'Monaco' },
+  { value: 'Courier New', label: 'Courier New' },
+  { value: 'monospace', label: 'Monospace' }
+]
 
 export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
   const { config, onSave } = props
@@ -21,7 +52,6 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
   return (
     <div style={styles.root}>
       <div style={styles.header}>显示</div>
-      <div style={styles.divider} />
 
       <SettingsCard title="语言" icon={<Languages size={15} />}>
         <LabeledRow label="应用语言">
@@ -50,9 +80,9 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
         <LabeledRow label="消息背景样式">
           <SegmentedSelect
             options={[
-              { value: 'none', label: '无' },
-              { value: 'bubble', label: '气泡' },
-              { value: 'card', label: '卡片' }
+              { value: 'default', label: '默认' },
+              { value: 'frosted', label: '毛玻璃' },
+              { value: 'solid', label: '纯色' }
             ]}
             value={display.chatMessageBackgroundStyle}
             onChange={(v) => updateDisplay({ chatMessageBackgroundStyle: v as ChatMessageBackgroundStyle })}
@@ -92,22 +122,20 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
 
       <SettingsCard title="字体">
         <LabeledRow label="应用字体">
-          <input
-            className="input"
-            style={{ width: 200, textAlign: 'right' }}
+          <FontSelector
             value={display.appFontFamily}
+            onChange={(v) => updateDisplay({ appFontFamily: v })}
+            fonts={APP_FONTS}
             placeholder="系统默认"
-            onChange={(e) => updateDisplay({ appFontFamily: e.target.value })}
           />
         </LabeledRow>
         <RowDivider />
         <LabeledRow label="代码字体">
-          <input
-            className="input"
-            style={{ width: 200, textAlign: 'right' }}
+          <FontSelector
             value={display.codeFontFamily}
+            onChange={(v) => updateDisplay({ codeFontFamily: v })}
+            fonts={CODE_FONTS}
             placeholder="系统等宽"
-            onChange={(e) => updateDisplay({ codeFontFamily: e.target.value })}
           />
         </LabeledRow>
         <RowDivider />
@@ -142,6 +170,8 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
         <ToggleRow label="显示模型名与时间" value={display.showModelNameTimestamp} onChange={(v) => updateDisplay({ showModelNameTimestamp: v })} />
         <RowDivider />
         <ToggleRow label="显示 Token 统计" value={display.showTokenStats} onChange={(v) => updateDisplay({ showTokenStats: v })} />
+        <RowDivider />
+        <ToggleRow label="显示表情包工具调用" value={display.showStickerToolUI} onChange={(v) => updateDisplay({ showStickerToolUI: v })} />
       </SettingsCard>
 
       <SettingsCard title="渲染设置">
@@ -172,8 +202,8 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
         <SliderRow
           label="自动滚动等待秒数"
           value={display.autoScrollIdleSeconds}
-          min={1}
-          max={30}
+          min={2}
+          max={64}
           suffix="秒"
           onChange={(v) => updateDisplay({ autoScrollIdleSeconds: v })}
         />
@@ -184,7 +214,8 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
           label="背景遮罩强度"
           value={display.chatBackgroundMaskStrength}
           min={0}
-          max={100}
+          max={200}
+          suffix="%"
           onChange={(v) => updateDisplay({ chatBackgroundMaskStrength: v })}
         />
       </SettingsCard>
@@ -293,37 +324,31 @@ function SegmentedSelect<T extends string>(props: { options: { value: T; label: 
   )
 }
 
-const paletteColors: Record<ThemePalette, string> = {
-  blue: '#3b82f6',
-  purple: '#8b5cf6',
-  green: '#22c55e',
-  orange: '#f97316',
-  pink: '#ec4899',
-  teal: '#14b8a6',
-  red: '#ef4444',
-  yellow: '#eab308'
-}
-
 function PaletteSelector(props: { value: ThemePalette; onChange: (v: ThemePalette) => void }) {
-  const palettes: ThemePalette[] = ['blue', 'purple', 'green', 'orange', 'pink', 'teal', 'red', 'yellow']
   return (
-    <div style={{ display: 'flex', gap: 6 }}>
-      {palettes.map((p) => (
-        <button
-          key={p}
-          type="button"
-          onClick={() => props.onChange(p)}
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: '50%',
-            border: props.value === p ? '2px solid var(--text)' : '2px solid transparent',
-            background: paletteColors[p],
-            cursor: 'pointer',
-            padding: 0
-          }}
-        />
-      ))}
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {paletteIds.map((id) => {
+        const palette = ThemePalettes[id]
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => props.onChange(id as ThemePalette)}
+            title={palette.zhName}
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: '50%',
+              border: props.value === id ? '2px solid var(--text)' : '2px solid transparent',
+              background: palette.light.primary,
+              cursor: 'pointer',
+              padding: 0,
+              transition: 'transform 0.1s',
+              transform: props.value === id ? 'scale(1.1)' : 'scale(1)'
+            }}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -375,6 +400,134 @@ function LanguageSelector(props: { value: AppLanguage; onChange: (v: AppLanguage
             </button>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function FontSelector(props: {
+  value: string
+  onChange: (v: string) => void
+  fonts: { value: string; label: string }[]
+  placeholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+
+  const currentFont = props.fonts.find((f) => f.value === props.value)
+  const displayText = currentFont?.label || (props.value || props.placeholder)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      setPos({ top: rect.bottom + 4, left: rect.left })
+    }
+    setOpen(!open)
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <button
+        ref={btnRef}
+        type="button"
+        className="btn btn-ghost"
+        onClick={handleOpen}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 10px',
+          minWidth: 160,
+          justifyContent: 'space-between',
+          fontFamily: props.value || undefined
+        }}
+      >
+        <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {displayText}
+        </span>
+        <ChevronDown size={14} style={{ opacity: 0.5, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.2s' }} />
+      </button>
+
+      {props.value && (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => props.onChange('')}
+          title="重置为默认"
+          style={{ padding: 6 }}
+        >
+          <RotateCw size={14} style={{ opacity: 0.6 }} />
+        </button>
+      )}
+
+      {open && createPortal(
+        <div
+          ref={ref}
+          className="fontSelectorDropdown"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            minWidth: 180,
+            maxHeight: 280,
+            overflowY: 'auto',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            zIndex: 9999,
+            padding: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2
+          }}
+        >
+          {props.fonts.map((font) => (
+            <button
+              key={font.value}
+              type="button"
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 12px',
+                fontFamily: font.value || undefined,
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 14,
+                background: props.value === font.value ? 'var(--primary-bg)' : 'transparent',
+                color: props.value === font.value ? 'var(--primary)' : 'var(--text)'
+              }}
+              onMouseEnter={(e) => {
+                if (props.value !== font.value) e.currentTarget.style.background = 'var(--hover-bg)'
+              }}
+              onMouseLeave={(e) => {
+                if (props.value !== font.value) e.currentTarget.style.background = 'transparent'
+              }}
+              onClick={() => {
+                props.onChange(font.value)
+                setOpen(false)
+              }}
+            >
+              {font.label}
+            </button>
+          ))}
+        </div>,
+        document.body
       )}
     </div>
   )
@@ -440,8 +593,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--panel)',
     border: '1px solid var(--border)',
     borderRadius: 8,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-    zIndex: 100,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+    zIndex: 9999,
     padding: 4,
     display: 'flex',
     flexDirection: 'column' as const,

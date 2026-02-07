@@ -1,605 +1,1368 @@
-import { useState } from 'react'
-import {
-  Plus, Server, Trash2, RefreshCw, Settings2, CheckCircle, XCircle, Loader,
-  Variable, Terminal, Globe, Radio, Wrench, Info, AlertTriangle, ChevronDown, ChevronUp
-} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, Edit, Plus, RefreshCw, Terminal, Trash2, X } from 'lucide-react'
 
-type McpServerType = 'stdio' | 'sse' | 'websocket'
+import type { AppConfig, McpServerConfig, McpToolConfig, McpTransportType } from '../../../../shared/types'
 
-interface McpTool {
-  name: string
-  description?: string
+type McpStatus = 'idle' | 'connecting' | 'connected' | 'error'
+
+function isRecord(v: unknown): v is Record<string, any> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-interface McpServer {
-  id: string
-  name: string
-  type: McpServerType
-  // Stdio 配置
-  command: string
-  args: string[]
-  // SSE/WebSocket 配置
-  url: string
-  // 通用
-  env: Record<string, string>
-  enabled: boolean
-  status: 'disconnected' | 'connecting' | 'connected' | 'error'
-  error?: string
-  // 运行时信息
-  version?: string
-  tools: McpTool[]
+function safeUuid(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
+  }
 }
 
-const SERVER_TYPE_LABELS: Record<McpServerType, { label: string; icon: React.ReactNode; description: string }> = {
-  stdio: { label: 'Stdio', icon: <Terminal size={14} />, description: '通过标准输入输出通信（本地进程）' },
-  sse: { label: 'SSE', icon: <Globe size={14} />, description: '通过 Server-Sent Events 通信（HTTP）' },
-  websocket: { label: 'WebSocket', icon: <Radio size={14} />, description: '通过 WebSocket 通信' },
+function normalizeTransport(v: unknown): McpTransportType {
+  if (v === 'sse' || v === 'http' || v === 'stdio' || v === 'inmemory') return v
+  return 'http'
 }
 
-export function McpPane() {
-  const [servers, setServers] = useState<McpServer[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [envDraft, setEnvDraft] = useState({ key: '', value: '' })
-  const [toolsExpanded, setToolsExpanded] = useState(false)
-  const [errorDetailOpen, setErrorDetailOpen] = useState(false)
+function countEnabledTools(tools: McpToolConfig[] | undefined): { enabled: number; total: number } {
+  const list = tools ?? []
+  return { enabled: list.filter((t) => t.enabled).length, total: list.length }
+}
 
-  function addServer(type: McpServerType = 'stdio') {
-    const id = `mcp_${Date.now()}`
-    const srv: McpServer = {
-      id,
-      name: '新服务器',
-      type,
-      command: type === 'stdio' ? 'npx' : '',
-      args: type === 'stdio' ? ['-y', '@modelcontextprotocol/server-example'] : [],
-      url: type !== 'stdio' ? 'http://localhost:3000/sse' : '',
-      env: {},
-      enabled: true,
-      status: 'disconnected',
-      tools: [],
+function transportLabel(t: McpTransportType): string {
+  if (t === 'sse') return 'SSE'
+  if (t === 'http') return 'HTTP'
+  if (t === 'stdio') return 'STDIO'
+  return 'INMEMORY'
+}
+
+function humanizeErr(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === 'string') return e
+  try {
+    return JSON.stringify(e)
+  } catch {
+    return String(e)
+  }
+}
+
+function mergeToolsFromServer(existing: McpToolConfig[], incoming: Array<{ name: string; description?: string; schema?: Record<string, unknown> }>): McpToolConfig[] {
+  const byName = new Map<string, McpToolConfig>()
+  for (const t of existing ?? []) byName.set(t.name, t)
+  return incoming.map((t) => {
+    const prev = byName.get(t.name)
+    return {
+      name: t.name,
+      description: t.description,
+      enabled: prev?.enabled ?? true,
+      schema: t.schema,
     }
-    setServers((prev) => [...prev, srv])
-    setSelectedId(id)
+  })
+}
+
+type ParamSpec = { name: string; required: boolean; type?: string }
+
+function schemaToParams(schema: unknown): ParamSpec[] {
+  if (!schema || typeof schema !== 'object') return []
+  const obj = schema as any
+  const props = obj.properties && typeof obj.properties === 'object' ? obj.properties : null
+  if (!props) return []
+  const required = new Set<string>(Array.isArray(obj.required) ? obj.required.filter((x: any) => typeof x === 'string') : [])
+
+  const out: ParamSpec[] = []
+  for (const [k, v] of Object.entries(props)) {
+    if (typeof k !== 'string') continue
+    const vv: any = v
+    const type = typeof vv?.type === 'string' ? vv.type : undefined
+    out.push({ name: k, required: required.has(k), type })
+  }
+  return out
+}
+
+function exportServersAsUiJson(servers: McpServerConfig[]): string {
+  const mcpServers: Record<string, any> = {}
+  for (const s of servers) {
+    const type = s.transport === 'http' ? 'streamableHttp' : s.transport === 'sse' ? 'sse' : 'inmemory'
+    mcpServers[s.id] = {
+      name: s.name,
+      type,
+      description: '',
+      isActive: s.enabled,
+      ...(s.transport === 'inmemory' ? {} : { baseUrl: s.url }),
+      ...((s.transport !== 'inmemory' && s.headers && Object.keys(s.headers).length) ? { headers: s.headers } : {})
+    }
+  }
+  return JSON.stringify({ mcpServers }, null, 2)
+}
+
+export function McpPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
+  const { config, onSave } = props
+
+  const servers = useMemo(() => config.mcpServers ?? [], [config.mcpServers])
+
+  // 对齐 Flutter：启用的 server 默认视为“已连接”（真正连通性在点击“重新连接/同步工具”时校验）
+  const [statusById, setStatusById] = useState<Record<string, McpStatus>>({})
+  const [errorById, setErrorById] = useState<Record<string, string | undefined>>({})
+
+  useEffect(() => {
+    setStatusById((prev) => {
+      const next: Record<string, McpStatus> = { ...prev }
+      for (const s of servers) {
+        if (!next[s.id]) next[s.id] = s.enabled ? 'connected' : 'idle'
+      }
+      // 清理已删除的
+      for (const id of Object.keys(next)) {
+        if (!servers.some((s) => s.id === id)) delete next[id]
+      }
+      return next
+    })
+    setErrorById((prev) => {
+      const next: Record<string, string | undefined> = { ...prev }
+      for (const id of Object.keys(next)) {
+        if (!servers.some((s) => s.id === id)) delete next[id]
+      }
+      return next
+    })
+  }, [servers])
+
+  const [editOpen, setEditOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  const [jsonOpen, setJsonOpen] = useState(false)
+
+  const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>(() => ({
+    open: false,
+    title: '',
+    message: ''
+  }))
+
+  async function syncTools(serverId: string) {
+    setStatusById((prev) => ({ ...prev, [serverId]: 'connecting' }))
+    setErrorById((prev) => ({ ...prev, [serverId]: undefined }))
+    try {
+      const res = await window.api.mcp.listTools(serverId)
+      if (!res.success) throw new Error(res.error)
+
+      const now = new Date().toISOString()
+      const nextServers = servers.map((s) => {
+        if (s.id !== serverId) return s
+        const merged = mergeToolsFromServer(s.tools ?? [], res.tools)
+        return { ...s, tools: merged, updatedAt: now }
+      })
+      await onSave({ ...config, mcpServers: nextServers })
+
+      setStatusById((prev) => ({ ...prev, [serverId]: 'connected' }))
+    } catch (e) {
+      const msg = humanizeErr(e)
+      setStatusById((prev) => ({ ...prev, [serverId]: 'error' }))
+      setErrorById((prev) => ({ ...prev, [serverId]: msg }))
+    }
   }
 
-  function updateServer(id: string, patch: Partial<McpServer>) {
-    setServers((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
-  }
-
-  function deleteServer(id: string) {
-    setServers((prev) => prev.filter((s) => s.id !== id))
-    if (selectedId === id) setSelectedId(null)
-  }
-
-  function addEnvVar(serverId: string) {
-    if (!envDraft.key.trim()) return
-    const srv = servers.find((s) => s.id === serverId)
-    if (!srv) return
-    updateServer(serverId, { env: { ...srv.env, [envDraft.key.trim()]: envDraft.value } })
-    setEnvDraft({ key: '', value: '' })
-  }
-
-  function removeEnvVar(serverId: string, key: string) {
-    const srv = servers.find((s) => s.id === serverId)
-    if (!srv) return
-    const next = { ...srv.env }
-    delete next[key]
-    updateServer(serverId, { env: next })
-  }
-
-  async function reconnect(id: string) {
-    updateServer(id, { status: 'connecting', error: undefined })
-    // 模拟连接
-    await new Promise((r) => setTimeout(r, 1500))
-    // 模拟成功，添加一些示例工具
-    updateServer(id, {
-      status: 'connected',
-      version: '1.0.0',
-      tools: [
-        { name: 'read_file', description: '读取文件内容' },
-        { name: 'write_file', description: '写入文件内容' },
-        { name: 'list_directory', description: '列出目录内容' },
-      ]
+  async function deleteServer(serverId: string) {
+    const nextServers = servers.filter((s) => s.id !== serverId)
+    await onSave({ ...config, mcpServers: nextServers })
+    setStatusById((prev) => {
+      const next = { ...prev }
+      delete next[serverId]
+      return next
+    })
+    setErrorById((prev) => {
+      const next = { ...prev }
+      delete next[serverId]
+      return next
     })
   }
 
-  async function disconnect(id: string) {
-    updateServer(id, { status: 'disconnected', tools: [], version: undefined })
+  function openAdd() {
+    setEditingId(null)
+    setEditOpen(true)
   }
 
-  const selected = servers.find((s) => s.id === selectedId)
+  function openEdit(id: string) {
+    setEditingId(id)
+    setEditOpen(true)
+  }
+
+  async function upsertServer(next: McpServerConfig) {
+    const now = new Date().toISOString()
+    const exists = servers.some((s) => s.id === next.id)
+    const normalized: McpServerConfig = {
+      ...next,
+      transport: normalizeTransport(next.transport),
+      createdAt: exists ? next.createdAt : (next.createdAt || now),
+      updatedAt: now
+    }
+    const nextServers = exists ? servers.map((s) => (s.id === normalized.id ? normalized : s)) : [normalized, ...servers]
+    await onSave({ ...config, mcpServers: nextServers })
+    setStatusById((prev) => ({ ...prev, [normalized.id]: normalized.enabled ? 'connected' : 'idle' }))
+  }
+
+  async function replaceAllFromJson(raw: string) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      throw new Error(`JSON 解析失败：${humanizeErr(e)}`)
+    }
+
+    const existingById = new Map<string, McpServerConfig>()
+    for (const s of servers) existingById.set(s.id, s)
+
+    const now = new Date().toISOString()
+
+    let nextServers: McpServerConfig[] = []
+
+    // 1) Internal format (array of servers)
+    if (Array.isArray(parsed)) {
+      nextServers = parsed.map((it: any) => {
+        const id = typeof it?.id === 'string' && it.id ? it.id : safeUuid()
+        const prev = existingById.get(id)
+        const name = typeof it?.name === 'string' ? it.name : (prev?.name ?? 'MCP')
+        const transport = normalizeTransport(it?.transport)
+        const enabled = typeof it?.enabled === 'boolean' ? it.enabled : (prev?.enabled ?? true)
+        const url0 = typeof it?.url === 'string' ? it.url : (prev?.url ?? '')
+        const url = transport === 'inmemory' ? '' : url0
+        const headers = it?.headers && typeof it.headers === 'object' ? (it.headers as Record<string, string>) : (prev?.headers ?? {})
+        const tools = Array.isArray(it?.tools) ? (it.tools as McpToolConfig[]) : (prev?.tools ?? [])
+        return {
+          id,
+          name,
+          transport,
+          enabled,
+          url,
+          headers,
+          tools,
+          createdAt: typeof it?.createdAt === 'string' ? it.createdAt : (prev?.createdAt ?? now),
+          updatedAt: now
+        }
+      })
+    } else if (isRecord(parsed)) {
+      // 2) Flutter UI JSON: { mcpServers: { id: { name, type, isActive, baseUrl, headers } } }
+      // 3) Direct map: { id: { ... } }
+      const root = parsed as Record<string, any>
+      const usingNested = isRecord(root.mcpServers)
+      const map = (usingNested ? (root.mcpServers as Record<string, any>) : null) ?? root
+      if (!isRecord(map)) {
+        throw new Error('JSON 格式错误：需要是数组，或包含 mcpServers 的对象')
+      }
+      if (!usingNested) {
+        const ok = Object.values(map).every((v) => isRecord(v))
+        if (!ok) throw new Error('JSON 格式错误：需要是 { mcpServers: { ... } } 或 { id: { ... } }')
+      }
+
+      nextServers = Object.entries(map).map(([id, cfgAny]) => {
+        const cfg = isRecord(cfgAny) ? (cfgAny as Record<string, any>) : {}
+        const prev = existingById.get(id)
+
+        const name = (typeof cfg.name === 'string' ? cfg.name : undefined) ?? (prev?.name ?? 'MCP')
+        const enabledRaw = cfg.isActive ?? cfg.enabled
+        const enabled = typeof enabledRaw === 'boolean' ? enabledRaw : (prev?.enabled ?? true)
+
+        const typeRaw = String(cfg.type ?? cfg.transport ?? '').toLowerCase()
+        const transport: McpTransportType =
+          typeRaw === 'inmemory'
+            ? 'inmemory'
+            : typeRaw.includes('http')
+              ? 'http'
+              : typeRaw === 'sse'
+                ? 'sse'
+                : (prev?.transport ?? 'http')
+
+        const urlRaw = (typeof cfg.baseUrl === 'string' ? cfg.baseUrl : undefined) ?? (typeof cfg.url === 'string' ? cfg.url : undefined) ?? (prev?.url ?? '')
+        const url = transport === 'inmemory' ? '' : urlRaw
+
+        const headers = isRecord(cfg.headers) ? (cfg.headers as Record<string, string>) : (prev?.headers ?? {})
+
+        // Flutter JSON 不包含 tools：尽量保留已有 tools（若用户提供 tools 字段则用之）
+        const tools = Array.isArray(cfg.tools) ? (cfg.tools as McpToolConfig[]) : (prev?.tools ?? [])
+
+        return {
+          id,
+          name,
+          transport,
+          enabled,
+          url,
+          headers,
+          tools,
+          createdAt: prev?.createdAt ?? now,
+          updatedAt: now
+        }
+      })
+    } else {
+      throw new Error('JSON 格式错误：需要是数组，或包含 mcpServers 的对象')
+    }
+
+    await onSave({ ...config, mcpServers: nextServers })
+  }
 
   return (
     <div style={s.root}>
-      <div style={s.header}>MCP</div>
+      <div style={s.headerRow}>
+        <div style={s.headerTitle}>MCP</div>
+        <div style={{ flex: 1 }} />
+        <button type="button" className="btn btn-sm" onClick={() => setJsonOpen(true)} title="JSON 编辑">
+          <Edit size={14} />
+          JSON
+        </button>
+        <button type="button" className="btn btn-sm btn-primary" onClick={openAdd} title="添加 MCP 服务器">
+          <Plus size={14} />
+          添加
+        </button>
+      </div>
 
-      {/* 服务器列表 */}
-      <div className="settingsCard">
-        <div style={{ ...s.cardTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>MCP 服务器</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="btn btn-sm" onClick={() => addServer('stdio')} style={{ gap: 4 }}>
-              <Terminal size={13} />
-              Stdio
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => addServer('sse')} style={{ gap: 4 }}>
-              <Globe size={13} />
-              SSE
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => addServer('websocket')} style={{ gap: 4 }}>
-              <Radio size={13} />
-              WS
-            </button>
-          </div>
-        </div>
-
+      <div className="settingsCard" style={{ padding: 0 }}>
         {servers.length === 0 ? (
-          <div style={s.empty}>
-            <Server size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
-            <div style={{ fontSize: 13 }}>暂无 MCP 服务器</div>
-            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>点击上方按钮添加不同类型的服务器</div>
-          </div>
+          <div style={{ padding: 28, textAlign: 'center', opacity: 0.7 }}>暂无 MCP 服务器</div>
         ) : (
-          <div style={s.serverGrid}>
-            {servers.map((srv) => (
-              <button
-                key={srv.id}
-                type="button"
-                className={`btn btn-ghost ${selectedId === srv.id ? 'segmentedItemActive' : ''}`}
-                style={s.serverItem}
-                onClick={() => setSelectedId(selectedId === srv.id ? null : srv.id)}
-              >
-                <StatusIcon status={srv.status} />
-                <span style={{ flex: 1, textAlign: 'left' }}>{srv.name}</span>
-                <span style={s.serverTypeBadge}>
-                  {SERVER_TYPE_LABELS[srv.type].icon}
-                  {SERVER_TYPE_LABELS[srv.type].label}
-                </span>
-                {srv.tools.length > 0 && (
-                  <span style={s.toolsBadge}>
-                    <Wrench size={11} />
-                    {srv.tools.length}
-                  </span>
-                )}
-              </button>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {servers.map((sv) => (
+              <McpServerCard
+                key={sv.id}
+                server={sv}
+                status={statusById[sv.id] ?? (sv.enabled ? 'connected' : 'idle')}
+                error={errorById[sv.id]}
+                onEdit={() => openEdit(sv.id)}
+                onReconnect={() => void syncTools(sv.id)}
+                onDelete={() => void deleteServer(sv.id)}
+                onShowError={(msg) => setErrorDialog({ open: true, title: '连接错误', message: msg || '未提供错误详情' })}
+              />
             ))}
           </div>
         )}
       </div>
 
-      {/* 服务器配置 */}
-      {selected && (
-        <>
-          <div className="settingsCard">
-            <div style={{ ...s.cardTitle, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Settings2 size={15} />
-              {selected.name}
-              {selected.version && (
-                <span style={{ fontSize: 11, opacity: 0.5, fontWeight: 400 }}>v{selected.version}</span>
-              )}
-            </div>
+      <McpServerEditModal
+        open={editOpen}
+        server={editingId ? servers.find((s) => s.id === editingId) ?? null : null}
+        onClose={() => setEditOpen(false)}
+        onSave={(next) => void upsertServer(next).then(() => setEditOpen(false))}
+        onSyncTools={(id) => void syncTools(id)}
+      />
 
-            <div style={s.labeledRow}>
-              <span style={s.rowLabel}>名称</span>
-              <input
-                className="input"
-                style={{ width: 200 }}
-                value={selected.name}
-                onChange={(e) => updateServer(selected.id, { name: e.target.value })}
-              />
-            </div>
-            <div style={s.divider} />
+      <McpJsonEditModal
+        open={jsonOpen}
+        value={exportServersAsUiJson(servers)}
+        onClose={() => setJsonOpen(false)}
+        onSave={(raw) => void replaceAllFromJson(raw).then(() => setJsonOpen(false)).catch((e) => setErrorDialog({ open: true, title: '保存失败', message: humanizeErr(e) }))}
+      />
 
-            <div style={s.labeledRow}>
-              <span style={s.rowLabel}>类型</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {(['stdio', 'sse', 'websocket'] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={`btn btn-sm ${selected.type === t ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => updateServer(selected.id, { type: t })}
-                    style={{ gap: 4, padding: '6px 10px' }}
-                  >
-                    {SERVER_TYPE_LABELS[t].icon}
-                    {SERVER_TYPE_LABELS[t].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', padding: '4px 0 8px' }}>
-              {SERVER_TYPE_LABELS[selected.type].description}
-            </div>
-            <div style={s.divider} />
+      <ErrorDetailsModal open={errorDialog.open} title={errorDialog.title} message={errorDialog.message} onClose={() => setErrorDialog((p) => ({ ...p, open: false }))} />
+    </div>
+  )
+}
 
-            {selected.type === 'stdio' ? (
-              <>
-                <div style={s.labeledRow}>
-                  <span style={s.rowLabel}>命令</span>
-                  <input
-                    className="input"
-                    style={{ width: 200 }}
-                    placeholder="npx"
-                    value={selected.command}
-                    onChange={(e) => updateServer(selected.id, { command: e.target.value })}
-                  />
-                </div>
-                <div style={s.divider} />
+function McpServerCard(props: {
+  server: McpServerConfig
+  status: McpStatus
+  error?: string
+  onEdit: () => void
+  onReconnect: () => void
+  onDelete: () => void
+  onShowError: (msg?: string) => void
+}) {
+  const { server: s0 } = props
+  const [expanded, setExpanded] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const s = s0
+  const toolsCount = countEnabledTools(s.tools ?? [])
 
-                <div style={s.labeledRow}>
-                  <span style={s.rowLabel}>参数</span>
-                  <input
-                    className="input"
-                    style={{ width: 280 }}
-                    placeholder="-y @modelcontextprotocol/server-example"
-                    value={selected.args.join(' ')}
-                    onChange={(e) => updateServer(selected.id, { args: e.target.value.split(' ').filter(Boolean) })}
-                  />
-                </div>
-              </>
-            ) : (
-              <div style={s.labeledRow}>
-                <span style={s.rowLabel}>URL</span>
-                <input
-                  className="input"
-                  style={{ width: 320 }}
-                  placeholder={selected.type === 'sse' ? 'http://localhost:3000/sse' : 'ws://localhost:3000/ws'}
-                  value={selected.url}
-                  onChange={(e) => updateServer(selected.id, { url: e.target.value })}
-                />
-              </div>
-            )}
-            <div style={s.divider} />
+  const statusText = props.status === 'connected' ? '已连接' : props.status === 'connecting' ? '连接中…' : '未连接'
+  const statusColor = props.status === 'connected' ? '#16a34a' : props.status === 'connecting' ? 'var(--primary)' : '#ef4444'
 
-            <div style={s.labeledRow}>
-              <span style={s.rowLabel}>启用</span>
-              <button
-                type="button"
-                className={`toggle ${selected.enabled ? 'toggleOn' : ''}`}
-                onClick={() => updateServer(selected.id, { enabled: !selected.enabled })}
-              >
-                <div className="toggleThumb" />
-              </button>
-            </div>
-            <div style={s.divider} />
+  const showError = props.status === 'error' && !!props.error
 
-            {/* 状态 */}
-            <div style={s.labeledRow}>
-              <span style={s.rowLabel}>状态</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <StatusIcon status={selected.status} />
-                <span style={{ fontSize: 13 }}>{statusLabel(selected.status)}</span>
-              </div>
-            </div>
-
-            {selected.error && (
-              <div style={s.errorBanner}>
-                <AlertTriangle size={14} />
-                <span style={{ flex: 1 }}>{selected.error.length > 50 ? selected.error.slice(0, 50) + '...' : selected.error}</span>
-                {selected.error.length > 50 && (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={() => setErrorDetailOpen(true)}
-                    style={{ padding: 4 }}
-                  >
-                    <Info size={12} />
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div style={s.divider} />
-
-            <div style={{ padding: '8px 0', display: 'flex', gap: 8 }}>
-              {selected.status === 'connected' ? (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => disconnect(selected.id)}
-                  style={{ gap: 4 }}
-                >
-                  <XCircle size={13} />
-                  断开连接
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  onClick={() => reconnect(selected.id)}
-                  disabled={selected.status === 'connecting'}
-                  style={{ gap: 4 }}
-                >
-                  <RefreshCw size={13} className={selected.status === 'connecting' ? 'spin' : ''} />
-                  {selected.status === 'connecting' ? '连接中...' : '连接'}
-                </button>
-              )}
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteServer(selected.id)} style={{ gap: 4 }}>
-                <Trash2 size={13} />
-                删除
-              </button>
-            </div>
+  return (
+    <div style={sCard.root}>
+      <div
+        role="button"
+        tabIndex={0}
+        style={sCard.topRow}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') setExpanded((v) => !v)
+        }}
+      >
+        <div style={sCard.iconWrap}>
+          <div style={sCard.iconBox}>
+            <Terminal size={18} style={{ color: 'var(--primary)' }} />
           </div>
+          {props.status === 'connecting' ? (
+            <div className="spin" style={sCard.statusSpinner} />
+          ) : (
+            <div style={{ ...sCard.statusDot, background: s.enabled ? statusColor : 'var(--border)' }} />
+          )}
+        </div>
 
-          {/* 工具列表 */}
-          {selected.tools.length > 0 && (
-            <div className="settingsCard">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+          <div style={sCard.tagsRow}>
+            <Tag text={statusText} color={statusColor} />
+            <Tag text={transportLabel(s.transport)} />
+            <Tag text={`工具: ${toolsCount.enabled}/${toolsCount.total}`} />
+            {!s.enabled && <Tag text="已禁用" />}
+          </div>
+          {showError && (
+            <div style={sCard.errorRow}>
+              <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 700 }}>连接失败</span>
               <button
                 type="button"
-                style={{ ...s.cardTitle, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: 'none', border: 'none', padding: 0, width: '100%' }}
-                onClick={() => setToolsExpanded(!toolsExpanded)}
+                className="btn btn-sm btn-ghost"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  props.onShowError(props.error)
+                }}
               >
-                <Wrench size={15} />
-                可用工具
-                <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 400 }}>({selected.tools.length})</span>
-                <div style={{ flex: 1 }} />
-                {toolsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                详情
               </button>
-
-              {toolsExpanded && (
-                <div style={s.toolsList}>
-                  {selected.tools.map((tool) => (
-                    <div key={tool.name} style={s.toolItem}>
-                      <code style={s.toolName}>{tool.name}</code>
-                      {tool.description && (
-                        <span style={s.toolDesc}>{tool.description}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
+        </div>
 
-          {/* 环境变量 */}
-          <div className="settingsCard">
-            <div style={{ ...s.cardTitle, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Variable size={15} />
-              环境变量
-            </div>
-
-            {Object.entries(selected.env).length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                {Object.entries(selected.env).map(([k, v]) => (
-                  <div key={k} style={s.envRow}>
-                    <code style={s.envKey}>{k}</code>
-                    <code style={s.envValue}>{v.length > 20 ? v.slice(0, 20) + '...' : v}</code>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => removeEnvVar(selected.id, k)}
-                      style={{ padding: 4 }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input
-                className="input"
-                style={{ width: 120 }}
-                placeholder="KEY"
-                value={envDraft.key}
-                onChange={(e) => setEnvDraft({ ...envDraft, key: e.target.value })}
-              />
-              <input
-                className="input"
-                style={{ width: 180 }}
-                placeholder="value"
-                value={envDraft.value}
-                onChange={(e) => setEnvDraft({ ...envDraft, value: e.target.value })}
-              />
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              props.onEdit()
+            }}
+            title="编辑"
+          >
+            <Edit size={14} />
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              props.onReconnect()
+            }}
+            title="重新连接/同步工具"
+          >
+            <RefreshCw size={14} className={props.status === 'connecting' ? 'spin' : ''} />
+          </button>
+          {confirmingDelete ? (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 className="btn btn-sm"
-                disabled={!envDraft.key.trim()}
-                onClick={() => addEnvVar(selected.id)}
-                style={{ gap: 4 }}
+                onClick={() => setConfirmingDelete(false)}
               >
-                <Plus size={13} />
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() => {
+                  props.onDelete()
+                  setConfirmingDelete(false)
+                }}
+              >
+                确认删除
               </button>
             </div>
-
-            <div style={s.hint}>
-              为 MCP 服务器进程设置环境变量，通常用于传递 API Key 等敏感信息。
-            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              onClick={(e) => {
+                e.stopPropagation()
+                setConfirmingDelete(true)
+              }}
+              title="删除"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+          <div style={{ width: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.7 }}>
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </div>
-        </>
-      )}
-
-      {/* 说明 */}
-      <div className="settingsCard">
-        <div style={s.cardTitle}>说明</div>
-        <div style={s.hint}>
-          <p>MCP (Model Context Protocol) 允许 AI 调用外部工具和数据源。</p>
-          <p><strong>Stdio</strong>：本地进程，通过标准输入输出通信，最常用。</p>
-          <p><strong>SSE</strong>：远程服务器，通过 HTTP Server-Sent Events 通信。</p>
-          <p><strong>WebSocket</strong>：远程服务器，通过 WebSocket 双向通信。</p>
         </div>
       </div>
 
-      {/* 错误详情弹窗 */}
-      {errorDetailOpen && selected?.error && (
-        <div style={s.modalOverlay} onClick={() => setErrorDetailOpen(false)}>
-          <div style={s.modal} onClick={(e) => e.stopPropagation()}>
-            <div style={s.modalHeader}>
-              <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-              <span style={{ fontWeight: 700 }}>错误详情</span>
-              <div style={{ flex: 1 }} />
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setErrorDetailOpen(false)}>
-                关闭
-              </button>
+      {expanded && (
+        <div style={sCard.expandBody}>
+          <DetailRow label="URL" value={s.url || '-'} />
+          <DetailRow label="Headers" value={s.headers && Object.keys(s.headers).length ? `${Object.keys(s.headers).length} custom headers` : '-'} />
+
+          <div style={{ height: 10 }} />
+          <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.8 }}>工具（{s.tools.length}）</div>
+          <div style={{ height: 8 }} />
+
+          {s.tools.length === 0 ? (
+            <div style={{ fontSize: 13, opacity: 0.6, fontStyle: 'italic' }}>暂无工具，点击右上角刷新可同步</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {s.tools.map((t) => (
+                <div key={t.name} style={sCard.toolItem}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontWeight: 800, color: 'var(--primary)' }}>{t.name}</div>
+                    {!t.enabled && <span style={sCard.toolDisabled}>已禁用</span>}
+                  </div>
+                  {t.description ? <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>{t.description}</div> : null}
+
+                  {t.schema ? (
+                    (() => {
+                      const params = schemaToParams(t.schema)
+                      if (params.length === 0) return null
+                      return (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.6 }}>输入参数</div>
+                          <div style={{ height: 4 }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {params.map((p) => (
+                              <div key={p.name} style={{ display: 'flex', gap: 8, fontSize: 11 }}>
+                                <span style={{ fontFamily: 'var(--code-font-family, ui-monospace, monospace)', opacity: 0.9 }}>
+                                  {p.name}{p.required ? <span style={{ color: '#ef4444' }}>*</span> : null}
+                                </span>
+                                <span style={{ opacity: 0.6 }}>{p.type ?? 'any'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()
+                  ) : null}
+                </div>
+              ))}
             </div>
-            <div style={s.modalBody}>
-              <pre style={s.errorPre}>{selected.error}</pre>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function StatusIcon({ status }: { status: McpServer['status'] }) {
-  switch (status) {
-    case 'connected':
-      return <CheckCircle size={14} style={{ color: '#22c55e' }} />
-    case 'connecting':
-      return <Loader size={14} className="spin" style={{ color: 'var(--primary)' }} />
-    case 'error':
-      return <XCircle size={14} style={{ color: '#ef4444' }} />
-    default:
-      return <div style={{ width: 14, height: 14, borderRadius: '50%', background: 'var(--muted-2, #999)', opacity: 0.4 }} />
-  }
+function Switch(props: { checked: boolean; onChange: (v: boolean) => void; size?: 'normal' | 'small' }) {
+  const isSmall = props.size === 'small'
+  const width = isSmall ? 36 : 44
+  const height = isSmall ? 20 : 24
+  const thumbSize = isSmall ? 14 : 18
+  const offset = isSmall ? 3 : 3
+  const travel = width - thumbSize - offset * 2
+
+  return (
+    <button
+      type="button"
+      onClick={() => props.onChange(!props.checked)}
+      style={{
+        position: 'relative',
+        width,
+        height,
+        borderRadius: height / 2,
+        border: 'none',
+        background: props.checked ? 'var(--primary)' : 'var(--border)',
+        cursor: 'pointer',
+        transition: 'background 0.2s ease',
+        flexShrink: 0,
+        padding: 0,
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: offset,
+          left: offset,
+          width: thumbSize,
+          height: thumbSize,
+          borderRadius: thumbSize / 2,
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+          transition: 'transform 0.2s ease',
+          transform: props.checked ? `translateX(${travel}px)` : 'translateX(0)',
+        }}
+      />
+    </button>
+  )
 }
 
-function statusLabel(status: McpServer['status']): string {
-  switch (status) {
-    case 'connected': return '已连接'
-    case 'connecting': return '连接中...'
-    case 'error': return '错误'
-    default: return '未连接'
-  }
+function CustomSelect(props: {
+  value: string
+  onChange: (v: string) => void
+  options: Array<{ value: string; label: string }>
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = props.options.find((o) => o.value === props.value)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        disabled={props.disabled}
+        onClick={() => !props.disabled && setOpen(!open)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          padding: '10px 12px',
+          fontSize: 14,
+          borderRadius: 8,
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          color: 'var(--text)',
+          cursor: props.disabled ? 'not-allowed' : 'pointer',
+          opacity: props.disabled ? 0.5 : 1,
+          textAlign: 'left',
+        }}
+      >
+        <span style={{ flex: 1 }}>{selected?.label ?? '请选择'}</span>
+        <ChevronDown
+          size={16}
+          style={{
+            color: 'var(--text-3)',
+            transition: 'transform 0.2s ease',
+            transform: open ? 'rotate(180deg)' : 'rotate(0)',
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            overflow: 'hidden',
+          }}
+        >
+          {props.options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                props.onChange(opt.value)
+                setOpen(false)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '10px 12px',
+                fontSize: 14,
+                border: 'none',
+                background: opt.value === props.value ? 'var(--primary-bg)' : 'transparent',
+                color: opt.value === props.value ? 'var(--primary)' : 'var(--text)',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => {
+                if (opt.value !== props.value) {
+                  e.currentTarget.style.background = 'var(--hover-bg)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = opt.value === props.value ? 'var(--primary-bg)' : 'transparent'
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
-const s: Record<string, React.CSSProperties> = {
-  root: { padding: 20, maxWidth: 640, margin: '0 auto' },
-  header: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
-  cardTitle: { fontSize: 15, fontWeight: 700, marginBottom: 10 },
-  labeledRow: {
+function SegmentedControl(props: {
+  value: string
+  onChange: (v: string) => void
+  options: Array<{ value: string; label: string }>
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        padding: 3,
+        borderRadius: 8,
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+      }}
+    >
+      {props.options.map((opt) => {
+        const isActive = opt.value === props.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => props.onChange(opt.value)}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              fontSize: 13,
+              fontWeight: 500,
+              borderRadius: 6,
+              border: 'none',
+              background: isActive ? 'var(--surface)' : 'transparent',
+              color: isActive ? 'var(--text)' : 'var(--text-3)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            }}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function Tag(props: { text: string; color?: string }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: 999,
+        border: '1px solid var(--border)',
+        fontSize: 11,
+        fontWeight: 700,
+        color: props.color ?? 'var(--text-2)',
+        background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)'
+      }}
+    >
+      {props.text}
+    </span>
+  )
+}
+
+function DetailRow(props: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, marginBottom: 4 }}>
+      <div style={{ width: 62, opacity: 0.6 }}>{props.label}</div>
+      <div style={{ flex: 1, opacity: 0.85, fontFamily: 'var(--code-font-family, ui-monospace, monospace)' }}>{props.value}</div>
+    </div>
+  )
+}
+
+function McpServerEditModal(props: {
+  open: boolean
+  server: McpServerConfig | null
+  onClose: () => void
+  onSave: (next: McpServerConfig) => void
+  onSyncTools: (serverId: string) => void
+}) {
+  const { open, server, onClose, onSave } = props
+  const isEdit = !!server
+
+  const [draftId, setDraftId] = useState<string>(() => server?.id ?? safeUuid())
+  const [enabled, setEnabled] = useState(true)
+  const [name, setName] = useState('')
+  const [transport, setTransport] = useState<McpTransportType>('http')
+  const [url, setUrl] = useState('')
+  const [headers, setHeaders] = useState<Array<{ k: string; v: string }>>([])
+  const [tools, setTools] = useState<McpToolConfig[]>([])
+  const [tab, setTab] = useState<'basic' | 'tools'>('basic')
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setErr(null)
+    setTab('basic')
+    setDraftId(server?.id ?? safeUuid())
+    setEnabled(server?.enabled ?? true)
+    setName(server?.name ?? '')
+    setTransport(server?.transport ?? 'http')
+    setUrl(server?.url ?? '')
+    setHeaders(Object.entries(server?.headers ?? {}).map(([k, v]) => ({ k, v })))
+    setTools(server?.tools ?? [])
+  }, [open, server])
+
+  if (!open) return null
+
+  const serverId = draftId
+
+  function validate(): string | null {
+    if (transport !== 'inmemory' && !url.trim()) return '请输入服务器地址'
+    return null
+  }
+
+  function handleSave() {
+    const v = validate()
+    if (v) { setErr(v); return }
+    const now = new Date().toISOString()
+    const hdr: Record<string, string> = {}
+    for (const h of headers) {
+      const k = h.k.trim()
+      if (!k) continue
+      hdr[k] = h.v.trim()
+    }
+    onSave({
+      id: serverId,
+      name: name.trim() || 'MCP',
+      enabled,
+      transport,
+      url: url.trim(),
+      headers: hdr,
+      tools,
+      createdAt: server?.createdAt ?? now,
+      updatedAt: now
+    })
+  }
+
+  return (
+    <div className="modalOverlay" onMouseDown={onClose}>
+      <div className="modalSurface frosted" style={sModal.surface} onMouseDown={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div style={sModal.header}>
+          <div style={sModal.headerLeft}>
+            <div style={sModal.iconBox}>
+              <Terminal size={20} style={{ color: 'var(--primary)' }} />
+            </div>
+            <div>
+              <div style={sModal.title}>{isEdit ? '编辑 MCP 服务器' : '添加 MCP 服务器'}</div>
+              <div style={sModal.subtitle}>配置 Model Context Protocol 服务器连接</div>
+            </div>
+          </div>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose} style={{ padding: 8 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={sModal.tabBar}>
+          <div style={sModal.tabGroup}>
+            <button
+              type="button"
+              style={{ ...sModal.tab, ...(tab === 'basic' ? sModal.tabActive : {}) }}
+              onClick={() => setTab('basic')}
+            >
+              基础设置
+            </button>
+            {isEdit && (
+              <button
+                type="button"
+                style={{ ...sModal.tab, ...(tab === 'tools' ? sModal.tabActive : {}) }}
+                onClick={() => setTab('tools')}
+              >
+                工具管理
+              </button>
+            )}
+          </div>
+          {isEdit && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => props.onSyncTools(serverId)}
+              title="从服务器同步工具列表"
+            >
+              <RefreshCw size={14} />
+              同步工具
+            </button>
+          )}
+        </div>
+
+        {/* Error */}
+        {err && (
+          <div style={sModal.errorBox}>
+            <span style={{ fontSize: 13 }}>{err}</span>
+          </div>
+        )}
+
+        {/* Content */}
+        <div style={sModal.content}>
+          {tab === 'basic' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* 名称 + 启用状态 */}
+              <div style={sModal.field}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={sModal.label}>名称</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: enabled ? 'var(--primary)' : 'var(--text-3)' }}>
+                      {enabled ? '已启用' : '已禁用'}
+                    </span>
+                    <Switch checked={enabled} onChange={setEnabled} size="small" />
+                  </div>
+                </div>
+                <input
+                  className="input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="输入服务器名称"
+                  style={sModal.input}
+                />
+              </div>
+
+              {/* 传输类型 */}
+              <div style={sModal.field}>
+                <label style={sModal.label}>传输类型</label>
+                <SegmentedControl
+                  value={transport}
+                  onChange={(v) => setTransport(normalizeTransport(v))}
+                  options={[
+                    { value: 'http', label: 'HTTP' },
+                    { value: 'sse', label: 'SSE' },
+                    { value: 'stdio', label: 'Stdio' },
+                  ]}
+                />
+              </div>
+
+              {/* 服务器地址 - stdio/inmemory 模式不显示 */}
+              {transport !== 'inmemory' && transport !== 'stdio' && (
+                <div style={sModal.field}>
+                  <label style={sModal.label}>服务器地址</label>
+                  <input
+                    className="input"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder={transport === 'sse' ? 'http://localhost:3000/sse' : 'http://localhost:3000/mcp'}
+                    style={sModal.input}
+                  />
+                  {transport === 'sse' && (
+                    <div style={sModal.fieldNote}>SSE 连接可能需要多次尝试</div>
+                  )}
+                </div>
+              )}
+
+              {/* Stdio 命令 */}
+              {transport === 'stdio' && (
+                <div style={sModal.field}>
+                  <label style={sModal.label}>启动命令</label>
+                  <input
+                    className="input"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="npx -y @anthropic/mcp-server"
+                    style={sModal.input}
+                  />
+                  <div style={sModal.fieldNote}>通过 stdio 与本地进程通信</div>
+                </div>
+              )}
+
+              {/* 分割线 */}
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+              {/* 自定义请求头 */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <label style={sModal.label}>自定义请求头</label>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setHeaders((prev) => [...prev, { k: '', v: '' }])}
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                  >
+                    <Plus size={12} />
+                    添加
+                  </button>
+                </div>
+                {headers.length === 0 ? (
+                  <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '8px 0' }}>
+                    暂无自定义请求头
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {headers.map((h, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          className="input"
+                          value={h.k}
+                          onChange={(e) => setHeaders((prev) => prev.map((x, i) => (i === idx ? { ...x, k: e.target.value } : x)))}
+                          placeholder="Header 名称"
+                          style={{ ...sModal.input, flex: 1 }}
+                        />
+                        <input
+                          className="input"
+                          value={h.v}
+                          onChange={(e) => setHeaders((prev) => prev.map((x, i) => (i === idx ? { ...x, v: e.target.value } : x)))}
+                          placeholder="Header 值"
+                          style={{ ...sModal.input, flex: 2 }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setHeaders((prev) => prev.filter((_, i) => i !== idx))}
+                          style={{ padding: 6, color: 'var(--text-3)' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <label style={sModal.label}>
+                  可用工具
+                  {tools.length > 0 && (
+                    <span style={{ marginLeft: 8, color: 'var(--text-3)', fontWeight: 400 }}>
+                      {tools.filter(t => t.enabled).length}/{tools.length} 已启用
+                    </span>
+                  )}
+                </label>
+              </div>
+              {tools.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--text-3)', padding: '20px 0', textAlign: 'center' }}>
+                  暂无工具，点击上方「同步工具」获取
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {tools.map((t, idx) => (
+                    <div
+                      key={t.name}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        background: 'var(--surface-2)',
+                        opacity: t.enabled ? 1 : 0.6,
+                      }}
+                    >
+                      <Switch
+                        checked={t.enabled}
+                        onChange={(v) => setTools((prev) => prev.map((x, i) => (i === idx ? { ...x, enabled: v } : x)))}
+                        size="small"
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: t.enabled ? 'var(--primary)' : 'var(--text-2)' }}>
+                          {t.name}
+                        </div>
+                        {t.description && (
+                          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {t.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={sModal.footer}>
+          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button type="button" className="btn btn-primary" onClick={handleSave}>
+            {isEdit ? '保存更改' : '创建服务器'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const sModal: Record<string, React.CSSProperties> = {
+  surface: {
+    width: 520,
+    maxWidth: '94vw',
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '8px 0',
+    padding: '16px 20px',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--surface)',
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
     gap: 12,
   },
-  rowLabel: { fontSize: 14, flex: 1 },
-  divider: { height: 1, background: 'var(--border)', margin: '4px 0', opacity: 0.5 },
-  hint: { fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)', marginTop: 8 },
-  empty: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    padding: '32px 20px',
-    color: 'var(--text-secondary)',
-  },
-  serverGrid: { display: 'flex', flexDirection: 'column' as const, gap: 3 },
-  serverItem: { justifyContent: 'flex-start', gap: 10, padding: '10px 12px' },
-  serverTypeBadge: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    fontSize: 11,
-    opacity: 0.6,
-    padding: '2px 6px',
-    background: 'var(--surface)',
-    borderRadius: 4,
-  },
-  toolsBadge: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 3,
-    fontSize: 11,
-    padding: '2px 6px',
-    background: 'var(--primary-2)',
-    color: 'var(--primary)',
-    borderRadius: 4,
-  },
-  envRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '4px 0',
-    fontSize: 12,
-  },
-  envKey: {
-    background: 'var(--surface, #f5f5f5)',
-    padding: '2px 6px',
-    borderRadius: 3,
-    fontWeight: 600,
-  },
-  envValue: {
-    flex: 1,
-    opacity: 0.7,
-    overflow: 'hidden' as const,
-    textOverflow: 'ellipsis' as const,
-  },
-  errorBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 10px',
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    borderRadius: 6,
-    color: '#ef4444',
-    fontSize: 12,
-    margin: '4px 0',
-  },
-  toolsList: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 4,
-    marginTop: 8,
-  },
-  toolItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '6px 8px',
-    background: 'var(--surface)',
-    borderRadius: 6,
-  },
-  toolName: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: 'var(--primary)',
-  },
-  toolDesc: {
-    fontSize: 11,
-    opacity: 0.7,
-  },
-  modalOverlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    background: 'rgba(0,0,0,0.5)',
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    background: 'var(--primary-bg)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1000,
   },
-  modal: {
-    width: 500,
-    maxWidth: 'calc(100vw - 48px)',
-    maxHeight: 'calc(100vh - 48px)',
-    background: 'var(--panel)',
-    borderRadius: 12,
-    border: '1px solid var(--border)',
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column' as const,
+  title: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: 'var(--text)',
   },
-  modalHeader: {
+  subtitle: {
+    fontSize: 12,
+    color: 'var(--text-3)',
+    marginTop: 2,
+  },
+  tabBar: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
-    padding: '12px 16px',
+    justifyContent: 'space-between',
+    padding: '8px 20px',
     borderBottom: '1px solid var(--border)',
-  },
-  modalBody: {
-    padding: 16,
-    overflow: 'auto',
-  },
-  errorPre: {
-    margin: 0,
-    padding: 12,
     background: 'var(--surface)',
-    borderRadius: 6,
-    fontSize: 12,
-    whiteSpace: 'pre-wrap' as const,
-    wordBreak: 'break-all' as const,
-    color: '#ef4444',
   },
+  tabGroup: {
+    display: 'flex',
+    gap: 4,
+    padding: 4,
+    borderRadius: 8,
+    background: 'var(--surface-2)',
+  },
+  tab: {
+    padding: '6px 14px',
+    fontSize: 13,
+    fontWeight: 500,
+    borderRadius: 6,
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-2)',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  tabActive: {
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  errorBox: {
+    margin: '12px 20px 0',
+    padding: '10px 14px',
+    borderRadius: 8,
+    background: 'var(--danger-bg)',
+    border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)',
+    color: 'var(--danger)',
+  },
+  content: {
+    flex: 1,
+    overflow: 'auto',
+    padding: 20,
+  },
+  field: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text)',
+  },
+  input: {
+    padding: '10px 12px',
+    fontSize: 14,
+    borderRadius: 8,
+  },
+  fieldNote: {
+    fontSize: 11,
+    color: 'var(--text-3)',
+    marginTop: 4,
+  },
+  footer: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 8,
+    padding: '12px 20px',
+    borderTop: '1px solid var(--border)',
+    background: 'var(--surface)',
+  },
+}
+
+function McpJsonEditModal(props: { open: boolean; value: string; onClose: () => void; onSave: (raw: string) => void }) {
+  const { open, value, onClose, onSave } = props
+  const [raw, setRaw] = useState(value)
+  const [err, setErr] = useState<string | null>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setRaw(value)
+    setErr(null)
+    setTimeout(() => taRef.current?.focus(), 0)
+  }, [open, value])
+
+  if (!open) return null
+
+  return (
+    <div className="modalOverlay" onMouseDown={onClose}>
+      <div className="modalSurface frosted" style={{ width: 900, maxWidth: '92vw', padding: 16 }} onMouseDown={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900 }}>MCP JSON</div>
+          <div style={{ flex: 1 }} />
+          <button type="button" className="btn btn-sm" onClick={onClose}>
+            <X size={14} />
+            关闭
+          </button>
+        </div>
+        <textarea
+          ref={taRef}
+          className="input"
+          style={{ width: '100%', height: '60vh', fontFamily: 'var(--code-font-family, ui-monospace, monospace)', fontSize: 12 }}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+        />
+        {err && <div style={{ marginTop: 8, color: '#ef4444', fontSize: 12 }}>{err}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setErr(null)
+              try {
+                JSON.parse(raw)
+              } catch (e) {
+                setErr(humanizeErr(e))
+                return
+              }
+              onSave(raw)
+            }}
+          >
+            保存并应用
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ErrorDetailsModal(props: { open: boolean; title: string; message: string; onClose: () => void }) {
+  if (!props.open) return null
+  return (
+    <div className="modalOverlay" onMouseDown={props.onClose}>
+      <div className="modalSurface frosted" style={{ width: 560, maxWidth: '92vw', padding: 16 }} onMouseDown={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <div style={{ fontWeight: 900 }}>{props.title}</div>
+          <div style={{ flex: 1 }} />
+          <button type="button" className="btn btn-sm" onClick={props.onClose}>
+            <X size={14} />
+            关闭
+          </button>
+        </div>
+        <div className="settingsCard" style={{ padding: 12 }}>
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--code-font-family, ui-monospace, monospace)', fontSize: 12 }}>
+            {props.message}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const s: Record<string, React.CSSProperties> = {
+  root: {
+    padding: 16,
+    maxWidth: 960,
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12
+  },
+  headerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 900
+  }
+}
+
+const sCard: Record<string, React.CSSProperties> = {
+  root: {
+    borderRadius: 16,
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    overflow: 'hidden'
+  },
+  topRow: {
+    width: '100%',
+    padding: 12,
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 12,
+    background: 'transparent',
+    textAlign: 'left',
+    cursor: 'pointer'
+  },
+  iconWrap: {
+    position: 'relative',
+    flexShrink: 0
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    background: 'var(--surface-2)',
+    border: '1px solid var(--border)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  statusDot: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    border: '2px solid var(--surface)'
+  },
+  statusSpinner: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    border: '2px solid var(--primary)',
+    borderTopColor: 'transparent',
+  },
+  tagsRow: {
+    marginTop: 8,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6
+  },
+  expandBody: {
+    borderTop: '1px solid var(--border)',
+    padding: 12,
+  },
+  errorRow: {
+    marginTop: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10
+  },
+  toolItem: {
+    padding: 12,
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--surface-2)'
+  },
+  toolDisabled: {
+    fontSize: 10,
+    padding: '2px 6px',
+    borderRadius: 6,
+    border: '1px solid var(--border)',
+    opacity: 0.75
+  }
 }

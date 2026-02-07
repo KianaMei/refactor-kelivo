@@ -34,3 +34,15 @@ export async function saveConfig(cfg: AppConfig): Promise<void> {
   const raw = JSON.stringify(normalized, null, 2)
   await writeFile(p, raw, 'utf-8')
 }
+
+/**
+ * 保存配置并返回最终落盘的标准化配置。
+ * 说明：renderer 侧可能传入缺字段/旧版本对象，直接 setState 会造成 UI 访问 undefined 而白屏。
+ */
+export async function saveConfigAndReturn(cfg: AppConfig): Promise<AppConfig> {
+  const normalized = normalizeConfig(cfg)
+  const p = getConfigPath()
+  const raw = JSON.stringify(normalized, null, 2)
+  await writeFile(p, raw, 'utf-8')
+  return normalized
+}

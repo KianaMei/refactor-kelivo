@@ -1,62 +1,37 @@
 /**
- * Agent 页面
- * 对齐旧版 Kelivo 的 desktop_agent_page.dart
- * 包括：Agent 管理、会话列表、消息流、权限控制
+ * Agent 页面（Bridge 子进程）
+ * - Agent 模板：来自 config.agentConfigs（仅 name/prompt）
+ * - 会话/消息：来自 SQLite（agent_sessions/agent_messages）
+ * - 运行：通过 main 的 Agent IPC 启动，并监听 AgentEvent 增量更新
  */
-import { useState, useRef, useEffect, useMemo } from 'react'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Bot,
+  Check,
+  MessageSquare,
+  Play,
   Plus,
   Settings,
-  Play,
+  Shield,
   Square,
   Trash2,
-  FolderOpen,
-  ChevronRight,
-  Bot,
-  MessageSquare,
-  Send,
-  RefreshCw,
-  Terminal,
-  Shield,
-  Check,
-  X,
-  Edit2,
-  Cpu
+  X
 } from 'lucide-react'
+
+import type {
+  AgentSdkProvider,
+  AppConfig,
+  ClaudePermissionMode,
+  CodexApprovalPolicy,
+  CodexSandboxMode,
+  AgentConfig
+} from '../../../shared/types'
+import type { DbAgentMessage, DbAgentSession } from '../../../shared/db-types'
+import type { AgentPermissionRequestEvent, AgentRunStartParams } from '../../../shared/agentRuntime'
 import { MarkdownView } from '../components/MarkdownView'
-
-interface Agent {
-  id: string
-  name: string
-  model: string
-  systemPrompt?: string
-  maxIterations?: number
-  createdAt: number
-}
-
-interface AgentSession {
-  id: string
-  agentId: string
-  name: string
-  createdAt: number
-  messages: AgentMessage[]
-}
-
-interface AgentMessage {
-  id: string
-  type: 'user' | 'assistant' | 'tool' | 'system'
-  content: string
-  ts: number
-  toolName?: string
-  toolStatus?: 'pending' | 'running' | 'done' | 'error'
-}
-
-interface PermissionRequest {
-  id: string
-  toolName: string
-  description: string
-  args?: Record<string, any>
-}
+import { AgentSettingsBar } from './agent/AgentSettingsBar'
+import { AgentConfigDialog } from './agent/AgentConfigDialog'
 
 function safeUuid(): string {
   try {
@@ -66,217 +41,296 @@ function safeUuid(): string {
   }
 }
 
-export function AgentPage() {
-  // Agent 列表
-  const [agents, setAgents] = useState<Agent[]>(() => [
-    {
-      id: 'agent-1',
-      name: '默认 Agent',
-      model: 'claude-3-5-sonnet-20241022',
-      systemPrompt: '你是一个智能助手，可以帮助用户完成各种任务。',
-      maxIterations: 10,
-      createdAt: Date.now() - 1000 * 60 * 60 * 24
-    }
-  ])
-  const [currentAgentId, setCurrentAgentId] = useState<string>('agent-1')
+function nowIso(): string {
+  return new Date().toISOString()
+}
 
-  // 会话列表
-  const [sessions, setSessions] = useState<AgentSession[]>(() => [
-    {
-      id: 'session-1',
-      agentId: 'agent-1',
-      name: '示例会话',
-      createdAt: Date.now() - 1000 * 60 * 30,
-      messages: [
-        { id: 'm1', type: 'user', content: '帮我创建一个 React 组件', ts: Date.now() - 1000 * 60 * 25 },
-        { id: 'm2', type: 'assistant', content: '好的，我来帮你创建一个 React 组件。首先让我分析一下需求...', ts: Date.now() - 1000 * 60 * 24 },
-        { id: 'm3', type: 'tool', content: '写入文件 src/components/MyComponent.tsx', toolName: 'write_file', toolStatus: 'done', ts: Date.now() - 1000 * 60 * 23 },
-        { id: 'm4', type: 'assistant', content: '我已经创建了一个基础的 React 组件 `MyComponent.tsx`。你可以根据需要修改它。', ts: Date.now() - 1000 * 60 * 22 }
-      ]
-    }
-  ])
-  const [currentSessionId, setCurrentSessionId] = useState<string>('session-1')
+type Props = {
+  config: AppConfig
+  onSave: (next: AppConfig) => Promise<void>
+}
 
-  // 工作目录
-  const [workingDirectory, setWorkingDirectory] = useState('C:\\mycode')
+function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
+  const idx = list.findIndex((x) => x.id === item.id)
+  if (idx < 0) return [...list, item]
+  const next = list.slice()
+  next[idx] = item
+  return next
+}
 
-  // 输入与生成状态
-  const [input, setInput] = useState('')
-  const [isRunning, setIsRunning] = useState(false)
+export function AgentPage(props: Props) {
+  const { config, onSave } = props
 
-  // 权限请求
-  const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null)
+  const agentList = useMemo(() => {
+    const order = config.agentsOrder ?? []
+    const map = config.agentConfigs ?? {}
+    return order.map((id) => map[id]).filter(Boolean) as AgentConfig[]
+  }, [config])
 
-  // 设置对话框
+  const [currentAgentId, setCurrentAgentId] = useState<string>(() => agentList[0]?.id ?? '')
+
+  const [sessions, setSessions] = useState<DbAgentSession[]>([])
+  const [currentSessionId, setCurrentSessionId] = useState<string>('')
+  const [messages, setMessages] = useState<DbAgentMessage[]>([])
+
+  const [workingDirectory, setWorkingDirectory] = useState<string>('C:\\mycode')
+  const [input, setInput] = useState<string>('')
+
+  // 运行态配置（UI 选择；runStart 时 main 会持久化到 config.agentRuntime）
+  const [sdkProvider, setSdkProvider] = useState<AgentSdkProvider>(config.agentRuntime.lastSdkProvider)
+  const [apiProviderId, setApiProviderId] = useState<string | null>(config.agentRuntime.lastApiProviderIdBySdk[sdkProvider])
+  const [modelId, setModelId] = useState<string | null>(config.agentRuntime.lastModelIdBySdk[sdkProvider])
+  const [claudePermissionMode, setClaudePermissionMode] = useState<ClaudePermissionMode>(config.agentRuntime.claudePermissionMode)
+  const [codexSandboxMode, setCodexSandboxMode] = useState<CodexSandboxMode>(config.agentRuntime.codexSandboxMode)
+  const [codexApprovalPolicy, setCodexApprovalPolicy] = useState<CodexApprovalPolicy>(config.agentRuntime.codexApprovalPolicy)
+
+  const [isRunning, setIsRunning] = useState<boolean>(false)
+  const [runningRunId, setRunningRunId] = useState<string | null>(null)
+  const [permissionRequest, setPermissionRequest] = useState<AgentPermissionRequestEvent | null>(null)
+
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
+  const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null)
+  const [agentConfigOpen, setAgentConfigOpen] = useState(false)
 
-  // 滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const currentAgentIdRef = useRef<string>(currentAgentId)
+  const currentSessionIdRef = useRef<string>(currentSessionId)
+  const runningRunIdRef = useRef<string | null>(runningRunId)
 
-  // 当前 agent 和 session
-  const currentAgent = useMemo(() => agents.find((a) => a.id === currentAgentId) ?? null, [agents, currentAgentId])
-  const currentSession = useMemo(() => sessions.find((s) => s.id === currentSessionId) ?? null, [sessions, currentSessionId])
-  const agentSessions = useMemo(() => sessions.filter((s) => s.agentId === currentAgentId), [sessions, currentAgentId])
+  useEffect(() => { currentAgentIdRef.current = currentAgentId }, [currentAgentId])
+  useEffect(() => { currentSessionIdRef.current = currentSessionId }, [currentSessionId])
+  useEffect(() => { runningRunIdRef.current = runningRunId }, [runningRunId])
+
+  // config 变化时：兜底修正当前选择
+  useEffect(() => {
+    if (!currentAgentIdRef.current && agentList[0]?.id) {
+      setCurrentAgentId(agentList[0].id)
+    }
+  }, [agentList])
+
+  // 切换 sdkProvider 时，跟随加载该 SDK 的 lastApiProviderId/modelId
+  useEffect(() => {
+    setApiProviderId(config.agentRuntime.lastApiProviderIdBySdk[sdkProvider])
+    setModelId(config.agentRuntime.lastModelIdBySdk[sdkProvider])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sdkProvider])
+
+  // 加载 sessions
+  useEffect(() => {
+    let cancelled = false
+    if (!currentAgentId) return
+    window.api.db.agentSessions
+      .list(currentAgentId)
+      .then((rows) => {
+        if (cancelled) return
+        setSessions(rows)
+        const first = rows[0]?.id ?? ''
+        setCurrentSessionId((prev) => (prev && rows.some((s) => s.id === prev) ? prev : first))
+      })
+      .catch(() => { })
+    return () => { cancelled = true }
+  }, [currentAgentId])
+
+  // 加载 messages
+  useEffect(() => {
+    let cancelled = false
+    if (!currentSessionId) {
+      setMessages([])
+      return
+    }
+    window.api.db.agentMessages
+      .list(currentSessionId)
+      .then((rows) => {
+        if (cancelled) return
+        setMessages(rows)
+
+        // 会话切换时，用会话 workingDirectory 兜底
+        const sess = sessions.find((s) => s.id === currentSessionId)
+        if (sess?.workingDirectory) setWorkingDirectory(sess.workingDirectory)
+      })
+      .catch(() => { })
+    return () => { cancelled = true }
+  }, [currentSessionId, sessions])
 
   // 滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [currentSession?.messages.length])
+  }, [messages.length])
 
-  // 创建新 Agent
-  function handleCreateAgent() {
+  // 增量事件订阅
+  useEffect(() => {
+    return window.api.agent.onEvent((evt) => {
+      if (evt.kind === 'permission.request') {
+        setPermissionRequest(evt.request)
+        return
+      }
+      if (evt.kind === 'run.status') {
+        if (evt.runId !== runningRunIdRef.current) return
+        setIsRunning(evt.status === 'running')
+        if (evt.status !== 'running') setRunningRunId(null)
+        return
+      }
+      if (evt.kind === 'session.upsert') {
+        const s = evt.session
+        if (s.agentId !== currentAgentIdRef.current) return
+        setSessions((prev) => {
+          const next = upsertById(prev, s).sort((a, b) => b.updatedAt - a.updatedAt)
+          return next
+        })
+        return
+      }
+      if (evt.kind === 'message.upsert') {
+        const m = evt.message
+        if (m.sessionId !== currentSessionIdRef.current) return
+        setMessages((prev) => upsertById(prev, m).sort((a, b) => a.sortOrder - b.sortOrder))
+      }
+    })
+  }, [])
+
+  const currentAgent = agentList.find((a) => a.id === currentAgentId) ?? null
+  const currentSession = sessions.find((s) => s.id === currentSessionId) ?? null
+
+  async function handleCreateAgent() {
     const id = safeUuid()
-    const newAgent: Agent = {
-      id,
-      name: `Agent ${agents.length + 1}`,
-      model: 'claude-3-5-sonnet-20241022',
-      maxIterations: 10,
-      createdAt: Date.now()
+    const now = nowIso()
+    const next: AppConfig = {
+      ...config,
+      agentsOrder: [id, ...(config.agentsOrder ?? [])],
+      agentConfigs: {
+        ...(config.agentConfigs ?? {}),
+        [id]: { id, name: `Agent ${agentList.length + 1}`, prompt: '', createdAt: now, updatedAt: now }
+      }
     }
-    setAgents((prev) => [...prev, newAgent])
+    await onSave(next)
     setCurrentAgentId(id)
   }
 
-  // 删除 Agent
-  function handleDeleteAgent(agentId: string) {
-    if (agents.length <= 1) return
-    setAgents((prev) => prev.filter((a) => a.id !== agentId))
-    setSessions((prev) => prev.filter((s) => s.agentId !== agentId))
-    if (currentAgentId === agentId) {
-      setCurrentAgentId(agents.find((a) => a.id !== agentId)?.id ?? '')
-    }
+  async function handleDeleteAgent(agentId: string) {
+    if ((config.agentsOrder?.length ?? 0) <= 1) return
+    const nextOrder = (config.agentsOrder ?? []).filter((id) => id !== agentId)
+    const nextMap = { ...(config.agentConfigs ?? {}) }
+    delete nextMap[agentId]
+    await onSave({ ...config, agentsOrder: nextOrder, agentConfigs: nextMap })
+    if (currentAgentIdRef.current === agentId) setCurrentAgentId(nextOrder[0] ?? '')
   }
 
-  // 创建新会话
-  function handleCreateSession() {
+  async function handleCreateSession() {
     if (!currentAgentId) return
     const id = safeUuid()
-    const newSession: AgentSession = {
+    await window.api.db.agentSessions.create({
       id,
       agentId: currentAgentId,
       name: '新会话',
-      createdAt: Date.now(),
-      messages: []
-    }
-    setSessions((prev) => [newSession, ...prev])
+      sdkProvider,
+      apiProviderId,
+      modelId,
+      permissionMode: sdkProvider === 'claude' ? claudePermissionMode : null,
+      sandboxMode: sdkProvider === 'codex' ? codexSandboxMode : null,
+      approvalPolicy: sdkProvider === 'codex' ? codexApprovalPolicy : null,
+      workingDirectory
+    })
+    const rows = await window.api.db.agentSessions.list(currentAgentId)
+    setSessions(rows)
     setCurrentSessionId(id)
   }
 
-  // 删除会话
-  function handleDeleteSession(sessionId: string) {
-    setSessions((prev) => prev.filter((s) => s.id !== sessionId))
-    if (currentSessionId === sessionId) {
-      const remaining = sessions.filter((s) => s.id !== sessionId && s.agentId === currentAgentId)
-      setCurrentSessionId(remaining[0]?.id ?? '')
-    }
+  async function handleDeleteSession(sessionId: string) {
+    await window.api.db.agentSessions.delete(sessionId)
+    const rows = await window.api.db.agentSessions.list(currentAgentId)
+    setSessions(rows)
+    setCurrentSessionId(rows[0]?.id ?? '')
   }
 
-  // 提交任务
   async function handleSubmit() {
     const prompt = input.trim()
     if (!prompt) return
-    if (isRunning) return
     if (!currentAgentId) return
+    if (isRunning) return
 
-    // 如果没有当前会话，创建一个
-    let sessionId = currentSessionId
-    const existingSession = sessions.find((s) => s.id === sessionId)
-    if (!sessionId || !existingSession || existingSession.agentId !== currentAgentId) {
-      const id = safeUuid()
-      const newSession: AgentSession = {
-        id,
-        agentId: currentAgentId,
-        name: prompt.slice(0, 30),
-        createdAt: Date.now(),
-        messages: []
-      }
-      setSessions((prev) => [newSession, ...prev])
-      setCurrentSessionId(id)
-      sessionId = id
+    if (!apiProviderId) {
+      alert('请先在顶部选择一个 Providers 配置（用于提供 API Key）。')
+      return
     }
 
-    // 添加用户消息
-    const userMsg: AgentMessage = { id: safeUuid(), type: 'user', content: prompt, ts: Date.now() }
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, messages: [...s.messages, userMsg] } : s))
-    )
-    setInput('')
+    let allowDangerouslySkipPermissions = false
+    if (sdkProvider === 'claude' && claudePermissionMode === 'bypassPermissions') {
+      const ok = window.confirm('你选择了 bypassPermissions（高风险）。确认继续本次运行吗？')
+      if (!ok) return
+      allowDangerouslySkipPermissions = true
+    }
+
     setIsRunning(true)
-
-    // 模拟 Agent 执行
     try {
-      await simulateAgentRun(sessionId, prompt)
-    } finally {
+      const params: AgentRunStartParams = {
+        agentId: currentAgentId,
+        sessionId: currentSessionId || null,
+        prompt,
+        cwd: workingDirectory,
+        sdkProvider,
+        apiProviderId,
+        modelId,
+        claudePermissionMode,
+        allowDangerouslySkipPermissions,
+        codexSandboxMode,
+        codexApprovalPolicy
+      }
+
+      const r = await window.api.agent.runStart(params)
+      setRunningRunId(r.runId)
+      setCurrentSessionId(r.sessionId)
+      setInput('')
+    } catch (e) {
       setIsRunning(false)
+      alert(e instanceof Error ? e.message : String(e))
     }
   }
 
-  // 模拟 Agent 执行流程
-  async function simulateAgentRun(sessionId: string, prompt: string) {
-    // 思考
-    await new Promise((r) => setTimeout(r, 500))
-    const thinkMsg: AgentMessage = {
-      id: safeUuid(),
-      type: 'assistant',
-      content: '让我分析一下这个任务...',
-      ts: Date.now()
-    }
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, messages: [...s.messages, thinkMsg] } : s))
-    )
-
-    // 工具调用
-    await new Promise((r) => setTimeout(r, 800))
-    const toolMsg: AgentMessage = {
-      id: safeUuid(),
-      type: 'tool',
-      content: '执行命令: ls -la',
-      toolName: 'execute_command',
-      toolStatus: 'done',
-      ts: Date.now()
-    }
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, messages: [...s.messages, toolMsg] } : s))
-    )
-
-    // 最终回复
-    await new Promise((r) => setTimeout(r, 600))
-    const finalMsg: AgentMessage = {
-      id: safeUuid(),
-      type: 'assistant',
-      content: `我已经完成了你的任务：\n\n> ${prompt}\n\n任务执行成功！`,
-      ts: Date.now()
-    }
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, messages: [...s.messages, finalMsg] } : s))
-    )
-  }
-
-  // 停止执行
   function handleStop() {
-    setIsRunning(false)
+    if (!runningRunId) return
+    void window.api.agent.abort({ runId: runningRunId })
   }
 
-  // 响应权限请求
-  function handlePermissionResponse(approved: boolean) {
-    // 在实际实现中通知 Agent
-    console.log('Permission response:', approved)
-    setPermissionRequest(null)
+  async function handlePermissionResponse(approved: boolean) {
+    if (!permissionRequest) return
+    try {
+      await window.api.agent.respondPermission({
+        requestId: permissionRequest.requestId,
+        behavior: approved ? 'allow' : 'deny'
+      })
+    } finally {
+      setPermissionRequest(null)
+    }
   }
 
-  // 保存 Agent 设置
-  function handleSaveAgent(agent: Agent) {
-    setAgents((prev) => prev.map((a) => (a.id === agent.id ? agent : a)))
+  async function handleSaveAgent(nextAgent: AgentConfig) {
+    const now = nowIso()
+    const next: AppConfig = {
+      ...config,
+      agentConfigs: {
+        ...(config.agentConfigs ?? {}),
+        [nextAgent.id]: { ...nextAgent, updatedAt: now }
+      }
+    }
+    await onSave(next)
     setEditingAgent(null)
     setSettingsOpen(false)
   }
 
+  async function handleAgentConfigSave(providerId: string, updated: unknown) {
+    // 1. Update Provider Config
+    const nextMap = { ...(config.providerConfigs ?? {}) }
+    nextMap[providerId] = updated as any
+    const nextConfig = { ...config, providerConfigs: nextMap }
+    await onSave(nextConfig)
+
+    // 2. Set as active provider for current SDK
+    setApiProviderId(providerId)
+  }
+
   return (
     <div style={{ display: 'flex', height: '100%' }}>
-      {/* 左侧边栏 */}
+      {/* 左侧：Agent 模板 + 会话列表 */}
       <div className="agentSidebar frosted">
-        {/* Agent 选择 */}
         <div className="agentSidebarSection">
           <div className="agentSidebarSectionHeader">
             <Bot size={14} />
@@ -287,7 +341,7 @@ export function AgentPage() {
             </button>
           </div>
           <div className="agentList">
-            {agents.map((agent) => (
+            {agentList.map((agent) => (
               <button
                 key={agent.id}
                 type="button"
@@ -295,7 +349,7 @@ export function AgentPage() {
                 onClick={() => setCurrentAgentId(agent.id)}
               >
                 <Bot size={14} />
-                <span style={{ flex: 1 }}>{agent.name}</span>
+                <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }} title={agent.name}>{agent.name}</span>
                 <button
                   type="button"
                   className="btn btn-icon btn-sm"
@@ -304,15 +358,26 @@ export function AgentPage() {
                     setEditingAgent(agent)
                     setSettingsOpen(true)
                   }}
+                  title="编辑"
                 >
                   <Settings size={12} />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon btn-sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void handleDeleteAgent(agent.id)
+                  }}
+                  title="删除"
+                >
+                  <Trash2 size={12} />
                 </button>
               </button>
             ))}
           </div>
         </div>
 
-        {/* 会话列表 */}
         <div className="agentSidebarSection" style={{ flex: 1 }}>
           <div className="agentSidebarSectionHeader">
             <MessageSquare size={14} />
@@ -322,143 +387,154 @@ export function AgentPage() {
               <Plus size={14} />
             </button>
           </div>
-          <div className="agentSessionList">
-            {agentSessions.length === 0 ? (
-              <div style={{ padding: 12, opacity: 0.5, fontSize: 12 }}>暂无会话</div>
-            ) : (
-              agentSessions.map((session) => (
+          <div className="agentList">
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`agentListItem ${s.id === currentSessionId ? 'agentListItemActive' : ''}`}
+                onClick={() => setCurrentSessionId(s.id)}
+              >
+                <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }} title={s.name}>{s.name || s.id}</span>
+                <span style={{ fontSize: 11, opacity: 0.6, marginLeft: 8 }}>{s.status}</span>
                 <button
-                  key={session.id}
                   type="button"
-                  className={`agentSessionItem ${session.id === currentSessionId ? 'agentSessionItemActive' : ''}`}
-                  onClick={() => setCurrentSessionId(session.id)}
+                  className="btn btn-icon btn-sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void handleDeleteSession(s.id)
+                  }}
+                  title="删除会话"
                 >
-                  <span style={{ flex: 1 }}>{session.name}</span>
-                  <span style={{ fontSize: 11, opacity: 0.5 }}>{session.messages.length}</span>
+                  <Trash2 size={12} />
                 </button>
-              ))
-            )}
+              </button>
+            ))}
           </div>
-        </div>
-
-        {/* 工作目录 */}
-        <div className="agentWorkingDir">
-          <FolderOpen size={14} />
-          <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>{workingDirectory}</span>
-          <button
-            type="button"
-            className="btn btn-icon btn-sm"
-            onClick={() => {
-              const dir = prompt('输入工作目录', workingDirectory)
-              if (dir) setWorkingDirectory(dir)
-            }}
-          >
-            <Edit2 size={12} />
-          </button>
         </div>
       </div>
 
-      {/* 主内容区 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* 顶部栏 */}
-        <div className="agentTopBar frosted">
-          <Bot size={20} />
-          <span style={{ fontWeight: 700 }}>{currentAgent?.name ?? 'Agent'}</span>
-          <span style={{ fontSize: 12, opacity: 0.6, marginLeft: 8 }}>{currentAgent?.model ?? ''}</span>
-          <div style={{ flex: 1 }} />
-          {isRunning && (
-            <span style={{ fontSize: 12, color: 'var(--primary)' }}>
-              <RefreshCw size={12} className="spinning" style={{ marginRight: 6 }} />
-              执行中...
-            </span>
-          )}
-        </div>
+      {/* 右侧：消息区 + 运行配置 */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* 顶部：运行配置 */}
+        {/* 顶部：运行配置 */}
+
 
         {/* 消息列表 */}
-        <div className="agentMessages">
-          {!currentSession || currentSession.messages.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 60, opacity: 0.5 }}>
-              <Cpu size={48} style={{ marginBottom: 16 }} />
-              <div style={{ fontSize: 16, marginBottom: 8 }}>Agent 模式</div>
-              <div style={{ fontSize: 13 }}>输入任务描述，Agent 将自动规划并执行</div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
+          {currentSession ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {messages.map((m) => (
+                <div key={m.id} className={`agentMsg ${m.type}`}>
+                  {m.type === 'assistant' ? (
+                    <div className="agentBubble agentBubbleAssistant">
+                      <MarkdownView content={m.content} />
+                      {m.isStreaming ? <div style={{ opacity: 0.5, fontSize: 11, marginTop: 6 }}>输出中…</div> : null}
+                    </div>
+                  ) : m.type === 'user' ? (
+                    <div className="agentBubble agentBubbleUser">
+                      <MarkdownView content={m.content} />
+                    </div>
+                  ) : m.type === 'tool' ? (
+                    <div className="agentBubble agentBubbleTool">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ fontWeight: 700 }}>{m.toolName ?? 'tool'}</div>
+                        <div style={{ opacity: 0.7, fontSize: 12 }}>{m.toolStatus ?? ''}</div>
+                      </div>
+                      {m.toolInputPreview ? (
+                        <pre style={{ marginTop: 8, padding: 10, borderRadius: 8, background: 'var(--panel)', fontSize: 12, overflow: 'auto' }}>
+                          {m.toolInputPreview}
+                        </pre>
+                      ) : null}
+                      {m.toolResult ? (
+                        <pre style={{ marginTop: 8, padding: 10, borderRadius: 8, background: 'var(--panel)', fontSize: 12, overflow: 'auto' }}>
+                          {m.toolResult}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="agentBubble agentBubbleSystem">
+                      <MarkdownView content={m.content} />
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
           ) : (
-            currentSession.messages.map((msg) => (
-              <div key={msg.id} className={`agentMessage agentMessage-${msg.type}`}>
-                {msg.type === 'tool' ? (
-                  <div className="agentToolCall">
-                    <Terminal size={14} />
-                    <span style={{ flex: 1 }}>{msg.toolName}</span>
-                    <span className={`agentToolStatus agentToolStatus-${msg.toolStatus}`}>
-                      {msg.toolStatus === 'done' ? <Check size={12} /> : <RefreshCw size={12} className="spinning" />}
-                    </span>
-                  </div>
-                ) : null}
-                <div className="agentMessageContent">
-                  <MarkdownView content={msg.content} />
-                </div>
-              </div>
-            ))
+            <div style={{ opacity: 0.7 }}>请选择或创建一个会话。</div>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
         {/* 输入区 */}
-        <div className="agentInputArea frosted">
+        {/* 输入区 */}
+        <div className="agentInputBar frosted" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <textarea
-            className="input"
+            className="input text-sm"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSubmit()
-              }
-            }}
-            placeholder="描述你想要完成的任务..."
-            rows={3}
-            style={{ flex: 1, resize: 'none' }}
-            disabled={isRunning}
+            placeholder="输入你的任务…"
+            style={{ minHeight: 80, resize: 'vertical', border: 'none', background: 'transparent', outline: 'none' }}
           />
-          <div style={{ display: 'flex', gap: 8 }}>
-            {isRunning ? (
-              <button type="button" className="btn btn-primary" onClick={handleStop}>
-                <Square size={16} />
-                <span>停止</span>
-              </button>
-            ) : (
-              <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={!input.trim()}>
-                <Play size={16} />
-                <span>执行</span>
-              </button>
-            )}
+
+          {/* 底部工具栏：左侧设置 Pills，右侧执行按钮 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+            <AgentSettingsBar
+              config={config}
+              sdkProvider={sdkProvider}
+              setSdkProvider={setSdkProvider}
+              apiProviderId={apiProviderId}
+              setApiProviderId={setApiProviderId}
+              modelId={modelId}
+              setModelId={setModelId}
+              claudePermissionMode={claudePermissionMode}
+              setClaudePermissionMode={setClaudePermissionMode}
+              codexSandboxMode={codexSandboxMode}
+              setCodexSandboxMode={setCodexSandboxMode}
+              codexApprovalPolicy={codexApprovalPolicy}
+              setCodexApprovalPolicy={setCodexApprovalPolicy}
+              onOpenConfig={() => setAgentConfigOpen(true)}
+            />
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ fontSize: 12, opacity: 0.5, marginRight: 8 }}>{workingDirectory}</div>
+              {isRunning ? (
+                <button type="button" className="btn btn-primary btn-icon" onClick={handleStop} title="停止">
+                  <Square size={16} fill="white" />
+                </button>
+              ) : (
+                <button type="button" className="btn btn-primary btn-icon" onClick={handleSubmit} disabled={!input.trim()} title="执行">
+                  <Play size={16} fill="white" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 权限请求对话框 */}
+      {/* 权限请求弹窗（仅在 SDK 需要时触发） */}
       {permissionRequest && (
         <div className="modalOverlay">
-          <div className="modalSurface frosted" style={{ width: 440, padding: 20 }}>
+          <div className="modalSurface frosted" style={{ width: 520, padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
               <Shield size={24} style={{ color: 'var(--warning)' }} />
               <div style={{ fontWeight: 700, fontSize: 16 }}>权限请求</div>
             </div>
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 10 }}>
               <strong>{permissionRequest.toolName}</strong>
             </div>
-            <div style={{ opacity: 0.8, marginBottom: 16 }}>{permissionRequest.description}</div>
-            {permissionRequest.args && (
-              <pre style={{ padding: 12, borderRadius: 8, background: 'var(--panel)', fontSize: 12, overflow: 'auto', maxHeight: 150, marginBottom: 16 }}>
-                {JSON.stringify(permissionRequest.args, null, 2)}
-              </pre>
-            )}
+            {permissionRequest.decisionReason ? (
+              <div style={{ opacity: 0.8, marginBottom: 10 }}>原因：{permissionRequest.decisionReason}</div>
+            ) : null}
+            <pre style={{ padding: 12, borderRadius: 8, background: 'var(--panel)', fontSize: 12, overflow: 'auto', maxHeight: 220, marginBottom: 16 }}>
+              {permissionRequest.inputPreview}
+            </pre>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn" onClick={() => handlePermissionResponse(false)}>
+              <button type="button" className="btn" onClick={() => void handlePermissionResponse(false)}>
                 <X size={14} />
                 <span>拒绝</span>
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => handlePermissionResponse(true)}>
+              <button type="button" className="btn btn-primary" onClick={() => void handlePermissionResponse(true)}>
                 <Check size={14} />
                 <span>允许</span>
               </button>
@@ -467,11 +543,11 @@ export function AgentPage() {
         </div>
       )}
 
-      {/* Agent 设置对话框 */}
+      {/* Agent 模板设置弹窗 */}
       {settingsOpen && editingAgent && (
         <div className="modalOverlay" onMouseDown={() => setSettingsOpen(false)}>
-          <div className="modalSurface frosted" style={{ width: 500, padding: 20 }} onMouseDown={(e) => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Agent 设置</div>
+          <div className="modalSurface frosted" style={{ width: 560, padding: 20 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Agent 模板设置</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>名称</label>
@@ -483,31 +559,12 @@ export function AgentPage() {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>模型</label>
-                <input
-                  className="input"
-                  value={editingAgent.model}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, model: e.target.value })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>系统提示词</label>
+                <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Prompt（仅存模板，不绑定模型/Provider）</label>
                 <textarea
                   className="input"
-                  value={editingAgent.systemPrompt ?? ''}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, systemPrompt: e.target.value })}
-                  style={{ width: '100%', minHeight: 100, resize: 'vertical' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>最大迭代次数</label>
-                <input
-                  className="input"
-                  type="number"
-                  value={editingAgent.maxIterations ?? 10}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, maxIterations: Number(e.target.value) })}
-                  style={{ width: 100 }}
+                  value={editingAgent.prompt ?? ''}
+                  onChange={(e) => setEditingAgent({ ...editingAgent, prompt: e.target.value })}
+                  style={{ width: '100%', minHeight: 180, resize: 'vertical' }}
                 />
               </div>
             </div>
@@ -515,13 +572,24 @@ export function AgentPage() {
               <button type="button" className="btn" onClick={() => setSettingsOpen(false)}>
                 取消
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => handleSaveAgent(editingAgent)}>
+              <button type="button" className="btn btn-primary" onClick={() => void handleSaveAgent(editingAgent)}>
                 保存
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Agent Provider Config Dialog */}
+      <AgentConfigDialog
+        isOpen={agentConfigOpen}
+        onClose={() => setAgentConfigOpen(false)}
+        sdkProvider={sdkProvider}
+        currentProviderId={apiProviderId}
+        config={config}
+        onSave={handleAgentConfigSave}
+      />
     </div>
   )
 }
+

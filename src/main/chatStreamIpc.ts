@@ -7,7 +7,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import type { ProviderConfigV2 } from '../shared/types'
 import type { ChatMessage, ToolDefinition, ChatStreamChunk } from '../shared/chatStream'
 import { sendMessageStream } from './api/chatApiService'
-import { getConfigStore } from './configStore'
+import { loadConfig } from './configStore'
 
 // IPC 频道名称
 export const CHAT_STREAM_CHANNELS = {
@@ -69,8 +69,7 @@ export function registerChatStreamIpc(): void {
 
     try {
       // 获取 provider 配置
-      const configStore = getConfigStore()
-      const appConfig = configStore.get()
+      const appConfig = await loadConfig()
       const providerConfig = appConfig.providerConfigs[providerId]
 
       if (!providerConfig) {

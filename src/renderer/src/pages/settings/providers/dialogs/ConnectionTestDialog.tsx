@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ProviderConfigV2 } from '../../../../../../shared/types'
+import { CustomSelect } from '../../../../components/ui/CustomSelect'
 import { useDialogClose } from '../../../../hooks/useDialogClose'
 
 type TestState = 'idle' | 'loading' | 'success' | 'error'
@@ -94,18 +95,12 @@ export function ConnectionTestDialog({
                 暂无模型，请先获取或添加模型
               </div>
             ) : (
-              <select
-                className="input-detail"
+              <CustomSelect
                 value={selectedModelId}
-                onChange={(e) => setSelectedModelId(e.target.value)}
-                disabled={testState === 'loading'}
-              >
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+                onChange={setSelectedModelId}
+                options={models.map(m => ({ value: m, label: m }))}
+                className="input-detail"
+              />
             )}
           </div>
 

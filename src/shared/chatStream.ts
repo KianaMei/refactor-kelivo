@@ -8,6 +8,7 @@ export interface TokenUsage {
   promptTokens: number
   completionTokens: number
   cachedTokens?: number
+  thoughtTokens?: number
   totalTokens: number
 }
 

@@ -224,8 +224,8 @@ export function DataPane() {
 }
 
 const s: Record<string, React.CSSProperties> = {
-  root: { padding: 20, maxWidth: 640, margin: '0 auto' },
-  header: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
+  root: { padding: '16px 16px 32px', maxWidth: 960, margin: '0 auto' },
+  header: { fontSize: 16, fontWeight: 700, marginBottom: 8 },
   cardTitle: {
     fontSize: 15,
     fontWeight: 700,

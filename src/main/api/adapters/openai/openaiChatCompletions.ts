@@ -483,7 +483,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
   }
 
   // 构建 tool calls
-  const calls: Array<{ id: string; type: string; function: { name: string; arguments: string } }> = []
+  const calls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
   const callInfos: ToolCallInfo[] = []
   const toolMsgs: Array<{ name: string; id: string; args: Record<string, unknown> }> = []
 
@@ -679,7 +679,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
 
     // 检查是否有更多 tool calls
     if (finishReason2 === 'tool_calls' || toolAcc2.size > 0) {
-      const calls2: Array<{ id: string; type: string; function: { name: string; arguments: string } }> = []
+      const calls2: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
       const callInfos2: ToolCallInfo[] = []
       const toolMsgs2: Array<{ name: string; id: string; args: Record<string, unknown> }> = []
 

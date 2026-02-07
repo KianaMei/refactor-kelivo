@@ -139,7 +139,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   for (let round = 0; round < maxToolLoopIterations; round++) {
     const body: Record<string, unknown> = {
       model: upstreamModelId,
-      max_tokens: maxTokens ?? 4096,
+      max_tokens: maxTokens ?? 64000,
       messages: currentMessages,
       stream: true,
       ...(systemPrompt && {

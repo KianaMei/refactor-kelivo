@@ -9,19 +9,10 @@ import { useEffect } from 'react'
  * - button 4 = XButton2 (前进键)
  */
 export function useDialogClose(active: boolean, onClose: () => void): void {
-  console.log('[useDialogClose] called with active:', active)
-
   useEffect(() => {
-    console.log('[useDialogClose] effect running, active:', active)
-    if (!active) {
-      console.log('[useDialogClose] skipping because active is false')
-      return
-    }
-
-    console.log('[useDialogClose] BINDING event listeners!')
+    if (!active) return
 
     const handleKey = (e: KeyboardEvent) => {
-      console.log('[useDialogClose] keydown:', e.key)
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
@@ -30,7 +21,6 @@ export function useDialogClose(active: boolean, onClose: () => void): void {
     }
 
     const handleMouse = (e: MouseEvent) => {
-      console.log('[useDialogClose] mouseup button:', e.button)
       // button 3 = 鼠标后退侧键 (XButton1)
       if (e.button === 3) {
         e.preventDefault()
@@ -44,7 +34,6 @@ export function useDialogClose(active: boolean, onClose: () => void): void {
     document.addEventListener('mouseup', handleMouse, true)
 
     return () => {
-      console.log('[useDialogClose] UNBINDING event listeners')
       document.removeEventListener('keydown', handleKey, true)
       document.removeEventListener('mouseup', handleMouse, true)
     }

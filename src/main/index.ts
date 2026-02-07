@@ -1,4 +1,5 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, dialog } from 'electron'
+import { readFile } from 'fs/promises'
 import { join } from 'path'
 
 import { registerConfigIpc } from './configIpc'
@@ -7,6 +8,23 @@ import { registerChatStreamIpc, cleanupChatStreamRequests } from './chatStreamIp
 import { registerModelsIpc } from './modelsIpc'
 import { registerAvatarIpc } from './avatarIpc'
 import { registerProviderBundleIpc } from './providerBundleIpc'
+import { registerConversationIpc } from './conversationIpc'
+import { registerMessageIpc } from './messageIpc'
+import { registerWorkspaceIpc } from './workspaceIpc'
+import { registerMemoryIpc } from './memoryIpc'
+import { registerAgentSessionIpc } from './agentSessionIpc'
+import { registerAgentMessageIpc } from './agentMessageIpc'
+import { registerAgentIpc } from './agent/agentIpc'
+import { registerOcrIpc } from './ocrIpc'
+import { registerSearchIpc } from './searchIpc'
+import { registerBackupIpc } from './backupIpc'
+import { registerMcpIpc } from './mcpIpc'
+import { registerStorageIpc } from './storageIpc'
+import { registerDepsIpc } from './deps/depsIpc'
+import { initDatabase, closeDatabase } from './db/database'
+import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
+import { getMemoryCount, bulkInsertMemories } from './db/repositories/memoryRepo'
+import { loadConfig, saveConfig } from './configStore'
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -63,11 +81,93 @@ function createMainWindow(): void {
   }
 }
 
+// 注册自定义协议权限
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'kelivo-file',
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true
+    }
+  }
+])
+
 app.whenReady().then(() => {
+  // 注册 kelivo-file 协议用于加载本地图片
+  protocol.handle('kelivo-file', async (request) => {
+    try {
+      const u = new URL(request.url)
+      let filePath = ''
+
+      // Windows 路径特殊处理
+      if (process.platform === 'win32') {
+        // Case 1: Browser parsed "C:" as host, stripping colon.
+        // kelivo-file://c/Users/jaqenze/... => hostname="c", pathname="/Users/jaqenze/..."
+        if (u.hostname && u.hostname.length === 1) {
+          filePath = `${u.hostname}:${u.pathname}`
+        }
+        // Case 2: Three slashes. hostname is empty. pathname="/C:/Users/..."
+        else if (u.pathname.startsWith('/') && /^[a-zA-Z]:/.test(u.pathname.slice(1))) {
+          filePath = u.pathname.slice(1)
+        }
+        // Fallback
+        else {
+          filePath = u.pathname.startsWith('/') ? u.pathname.slice(1) : u.pathname
+        }
+      } else {
+        filePath = u.pathname
+      }
+
+      // URL pathname is encoded
+      filePath = decodeURIComponent(filePath)
+
+      const data = await readFile(filePath)
+
+      const ext = filePath.split('.').pop()?.toLowerCase()
+      let mimeType = 'application/octet-stream'
+      if (ext === 'png') mimeType = 'image/png'
+      else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg'
+      else if (ext === 'gif') mimeType = 'image/gif'
+      else if (ext === 'svg') mimeType = 'image/svg+xml'
+      else if (ext === 'webp') mimeType = 'image/webp'
+
+      return new Response(data, {
+        headers: { 'content-type': mimeType }
+      })
+    } catch (err) {
+      console.error('Failed to load file:', request.url, err)
+      return new Response('Not Found', { status: 404 })
+    }
+  })
+
   // Windows 任务栏分组/通知等需要 AppUserModelId。
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.kelivo.refactor')
   }
+
+  // Database
+  try {
+    initDatabase()
+    ensureDefaultWorkspace()
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[db] init failed:', err)
+
+    const isDev = !app.isPackaged
+    const hint = isDev
+      ? '可能是原生依赖（better-sqlite3）未按 Electron 版本重建。请运行：node scripts/ensure-electron-native.mjs --rebuild'
+      : '请尝试重新安装或升级应用。'
+
+    dialog.showErrorBox('数据库初始化失败', `${String(err)}\n\n${hint}`)
+    app.quit()
+    return
+  }
+
+  // 迁移记忆数据：config.json → SQLite（幂等，只执行一次）
+  void migrateMemoriesFromConfig()
 
   // IPC 统一在主进程注册（仅暴露必要能力到 renderer）。
   registerConfigIpc()
@@ -76,6 +176,19 @@ app.whenReady().then(() => {
   registerModelsIpc()
   registerAvatarIpc()
   registerProviderBundleIpc()
+  registerConversationIpc()
+  registerMessageIpc()
+  registerWorkspaceIpc()
+  registerMemoryIpc()
+  registerAgentSessionIpc()
+  registerAgentMessageIpc()
+  registerAgentIpc()
+  registerOcrIpc()
+  registerSearchIpc()
+  registerBackupIpc()
+  registerMcpIpc()
+  registerStorageIpc()
+  registerDepsIpc()
 
   createMainWindow()
 
@@ -86,5 +199,38 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   cleanupChatStreamRequests() // 清理所有进行中的请求
+  closeDatabase()
   if (process.platform !== 'darwin') app.quit()
 })
+
+// ── 记忆迁移（config.json → SQLite）────────────────────────────
+async function migrateMemoriesFromConfig(): Promise<void> {
+  try {
+    // 如果数据库中已有记忆数据，说明已迁移过，跳过
+    if (getMemoryCount() > 0) return
+
+    const config = await loadConfig()
+    const memories = config.assistantMemories ?? []
+    if (memories.length === 0) return
+
+    // 批量插入到 SQLite
+    bulkInsertMemories(
+      memories.map((m) => ({
+        assistantId: m.assistantId,
+        content: m.content
+      }))
+    )
+
+    // 清空 config.json 中的 assistantMemories
+    await saveConfig({
+      ...config,
+      assistantMemories: []
+    })
+
+    // eslint-disable-next-line no-console
+    console.log(`[Migration] Migrated ${memories.length} memories from config.json to SQLite`)
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[Migration] Failed to migrate memories:', err)
+  }
+}

@@ -3,16 +3,12 @@ import { readFile, writeFile } from 'fs/promises'
 import JSZip from 'jszip'
 
 import { IpcChannel } from '../shared/ipc'
-import type { ProviderConfigV2 } from '../shared/types'
+import type { ProviderConfigV2, BundleImportResult } from '../shared/types'
 import { resolveAvatarPath, saveProviderAvatar } from './avatarStore'
 
 interface BundleManifest {
   version: 1
   exportedAt: string
-  providers: ProviderConfigV2[]
-}
-
-export interface BundleImportResult {
   providers: ProviderConfigV2[]
 }
 
