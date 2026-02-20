@@ -143,4 +143,5 @@ export { SearchService, SearchResult, SearchOptions }
 export { ExaSearchService, type ExaConfig }
 export { TavilySearchService, type TavilyConfig }
 export { BraveSearchService, type BraveConfig }
-export { DuckDuckGoSearchService, type DuckDuckGoConfig }
+export { DuckDuckGoSearchService }
+export type { DuckDuckGoConfig }

@@ -3,7 +3,6 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 import { IpcChannel } from '../shared/ipc'
 import type { AppConfig } from '../shared/types'
-import type { ChatStreamChunkEvent, ChatStreamErrorEvent, ChatStreamStartParams } from '../shared/chat'
 import type { ModelsListResult } from '../shared/models'
 import type { ProviderConfigV2 } from '../shared/types'
 import type {
@@ -14,6 +13,8 @@ import type {
   StorageReport,
   BundleImportResult,
   McpListToolsResponse,
+  McpCallToolRequest,
+  McpCallToolResponse,
   StorageItemDetail
 } from '../shared/types'
 import { OCR_CHANNELS, type OcrRunRequest, type OcrRunResult } from '../shared/ocr'
@@ -26,6 +27,7 @@ import type {
   AgentRunStartResult
 } from '../shared/agentRuntime'
 import type { DepsInstallParams, DepsProgressEvent, DepsStatusResult, DepsUninstallParams } from '../shared/deps'
+import type { PreprocessImageParams, PreprocessImageResult } from '../main/chatPreprocessIpc'
 // import type { SearchServiceConfigUnion } from '../main/services/search'
 import type {
   DbConversation,
@@ -57,20 +59,10 @@ const api = {
     save: (cfg: AppConfig) => ipcRenderer.invoke(IpcChannel.ConfigSave, cfg) as Promise<AppConfig>
   },
   chat: {
-    startStream: (params: ChatStreamStartParams) => ipcRenderer.invoke(IpcChannel.ChatStreamStart, params) as Promise<string>,
-    abort: (streamId: string) => ipcRenderer.invoke(IpcChannel.ChatStreamAbort, streamId) as Promise<void>,
     test: (providerId: string, modelId: string) =>
       ipcRenderer.invoke(IpcChannel.ChatTest, { providerId, modelId }) as Promise<void>,
-    onChunk: (fn: (evt: ChatStreamChunkEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: ChatStreamChunkEvent) => fn(payload)
-      ipcRenderer.on(IpcChannel.ChatStreamChunk, listener)
-      return () => ipcRenderer.removeListener(IpcChannel.ChatStreamChunk, listener)
-    },
-    onError: (fn: (evt: ChatStreamErrorEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: ChatStreamErrorEvent) => fn(payload)
-      ipcRenderer.on(IpcChannel.ChatStreamError, listener)
-      return () => ipcRenderer.removeListener(IpcChannel.ChatStreamError, listener)
-    }
+    preprocess: (params: PreprocessImageParams) =>
+      ipcRenderer.invoke(IpcChannel.ChatPreprocess, params) as Promise<PreprocessImageResult>
   },
   models: {
     list: (providerId: string) =>
@@ -156,6 +148,8 @@ const api = {
         ipcRenderer.invoke(IpcChannel.DbMemoryList, assistantId) as Promise<DbMemory[]>,
       create: (input: MemoryCreateInput) =>
         ipcRenderer.invoke(IpcChannel.DbMemoryCreate, input) as Promise<DbMemory>,
+      update: (id: number, content: string) =>
+        ipcRenderer.invoke(IpcChannel.DbMemoryUpdate, id, content) as Promise<DbMemory | null>,
       delete: (id: number) =>
         ipcRenderer.invoke(IpcChannel.DbMemoryDelete, id) as Promise<void>,
       deleteByAssistant: (assistantId: string) =>
@@ -244,7 +238,9 @@ const api = {
   },
   mcp: {
     listTools: (serverId: string) =>
-      ipcRenderer.invoke('mcp:listTools', serverId) as Promise<McpListToolsResponse>
+      ipcRenderer.invoke('mcp:listTools', serverId) as Promise<McpListToolsResponse>,
+    callTool: (request: McpCallToolRequest) =>
+      ipcRenderer.invoke('mcp:callTool', request) as Promise<McpCallToolResponse>
   },
   backup: {
     exportLocal: (options: { includeChats: boolean; includeFiles: boolean }) =>

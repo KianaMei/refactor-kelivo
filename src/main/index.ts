@@ -1,10 +1,10 @@
-import { app, BrowserWindow, shell, ipcMain, protocol, dialog } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, dialog, session } from 'electron'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
 import { registerConfigIpc } from './configIpc'
 import { registerChatIpc } from './chatIpc'
-import { registerChatStreamIpc, cleanupChatStreamRequests } from './chatStreamIpc'
+import { registerChatPreprocessIpc } from './chatPreprocessIpc'
 import { registerModelsIpc } from './modelsIpc'
 import { registerAvatarIpc } from './avatarIpc'
 import { registerProviderBundleIpc } from './providerBundleIpc'
@@ -25,6 +25,7 @@ import { initDatabase, closeDatabase } from './db/database'
 import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
 import { getMemoryCount, bulkInsertMemories } from './db/repositories/memoryRepo'
 import { loadConfig, saveConfig } from './configStore'
+import { applyProxyConfig } from './proxyManager'
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -39,7 +40,8 @@ function createMainWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false // 禁用 CORS，允许 Renderer 直接请求 AI API
     }
   })
 
@@ -172,7 +174,7 @@ app.whenReady().then(() => {
   // IPC 统一在主进程注册（仅暴露必要能力到 renderer）。
   registerConfigIpc()
   registerChatIpc()
-  registerChatStreamIpc() // 流式聊天 API
+  registerChatPreprocessIpc()
   registerModelsIpc()
   registerAvatarIpc()
   registerProviderBundleIpc()
@@ -192,13 +194,17 @@ app.whenReady().then(() => {
 
   createMainWindow()
 
+  // 根据 Provider 配置设置全局代理
+  loadConfig()
+    .then((cfg) => applyProxyConfig(session.defaultSession, cfg))
+    .catch((err) => console.warn('[ProxyManager] Failed to apply proxy config:', err))
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  cleanupChatStreamRequests() // 清理所有进行中的请求
   closeDatabase()
   if (process.platform !== 'darwin') app.quit()
 })

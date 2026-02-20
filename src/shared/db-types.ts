@@ -80,6 +80,7 @@ export interface DbMessage {
   reasoningStartedAt: number | null
   reasoningFinishedAt: number | null
   reasoningSegments: unknown[] | null
+  toolCalls: unknown | null
   translation: string | null
   createdAt: number
 }
@@ -112,6 +113,7 @@ export interface MessageUpdateInput {
   reasoningStartedAt?: number | null
   reasoningFinishedAt?: number | null
   reasoningSegments?: unknown[] | null
+  toolCalls?: unknown | null
   translation?: string | null
 }
 

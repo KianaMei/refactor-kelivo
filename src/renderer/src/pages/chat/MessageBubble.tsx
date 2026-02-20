@@ -28,6 +28,7 @@ import {
   GitBranch
 } from 'lucide-react'
 import { MarkdownView } from '../../components/MarkdownView'
+import { ToolCallItem } from './ToolCallItem'
 import { MessageOutline } from '../../components/MessageOutline'
 import type { DisplaySettings, UserConfig } from '../../../../shared/types'
 import { BrandAvatar } from '../settings/providers/components/BrandAvatar'
@@ -72,6 +73,7 @@ export interface ChatMessage {
   toolCalls?: Array<{
     id: string
     name: string
+    arguments?: Record<string, unknown>
     status: 'pending' | 'running' | 'done' | 'error'
     result?: string
   }>
@@ -86,6 +88,11 @@ export interface ChatMessage {
     completionTokens: number
     totalTokens: number
   }
+  // 交替渲染块（工具卡片在实际调用位置显示）
+  blocks?: Array<
+    | { type: 'text'; content: string }
+    | { type: 'tool'; toolCallId: string }
+  >
   // 模型信息 (用于展示和重试)
   providerId?: string
   modelId?: string
@@ -527,8 +534,20 @@ export function MessageBubble(props: Props) {
             </div>
             {/* 回复内容区域 */}
             <div className="chatBubble" style={{ position: 'relative' }}>
-              <MessageOutline content={displayContent} messageId={message.id} />
-              <MarkdownView content={displayContent} messageId={message.id} />
+              {message.blocks && showStickerToolUI ? (
+                message.blocks.map((block, idx) =>
+                  block.type === 'text' ? (
+                    <MarkdownView key={idx} content={block.content} messageId={`${message.id}-b${idx}`} />
+                  ) : (
+                    <ToolCallItem key={idx} tc={message.toolCalls!.find((t) => t.id === block.toolCallId)!} />
+                  )
+                )
+              ) : (
+                <>
+                  <MessageOutline content={displayContent} messageId={message.id} />
+                  <MarkdownView content={displayContent} messageId={message.id} />
+                </>
+              )}
               {isLoading && message.content && (
                 <StreamingDots />
               )}
@@ -537,8 +556,20 @@ export function MessageBubble(props: Props) {
         ) : (
           /* 普通消息：使用独立气泡 */
           <div className={`chatBubble ${isUser ? 'chatBubbleUser' : ''}`} style={{ ...getBubbleStyle(), position: 'relative' }}>
-            {!isUser && <MessageOutline content={displayContent} messageId={message.id} />}
-            <MarkdownView content={displayContent} messageId={message.id} />
+            {!isUser && message.blocks && showStickerToolUI ? (
+              message.blocks.map((block, idx) =>
+                block.type === 'text' ? (
+                  <MarkdownView key={idx} content={block.content} messageId={`${message.id}-b${idx}`} />
+                ) : (
+                  <ToolCallItem key={idx} tc={message.toolCalls!.find((t) => t.id === block.toolCallId)!} />
+                )
+              )
+            ) : (
+              <>
+                {!isUser && <MessageOutline content={displayContent} messageId={message.id} />}
+                <MarkdownView content={displayContent} messageId={message.id} />
+              </>
+            )}
             {isLoading && message.content && (
               <StreamingDots />
             )}
@@ -568,24 +599,11 @@ export function MessageBubble(props: Props) {
           </div>
         )}
 
-        {/* 工具调用状态 */}
-        {showStickerToolUI && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="msgToolCalls">
+        {/* 工具调用卡片（仅无 blocks 时在底部显示，有 blocks 时已交替渲染） */}
+        {showStickerToolUI && !message.blocks && message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="tcList">
             {message.toolCalls.map((tc) => (
-              <div key={tc.id} className={`msgToolCall msgToolCall-${tc.status}`}>
-                {tc.status === 'running' ? (
-                  <Loader2 size={12} className="msgToolCallSpin" />
-                ) : (
-                  <RefreshCw size={12} />
-                )}
-                <span style={{ flex: 1 }}>{tc.name}</span>
-                <span className="msgToolCallStatus">
-                  {tc.status === 'pending' && '等待中'}
-                  {tc.status === 'running' && '执行中...'}
-                  {tc.status === 'done' && '✓ 完成'}
-                  {tc.status === 'error' && '✗ 错误'}
-                </span>
-              </div>
+              <ToolCallItem key={tc.id} tc={tc} />
             ))}
           </div>
         )}

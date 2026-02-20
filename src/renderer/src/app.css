@@ -593,13 +593,20 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .msgAttachmentImage { max-width: 180px; max-height: 140px; border-radius: var(--radius); border: 1px solid var(--border); }
 .msgAttachmentFile { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; }
 
-.msgToolCalls { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
-.msgToolCall { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border); font-size: 11px; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .spinning { animation: spin 1s linear infinite; }
 
 /* ========== 输入容器 ========== */
-.chatInputContainer { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; }
+.chatInputContainer {
+  margin: 10px 16px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+}
 .chatInputMentions { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .mentionTag { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 10px; background: var(--primary-bg); color: var(--primary); font-size: 11px; }
 .mentionTagRemove { padding: 2px; border: none; background: transparent; color: inherit; cursor: pointer; }
@@ -616,6 +623,33 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .btn-compact:hover { color: var(--text-1); background: var(--hover-bg); }
 .btn-compact.btn-active { color: var(--primary); }
 .btn-compact.btn-active:hover { background: var(--primary-bg); }
+.btn-compact.reasoning-btn {
+  position: relative;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+}
+.btn-compact.reasoning-btn:hover,
+.btn-compact.reasoning-btn.btn-active,
+.btn-compact.reasoning-btn.btn-active:hover {
+  background: transparent;
+  box-shadow: none;
+}
+.btn-compact.reasoning-btn .reasoning-level-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.btn-compact.reasoning-btn.reasoning-auto { color: #3b82f6; }
+.btn-compact.reasoning-btn.reasoning-off { color: #9ca3af; }
+.btn-compact.reasoning-btn.reasoning-minimal { color: #14b8a6; }
+.btn-compact.reasoning-btn.reasoning-low { color: #22c55e; }
+.btn-compact.reasoning-btn.reasoning-medium { color: #f97316; }
+.btn-compact.reasoning-btn.reasoning-high { color: #ef4444; }
 .toolBadge { position: absolute; top: 0; right: -4px; font-size: 11px; font-weight: 500; color: var(--primary); }
 
 /* Desktop Popover - 对齐 Flutter GlassPanel */
@@ -640,9 +674,38 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.chatInputTextarea { width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 72px; max-height: 200px; }
-.chatInputTextarea:focus { border-color: var(--primary); }
+.chatInputTextareaWrap { position: relative; }
+.chatInputTextarea { width: 100%; box-sizing: border-box; padding: 10px 40px 8px 12px; border-radius: var(--radius-lg); border: none; background: transparent; color: var(--text); font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 60px; max-height: 420px; }
+.chatInputTextarea:focus { outline: none; }
 .chatInputTextarea::placeholder { color: var(--text-3); }
+.chatInputExpandBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chatInputExpandBtn:hover {
+  color: var(--text-1);
+  border-color: var(--primary);
+}
+.chatInputExpandBtn.expanded {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.chatInputContainer:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10), 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
+}
 .chatInputSend { width: 36px; height: 36px; padding: 0; border-radius: var(--radius); }
 .quickPhrasePopup { position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; min-width: 120px; padding: 4px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
 .quickPhraseItem { width: 100%; padding: 6px 10px; border: none; background: transparent; color: var(--text); font-size: 12px; text-align: left; cursor: pointer; border-radius: 4px; }
@@ -730,24 +793,327 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .agentListItemActive, .agentSessionItemActive { background: var(--primary-bg); color: var(--primary); }
 .agentWorkingDir { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); margin-top: auto; font-size: 11px; color: var(--text-3); }
 .agentTopBar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
-.agentMessages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-.agentMessage { max-width: 680px; }
-.agentMessage-user { align-self: flex-end; background: var(--primary); color: #fff; padding: 10px 14px; border-radius: var(--radius-lg); }
-.agentMessage-assistant { background: var(--surface-2); border: 1px solid var(--border); padding: 10px 14px; border-radius: var(--radius-lg); }
-.agentMessage-system { font-size: 11px; color: var(--text-3); text-align: center; padding: 6px; }
-.agentToolCall { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 6px; font-size: 11px; font-family: monospace; }
-.agentToolStatus { padding: 2px 6px; border-radius: 8px; font-size: 10px; }
-.agentToolStatus-done { background: var(--success-bg); color: var(--success); }
-.agentToolStatus-running, .agentToolStatus-pending { background: var(--primary-bg); color: var(--primary); }
-.agentToolStatus-error { background: var(--danger-bg); color: var(--danger); }
-.agentMessageContent { line-height: 1.5; font-size: 13px; }
-.agentMessageContent pre { margin: 6px 0; padding: 10px; background: var(--surface-3); border-radius: var(--radius); overflow-x: auto; }
-.agentMessageContent pre { scrollbar-width: thin; scrollbar-color: transparent transparent; }
-.agentMessageContent pre::-webkit-scrollbar { height: 4px; }
-.agentMessageContent pre::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
-.agentMessageContent pre:hover::-webkit-scrollbar-thumb { background: rgba(140, 140, 140, 0.35); }
-.agentInputArea { display: flex; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface); align-items: flex-end; }
-.agentInputArea textarea { min-height: 50px; }
+.agentMessages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 24px 16px;
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.agentMessagesInner {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agentMsgRow {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+}
+
+.agentMsgRow-user { justify-content: flex-end; }
+.agentMsgRow-assistant { justify-content: flex-start; }
+.agentMsgRow-tool { justify-content: flex-start; }
+.agentMsgRow-system { justify-content: center; }
+
+.agentSystemNotice {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.agentBubble {
+  position: relative;
+  max-width: 720px;
+  border-radius: 14px;
+  padding: 10px 12px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.agentBubbleHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-right: 34px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.agentBubbleRole {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.agentBubbleTime {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agentBubbleBody { min-width: 0; }
+
+.agentBubble-user {
+  background: var(--primary);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.agentBubble-user .agentBubbleHeader {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.agentBubble-user .agentBubbleRole {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.agentBubble-user .markdown a {
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: underline;
+}
+
+.agentBubble-user .mdInlineCode {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.agentBubble-assistant {
+  width: 100%;
+  max-width: 100%;
+  padding: 6px 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.agentCopyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 160ms ease, transform 160ms ease, background 160ms ease, color 160ms ease;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.agentBubble:hover .agentCopyButton {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.agentCopyButton:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.agentBubble-user .agentCopyButton {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.agentBubble-user .agentCopyButton:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.agentStreaming {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.agentStreamingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  animation: agentPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agentPulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.agentToolCard {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.agentToolHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agentToolHeader:hover {
+  background: var(--surface-3);
+}
+
+.agentToolTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agentToolName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.agentToolTime {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agentToolStatus {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.agentToolStatus-done { background: var(--success-bg); border-color: transparent; color: var(--success); }
+.agentToolStatus-running, .agentToolStatus-pending { background: var(--primary-bg); border-color: transparent; color: var(--primary); }
+.agentToolStatus-error { background: var(--danger-bg); border-color: transparent; color: var(--danger); }
+
+.agentToolChevron {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transition: transform 180ms ease, color 180ms ease;
+}
+
+.agentToolHeader[aria-expanded="true"] .agentToolChevron {
+  transform: rotate(180deg);
+  color: var(--text-2);
+}
+
+.agentToolPreview {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.agentToolBody {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.agentToolSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.agentToolSectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+}
+
+.agentToolPre {
+  margin: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.agentScrollToBottomWrap {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  margin-top: 12px;
+}
+
+.agentScrollToBottomBtn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  transition: transform 120ms ease, background 160ms ease;
+}
+
+.agentScrollToBottomBtn:hover {
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
 
 /* ========== Markdown ========== */
 .markdown { font-size: 13px; line-height: 1.5; }
@@ -1909,6 +2275,11 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
   left: 0;
   right: 0;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
   background: rgba(0, 0, 0, 0.5);
   z-index: 10000;
   animation: fadeIn 0.15s ease;
@@ -2623,25 +2994,9 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
   gap: 4px;
 }
 
-/* 工具调用旋转动画 */
+/* 工具调用旋转动画 (also used by translation spinner) */
 .msgToolCallSpin {
   animation: spin 1s linear infinite;
-}
-
-/* 工具调用状态样式 */
-.msgToolCallStatus {
-  font-size: 10px;
-  color: var(--text-3);
-  margin-left: auto;
-}
-.msgToolCall-done .msgToolCallStatus {
-  color: var(--success);
-}
-.msgToolCall-error .msgToolCallStatus {
-  color: var(--danger);
-}
-.msgToolCall-running .msgToolCallStatus {
-  color: var(--primary);
 }
 
 /* 右键菜单位置修正 */
@@ -3155,50 +3510,209 @@ code, pre, .mdCodeBlock {
   color: var(--text-2);
 }
 
-/* ========== 工具调用卡片样式完善 ========== */
-.msgToolCalls {
+/* ========== 工具调用卡片 (ToolCallItem) ========== */
+.tcList {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 8px;
 }
-.msgToolCall {
+.tcItem {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow: hidden;
+  font-size: 13px;
+}
+.tcItem-error {
+  border-color: var(--danger);
+}
+.tcHeader {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: var(--surface-2);
+  gap: 6px;
+  padding: 8px 10px;
+  user-select: none;
+}
+.tcHeaderClickable {
+  cursor: pointer;
+}
+.tcHeaderClickable:hover {
+  background: color-mix(in srgb, var(--text-1) 4%, transparent);
+}
+.tcChevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s ease;
+  color: var(--text-3);
+}
+.tcChevronOpen {
+  transform: rotate(90deg);
+}
+.tcChevronHidden {
+  visibility: hidden;
+  width: 14px;
+}
+.tcIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-2);
+}
+.tcLabel {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--text-1);
   font-size: 12px;
 }
-.msgToolCall-pending {
-  opacity: 0.7;
+.tcParams {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: 11px;
 }
-.msgToolCall-running {
-  border-left: 3px solid var(--primary);
+.tcStats {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 11px;
 }
-.msgToolCall-done {
-  border-left: 3px solid var(--success);
+.tcError {
+  flex-shrink: 0;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 500;
 }
-.msgToolCall-error {
-  border-left: 3px solid var(--danger);
+.tcSpin {
+  animation: tcSpinAnim 1s linear infinite;
 }
-.msgToolCallResult {
-  margin-top: 4px;
-  padding: 8px;
+@keyframes tcSpinAnim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.tcContent {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.tcContent:hover {
+  scrollbar-color: rgba(140,140,140,0.35) transparent;
+}
+.tcContent::-webkit-scrollbar { width: 4px; }
+.tcContent::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+.tcContent:hover::-webkit-scrollbar-thumb { background: rgba(140,140,140,0.35); }
+
+/* 搜索结果列表 */
+.tcResultList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tcResultItem {
+  display: block;
+  padding: 6px 8px;
   border-radius: 6px;
   background: var(--surface);
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s;
+}
+.tcResultItem:hover {
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+.tcResultTitle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+}
+.tcResultLinkIcon {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.tcResultSnippet {
+  margin-top: 2px;
   font-size: 11px;
   color: var(--text-3);
-  max-height: 100px;
-  overflow-y: auto;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 纯文本/JSON 结果 */
+.tcResultPlain {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-2);
   white-space: pre-wrap;
   word-break: break-all;
+  line-height: 1.5;
 }
-.msgToolCallResult { scrollbar-width: thin; scrollbar-color: transparent transparent; }
-.msgToolCallResult::-webkit-scrollbar { width: 4px; height: 4px; }
-.msgToolCallResult::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
-.msgToolCallResult:hover::-webkit-scrollbar-thumb { background: rgba(140, 140, 140, 0.35); }
+
+/* 输入参数区 */
+.tcArgs {
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-1) 4%, transparent);
+  font-size: 11px;
+}
+.tcArgRow {
+  display: flex;
+  gap: 8px;
+  line-height: 1.6;
+}
+.tcArgKey {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.tcArgKey::after {
+  content: ':';
+}
+.tcArgValue {
+  color: var(--text-1);
+  word-break: break-all;
+}
+
+/* 视图切换按钮 */
+.tcViewToggle {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.tcViewBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tcViewBtn:hover {
+  background: color-mix(in srgb, var(--text-1) 8%, transparent);
+  color: var(--text-2);
+}
+.tcViewBtnActive {
+  background: color-mix(in srgb, var(--text-1) 10%, transparent);
+  color: var(--text-1);
+}
 
 /* ========== 助手消息统一卡片（深度思考 + 回复内容一体化） ========== */
 /* 外层卡片容器 - 包裹推理区域和回复内容 */
@@ -3482,11 +3996,15 @@ code, pre, .mdCodeBlock {
 
 /* ========== 输入栏完善 ========== */
 .chatInputContainer {
-  padding: 12px;
-  border-top: 1px solid var(--border);
+  margin: 10px 16px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .chatInputMentions {
   display: flex;
@@ -3572,31 +4090,62 @@ code, pre, .mdCodeBlock {
 .attachmentPreview:hover .attachmentPreviewRemove {
   opacity: 1;
 }
+.chatInputTextareaWrap {
+  position: relative;
+}
 .chatInputTextarea {
   width: 100%;
-  min-height: 72px;
-  max-height: 200px;
-  padding: 12px;
-  border: 1px solid var(--border);
+  min-height: 60px;
+  max-height: 420px;
+  padding: 10px 40px 8px 12px;
+  border: none;
   border-radius: 12px;
-  background: var(--surface-2);
+  background: transparent;
   color: var(--text-1);
   font-size: 14px;
   resize: none;
   outline: none;
-  transition: border-color 0.15s;
+  transition: color 0.15s;
 }
 .chatInputTextarea:focus {
-  border-color: var(--primary);
+  outline: none;
 }
 .chatInputTextarea::placeholder {
   color: var(--text-3);
+}
+.chatInputExpandBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chatInputExpandBtn:hover {
+  color: var(--text-1);
+  border-color: var(--primary);
+}
+.chatInputExpandBtn.expanded {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.chatInputContainer:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10), 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
 }
 .chatInputToolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 .chatInputToolGroup {
   display: flex;
@@ -3898,9 +4447,6 @@ code, pre, .mdCodeBlock {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-.msgToolCallSpin {
-  animation: spin 1s linear infinite;
 }
 
 /* ========== 左侧导航栏样式 ========== */

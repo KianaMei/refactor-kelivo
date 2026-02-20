@@ -32,6 +32,11 @@ export type McpListToolsResult = {
   tools: McpTool[]
 }
 
+export type McpCallToolResult = {
+  content: string
+  isError?: boolean
+}
+
 type RequestHeaders = Record<string, string>
 
 function headerGet(headers: Headers, name: string): string | null {
@@ -169,6 +174,18 @@ function buildToolsListRequest(id: JsonRpcId, cursor?: string | null): JsonRpcRe
   }
 }
 
+function buildToolsCallRequest(id: JsonRpcId, name: string, args?: Record<string, unknown>): JsonRpcRequest {
+  return {
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: {
+      name,
+      arguments: args ?? {}
+    }
+  }
+}
+
 function assertJsonRpcResponse(json: any, expectedId: JsonRpcId): JsonRpcResponse {
   if (!json || typeof json !== 'object') {
     throw new Error(`MCP 响应不是 JSON 对象：${stringifyJson(json)}`)
@@ -197,6 +214,50 @@ async function parseJsonRpcResponseFromSse(stream: ReadableStream<Uint8Array> | 
     return assertJsonRpcResponse(json, expectedId)
   }
   throw new Error(`MCP SSE 响应流结束但未收到 id=${String(expectedId)} 的响应`)
+}
+
+function stringifyMcpContentBlock(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (v && typeof v === 'object') {
+    const x = v as Record<string, unknown>
+    if (typeof x.text === 'string') return x.text
+    if (typeof x.content === 'string') return x.content
+  }
+  return stringifyJson(v)
+}
+
+function parseMcpToolCallResult(result: unknown): McpCallToolResult {
+  if (typeof result === 'string') {
+    return { content: result }
+  }
+
+  if (!result || typeof result !== 'object') {
+    return { content: stringifyJson(result) }
+  }
+
+  const obj = result as Record<string, unknown>
+  const isError = typeof obj.isError === 'boolean' ? obj.isError : undefined
+  const contentRaw = obj.content
+
+  if (typeof contentRaw === 'string') {
+    return { content: contentRaw, isError }
+  }
+
+  if (Array.isArray(contentRaw)) {
+    const text = contentRaw
+      .map((item) => stringifyMcpContentBlock(item))
+      .filter((s) => s.trim().length > 0)
+      .join('\n')
+    if (text.trim().length > 0) {
+      return { content: text, isError }
+    }
+  }
+
+  if (obj.structuredContent !== undefined) {
+    return { content: stringifyJson(obj.structuredContent), isError }
+  }
+
+  return { content: stringifyJson(obj), isError }
 }
 
 async function postStreamableHttp(params: {
@@ -351,6 +412,75 @@ async function listToolsViaStreamableHttp(url: string, headers: RequestHeaders):
   }
 
   return { tools }
+}
+
+async function callToolViaStreamableHttp(
+  url: string,
+  headers: RequestHeaders,
+  toolName: string,
+  args?: Record<string, unknown>
+): Promise<McpCallToolResult> {
+  let sessionId: string | null = null
+  let protocolVersion: string | null = null
+  try {
+    const initId: JsonRpcId = 1
+    const initResp = await streamableHttpRequestJsonRpc({
+      url,
+      customHeaders: headers,
+      protocolVersion,
+      sessionId,
+      request: buildInitializeRequest(initId),
+      expectedId: initId
+    })
+    sessionId = initResp.sessionId
+    protocolVersion = initResp.protocolVersion ?? initResp.json?.result?.protocolVersion ?? protocolVersion
+
+    if (!initResp.json?.result) {
+      throw new Error('MCP initialize did not return result')
+    }
+
+    await streamableHttpRequestJsonRpc({
+      url,
+      customHeaders: headers,
+      protocolVersion,
+      sessionId,
+      request: buildInitializedNotification()
+    })
+
+    const callId: JsonRpcId = 200
+    const callResp = await streamableHttpRequestJsonRpc({
+      url,
+      customHeaders: headers,
+      protocolVersion,
+      sessionId,
+      request: buildToolsCallRequest(callId, toolName, args),
+      expectedId: callId
+    })
+
+    if (!callResp.json) {
+      throw new Error('MCP tools/call did not return response')
+    }
+    if (callResp.json.error) {
+      throw new Error(callResp.json.error.message || 'MCP tools/call error')
+    }
+
+    return parseMcpToolCallResult(callResp.json.result)
+  } finally {
+    if (sessionId) {
+      try {
+        await fetch(url, {
+          method: 'DELETE',
+          headers: {
+            ...headers,
+            'MCP-Session-Id': sessionId,
+            ...(protocolVersion ? { 'MCP-Protocol-Version': protocolVersion } : {})
+          }
+        } as RequestInit)
+      } catch {
+        // ignore
+      }
+    }
+  }
 }
 
 async function listToolsViaLegacySse(url: string, headers: RequestHeaders): Promise<McpListToolsResult> {
@@ -508,6 +638,144 @@ async function listToolsViaLegacySse(url: string, headers: RequestHeaders): Prom
   }
 }
 
+async function callToolViaLegacySse(
+  url: string,
+  headers: RequestHeaders,
+  toolName: string,
+  args?: Record<string, unknown>
+): Promise<McpCallToolResult> {
+  const controller = new AbortController()
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: {
+      ...headers,
+      'Accept': 'text/event-stream'
+    },
+    signal: controller.signal
+  } as RequestInit)
+
+  if (!resp.ok) {
+    const bodyText = truncateText(await readTextSafe(resp))
+    throw new Error(`MCP SSE connect failed: HTTP ${resp.status} ${resp.statusText}\n${bodyText}`)
+  }
+
+  let endpointUrl: string | null = null
+  let endpointResolve: ((v: string) => void) | null = null
+  let endpointReject: ((err: Error) => void) | null = null
+  const endpointPromise = new Promise<string>((resolve, reject) => {
+    endpointResolve = resolve
+    endpointReject = reject
+  })
+
+  const pending = new Map<string, (json: JsonRpcResponse) => void>()
+
+  const readerTask = (async () => {
+    try {
+      for await (const evt of parseSseEvents(resp.body)) {
+        const data = (evt.data ?? '').trim()
+        if (!data) continue
+
+        if (!endpointUrl && evt.event === 'endpoint') {
+          endpointUrl = resolveMaybeRelativeUrl(url, data)
+          if (endpointResolve && endpointUrl) (endpointResolve as any)(endpointUrl)
+          continue
+        }
+
+        let json: unknown
+        try {
+          json = JSON.parse(data)
+        } catch {
+          continue
+        }
+        if (!json || typeof json !== 'object' || (json as { jsonrpc?: string }).jsonrpc !== '2.0') continue
+        const id = (json as { id?: JsonRpcId }).id
+        if (id === undefined || id === null) continue
+        const key = String(id)
+        const cb = pending.get(key)
+        if (!cb) continue
+        pending.delete(key)
+        cb(json as JsonRpcResponse)
+      }
+    } catch (e) {
+      if (!endpointUrl) {
+        if (endpointReject) (endpointReject as any)(e instanceof Error ? e : new Error(String(e)))
+      }
+    } finally {
+      if (!endpointUrl && endpointReject) {
+        (endpointReject as any)(new Error('MCP SSE stream ended before endpoint event'))
+      }
+    }
+  })()
+
+  const endpoint = await endpointPromise
+
+  async function sendRequestAndWait(expectedId: JsonRpcId, req: JsonRpcRequest): Promise<JsonRpcResponse> {
+    const key = String(expectedId)
+    const p = new Promise<JsonRpcResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(key)
+        reject(new Error(`MCP SSE response timeout: id=${key}`))
+      }, 15_000)
+      pending.set(key, (json) => {
+        clearTimeout(timer)
+        try {
+          resolve(assertJsonRpcResponse(json, expectedId))
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)))
+        }
+      })
+    })
+
+    const post = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(req)
+    } as RequestInit)
+    if (!post.ok) {
+      const bodyText = truncateText(await readTextSafe(post))
+      throw new Error(`MCP SSE POST failed: HTTP ${post.status} ${post.statusText}\n${bodyText}`)
+    }
+
+    return await p
+  }
+
+  try {
+    const initId: JsonRpcId = 1
+    const initResp = await sendRequestAndWait(initId, buildInitializeRequest(initId))
+    if (initResp.error) {
+      throw new Error(initResp.error.message || 'MCP initialize error')
+    }
+
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(buildInitializedNotification())
+    } as RequestInit)
+
+    const callId: JsonRpcId = 200
+    const callResp = await sendRequestAndWait(callId, buildToolsCallRequest(callId, toolName, args))
+    if (callResp.error) {
+      throw new Error(callResp.error.message || 'MCP tools/call error')
+    }
+
+    return parseMcpToolCallResult(callResp.result)
+  } finally {
+    try {
+      controller.abort()
+    } catch {
+      // ignore
+    }
+    void readerTask.catch(() => { })
+  }
+}
+
 export async function listMcpTools(params: {
   transport: McpTransportType
   url: string
@@ -534,6 +802,44 @@ export async function listMcpTools(params: {
     const shouldFallback = /HTTP (400|404|405)/.test(msg)
     if (shouldFallback) {
       return await listToolsViaLegacySse(cleanedUrl, headers)
+    }
+    throw e
+  }
+}
+
+export async function callMcpTool(params: {
+  transport: McpTransportType
+  url: string
+  toolName: string
+  args?: Record<string, unknown>
+  headers?: RequestHeaders
+}): Promise<McpCallToolResult> {
+  const { transport, url, toolName, args, headers = {} } = params
+
+  if (transport === 'inmemory') {
+    throw new Error('MCP inmemory transport does not support tools/call')
+  }
+  if (transport === 'stdio') {
+    throw new Error('MCP stdio transport is not implemented')
+  }
+
+  const cleanedUrl = (url ?? '').trim()
+  if (!cleanedUrl) throw new Error('MCP URL cannot be empty')
+
+  const cleanedToolName = (toolName ?? '').trim()
+  if (!cleanedToolName) throw new Error('MCP toolName cannot be empty')
+
+  if (transport === 'sse') {
+    return await callToolViaLegacySse(cleanedUrl, headers, cleanedToolName, args)
+  }
+
+  try {
+    return await callToolViaStreamableHttp(cleanedUrl, headers, cleanedToolName, args)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const shouldFallback = /HTTP (400|404|405)/.test(msg)
+    if (shouldFallback) {
+      return await callToolViaLegacySse(cleanedUrl, headers, cleanedToolName, args)
     }
     throw e
   }

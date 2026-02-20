@@ -8,7 +8,19 @@ import { fileURLToPath } from 'node:url'
 // 这里强制移除该变量，确保 electron-vite 能正常启动 Electron 桌面进程。
 delete process.env.ELECTRON_RUN_AS_NODE
 
-const args = process.argv.slice(2)
+const rawArgs = process.argv.slice(2)
+const args = []
+for (const arg of rawArgs) {
+  if (typeof arg === 'string' && !arg.startsWith('-') && arg.includes('=')) {
+    const [key, ...rest] = arg.split('=')
+    const value = rest.join('=')
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && rest.length > 0) {
+      process.env[key] = value
+      continue
+    }
+  }
+  args.push(arg)
+}
 if (args.length === 0) {
   console.error('用法：node scripts/run-electron-vite.mjs <dev|preview|build|...>')
   process.exit(1)

@@ -4,12 +4,8 @@ export const IpcChannel = {
 
   ModelsList: 'models:list',
 
-  ChatStreamStart: 'chat:streamStart',
-  ChatStreamAbort: 'chat:streamAbort',
-  ChatStreamChunk: 'chat:streamChunk',
-  ChatStreamError: 'chat:streamError',
-
   ChatTest: 'chat:test',
+  ChatPreprocess: 'chat:preprocess',
 
   AvatarSave: 'avatar:save',
   AvatarDelete: 'avatar:delete',
@@ -53,6 +49,7 @@ export const IpcChannel = {
   // Database — Memories
   DbMemoryList: 'db:memory:list',
   DbMemoryCreate: 'db:memory:create',
+  DbMemoryUpdate: 'db:memory:update',
   DbMemoryDelete: 'db:memory:delete',
   DbMemoryDeleteByAssistant: 'db:memory:deleteByAssistant',
 

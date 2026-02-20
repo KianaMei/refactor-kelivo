@@ -5,9 +5,19 @@ import path from 'node:path'
 
 export default defineConfig({
   main: {
+    build: {
+      lib: {
+        entry: path.resolve(__dirname, 'src/main/index.ts')
+      }
+    },
     plugins: [externalizeDepsPlugin()]
   },
   preload: {
+    build: {
+      lib: {
+        entry: path.resolve(__dirname, 'src/preload/index.ts')
+      }
+    },
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {

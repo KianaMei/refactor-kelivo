@@ -314,7 +314,7 @@ export function registerAgentIpc(): void {
     if (!input.apiProviderId) throw new Error('请先选择 Providers 配置（用于提供 API Key）')
     const provider = nextCfg.providerConfigs?.[input.apiProviderId]
     if (!provider) throw new Error(`未找到 Providers 配置：${input.apiProviderId}`)
-    if (!provider.apiKey) throw new Error('该 Providers 配置未设置 API Key')
+    // if (!provider.apiKey) throw new Error('该 Providers 配置未设置 API Key') // 允许空 Key，此时回退到 CLI 自身认证
 
     const cwd = String(input.cwd ?? '').trim()
     if (!cwd) throw new Error('缺少 cwd（工作目录）')
@@ -394,7 +394,7 @@ export function registerAgentIpc(): void {
       sdkProvider,
       prompt: bridgePrompt,
       cwd,
-      apiKey: provider.apiKey,
+      apiKey: provider.apiKey ? provider.apiKey : undefined,
       baseUrl: provider.baseUrl,
       model: input.modelId,
       permissionMode: input.claudePermissionMode,

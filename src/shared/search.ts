@@ -53,6 +53,8 @@ export interface BraveConfig {
 
 export interface DuckDuckGoConfig {
     region?: string
+    safeSearch?: 'off' | 'moderate' | 'strict'
+    timeRange?: '' | 'd' | 'w' | 'm' | 'y'
 }
 
 export type SearchServiceConfigUnion =

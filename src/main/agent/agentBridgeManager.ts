@@ -62,6 +62,59 @@ function resolveBridgePath(): string {
   throw new Error(`未找到 bridge 脚本：${packaged} / ${dev} / ${maybe}`)
 }
 
+function safeGetElectronPath(name: Parameters<typeof app.getPath>[0]): string | null {
+  try {
+    const p = app.getPath(name)
+    if (typeof p !== 'string') return null
+    const trimmed = p.trim()
+    return trimmed ? trimmed : null
+  } catch {
+    return null
+  }
+}
+
+function buildAgentBridgeEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    // Electron 没有稳定公开的 `--runAsNode` 参数；通过环境变量让子进程以 Node 模式执行。
+    ELECTRON_RUN_AS_NODE: '1'
+  }
+
+  // 关键：显式把 Electron 解析出来的用户目录透传给 bridge 进程。
+  // 这样 claude-code 侧基于 homedir()/CLAUDE_CONFIG_DIR 的凭证发现逻辑，能与“终端启动”保持一致。
+  const home = safeGetElectronPath('home')
+  const appData = safeGetElectronPath('appData')
+  const userData = safeGetElectronPath('userData')
+
+  if (home) {
+    env.KELIVO_HOME_DIR = home
+    if (!env.HOME) env.HOME = home
+    if (!env.CODEX_HOME) env.CODEX_HOME = join(home, '.codex')
+
+    // Windows 下 Node 的 homedir() 优先取 USERPROFILE；补齐它以避免回落到异常路径。
+    if (process.platform === 'win32') {
+      if (!env.USERPROFILE) env.USERPROFILE = home
+
+      const drive = /^[a-zA-Z]:/.exec(home)?.[0] ?? null
+      if (drive) {
+        if (!env.HOMEDRIVE) env.HOMEDRIVE = drive
+        if (!env.HOMEPATH) env.HOMEPATH = home.slice(drive.length)
+      }
+
+      if (appData && !env.APPDATA) env.APPDATA = appData
+      if (!env.LOCALAPPDATA) env.LOCALAPPDATA = process.env.LOCALAPPDATA || join(home, 'AppData', 'Local')
+    }
+
+    // claude-code 的默认配置目录就是 ~/.claude；显式指定可避免 homedir() 差异导致找不到凭证。
+    if (!env.CLAUDE_CONFIG_DIR) env.CLAUDE_CONFIG_DIR = join(home, '.claude')
+  }
+
+  if (appData) env.KELIVO_APPDATA_DIR = appData
+  if (userData) env.KELIVO_USER_DATA_DIR = userData
+
+  return env
+}
+
 export class AgentBridgeManager {
   private child: ChildProcessWithoutNullStreams | null = null
   private nextId: JsonRpcId = 1
@@ -92,11 +145,12 @@ export class AgentBridgeManager {
     const child = spawn(process.execPath, [bridgePath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: app.getAppPath(),
-      env: {
+      /* env: {
         ...process.env,
         // Electron 没有稳定公开的 `--runAsNode` 参数；通过环境变量让子进程以 Node 模式执行。
         ELECTRON_RUN_AS_NODE: '1'
-      }
+      } */
+      env: buildAgentBridgeEnv()
     })
     this.child = child
 

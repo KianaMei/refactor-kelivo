@@ -13,8 +13,8 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Paperclip, Image, AtSign, Square, X,
-  Globe, Brain, Hammer, Eraser, ChevronRight,
-  FileText, RefreshCw, Boxes, ArrowUp, Zap
+  Globe, Lightbulb, Hammer, Eraser, ChevronLeft, ChevronRight,
+  FileText, RefreshCw, ArrowUp, Zap, Maximize2, Minimize2
 } from 'lucide-react'
 import type { ProviderConfigV2, QuickPhrase, SearchConfig } from '../../../../shared/types'
 import { DesktopPopover } from '../../components/DesktopPopover'
@@ -25,6 +25,8 @@ import { QuickPhraseMenu } from '../../components/QuickPhraseMenu'
 import { ModelSelectPopover } from '../../components/ModelSelectPopover'
 import { SearchSelectPopover } from '../../components/SearchSelectPopover'
 import { ToolLoopPopover } from '../../components/ToolLoopPopover'
+import { getBrandIcon } from '../../utils/brandAssets'
+import { BrandAvatar } from '../settings/providers/components/BrandAvatar'
 
 export interface Attachment {
   id: string
@@ -42,6 +44,20 @@ export interface MentionedModel {
   providerName: string
   modelId: string
 }
+
+const REASONING_LEVEL_META: Record<EffortValue, { key: 'auto' | 'off' | 'minimal' | 'low' | 'medium' | 'high'; tip: string }> = {
+  [-1]: { key: 'auto', tip: '自动（模型自行决定）' },
+  0: { key: 'off', tip: '关闭推理' },
+  [-10]: { key: 'minimal', tip: '最少推理' },
+  [-20]: { key: 'low', tip: '低强度推理' },
+  [-30]: { key: 'medium', tip: '中强度推理' },
+  [-40]: { key: 'high', tip: '高强度推理' }
+}
+
+const INPUT_COLLAPSED_LINES = 3
+const INPUT_EXPANDED_VIEW_LINES = 8
+const INPUT_EXPANDED_MAX_LINES = 19
+const INPUT_FALLBACK_LINE_HEIGHT = 20
 
 interface Props {
   value: string
@@ -66,6 +82,8 @@ interface Props {
   onManageQuickPhrases?: () => void
   // 工具设置
   onOpenModelPicker?: () => void
+  currentModelId?: string
+  currentProviderName?: string
   reasoningEffort?: EffortValue
   onReasoningEffortChange?: (v: EffortValue) => void
   maxTokens?: number
@@ -102,6 +120,8 @@ export function ChatInputBar(props: Props) {
     onRemoveMention,
     availableProviders = [],
     onOpenModelPicker,
+    currentModelId,
+    currentProviderName,
     reasoningEffort = -1,
     onReasoningEffortChange,
     maxTokens = 0,
@@ -136,6 +156,8 @@ export function ChatInputBar(props: Props) {
   const [toolLoopOpen, setToolLoopOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false) // New State
   const [extrasExpanded, setExtrasExpanded] = useState(false)
+  const [manualExpand, setManualExpand] = useState(false)
+  const [canManualExpand, setCanManualExpand] = useState(false)
 
   // 快捷短语菜单
   const quickPhraseBtnRef = useRef<HTMLButtonElement>(null)
@@ -143,22 +165,43 @@ export function ChatInputBar(props: Props) {
 
   const mcpToolCount = mcpServers.filter((s) => s.enabled).reduce((a, s) => a + s.toolCount, 0)
   const reasoningActive = reasoningEffort !== -1 && reasoningEffort !== 0
+  const reasoningMeta = REASONING_LEVEL_META[reasoningEffort]
   const mentionActive = mentionedModels.length > 0
   const canMention = !disabled && availableProviders.length > 0 && !!onAddMention
 
   const searchEnabled = searchConfig?.global?.enabled === true
+  const currentModelIcon = getBrandIcon(currentModelId ?? '') || getBrandIcon(currentProviderName ?? '')
 
   // 自动调整高度：最小72px（3行），最大200px，超出滚动
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      const scrollHeight = textareaRef.current.scrollHeight
-      // 最小72px（3行），最大200px
-      const minH = 72
-      const maxH = 200
-      textareaRef.current.style.height = Math.max(minH, Math.min(scrollHeight, maxH)) + 'px'
+    if (!textareaRef.current) return
+
+    const textarea = textareaRef.current
+    const styles = window.getComputedStyle(textarea)
+    const lineHeight = Number.parseFloat(styles.lineHeight) || INPUT_FALLBACK_LINE_HEIGHT
+    const paddingTop = Number.parseFloat(styles.paddingTop) || 0
+    const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0
+    const collapsedHeight = Math.round(lineHeight * INPUT_COLLAPSED_LINES + paddingTop + paddingBottom)
+    const expandedPreferredHeight = Math.round(lineHeight * INPUT_EXPANDED_VIEW_LINES + paddingTop + paddingBottom)
+    const expandedMaxHeight = Math.round(lineHeight * INPUT_EXPANDED_MAX_LINES + paddingTop + paddingBottom)
+
+    textarea.style.height = 'auto'
+    const contentHeight = textarea.scrollHeight
+    const explicitLineCount = textarea.value.split(/\r?\n/).length
+    const canExpandNow = contentHeight >= collapsedHeight - 1 || explicitLineCount >= INPUT_COLLAPSED_LINES
+    setCanManualExpand(canExpandNow)
+
+    const expandedNow = manualExpand && canExpandNow
+    if (expandedNow) {
+      const targetHeight = Math.min(expandedMaxHeight, Math.max(expandedPreferredHeight, contentHeight))
+      textarea.style.height = `${targetHeight}px`
+      textarea.style.overflowY = contentHeight > targetHeight ? 'auto' : 'hidden'
+    } else {
+      textarea.style.height = `${collapsedHeight}px`
+      textarea.style.overflowY = canExpandNow ? 'auto' : 'hidden'
+      if (!canExpandNow && manualExpand) setManualExpand(false)
     }
-  }, [value])
+  }, [value, manualExpand])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -172,6 +215,13 @@ export function ChatInputBar(props: Props) {
       onAddAttachment?.(e.target.files)
     }
     e.target.value = ''
+  }
+
+  function handleToggleManualExpand() {
+    setManualExpand((v) => !v)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+    })
   }
 
   return (
@@ -213,22 +263,48 @@ export function ChatInputBar(props: Props) {
       )}
 
       {/* 文本输入 */}
-      <textarea
-        ref={textareaRef}
-        className="chatInputTextarea"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        rows={3}
-      />
+
+      <div className="chatInputTextareaWrap">
+        <textarea
+          ref={textareaRef}
+          className="chatInputTextarea"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          rows={3}
+        />
+        {(canManualExpand || manualExpand) && (
+          <button
+            type="button"
+            className={`chatInputExpandBtn ${manualExpand ? 'expanded' : ''}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleToggleManualExpand}
+            disabled={disabled}
+            title={manualExpand ? '\u6536\u8d77\u8f93\u5165\u6846' : '\u5c55\u5f00\u8f93\u5165\u6846'}
+          >
+            {manualExpand ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        )}
+      </div>
 
       {/* 底部工具按钮行 - 对齐 Flutter _CompactIconButton 布局 */}
       <div className="chatInputToolbar">
         <div className="chatInputToolGroup">
-          <button type="button" className="btn-compact" onClick={onOpenModelPicker} disabled={disabled} title="切换模型">
-            <Boxes size={20} />
+          <button
+            type="button"
+            className="btn-compact"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onOpenModelPicker}
+            disabled={disabled}
+            title={currentModelId ? `切换模型（当前：${currentModelId}）` : '切换模型'}
+          >
+            {currentModelIcon ? (
+              <img src={currentModelIcon} alt="" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+            ) : (
+              <BrandAvatar name={currentModelId || currentProviderName || 'Model'} size={20} />
+            )}
           </button>
           <button
             ref={mentionBtnRef}
@@ -253,8 +329,16 @@ export function ChatInputBar(props: Props) {
           >
             <Globe size={20} />
           </button>
-          <button ref={reasoningBtnRef} type="button" className={`btn-compact ${reasoningActive ? 'btn-active' : ''}`} onClick={() => setReasoningOpen(!reasoningOpen)} disabled={disabled} title="推理预算">
-            <Brain size={20} />
+          <button
+            ref={reasoningBtnRef}
+            type="button"
+            className={`btn-compact reasoning-btn reasoning-${reasoningMeta.key} ${reasoningActive ? 'btn-active' : ''}`}
+            onClick={() => setReasoningOpen(!reasoningOpen)}
+            disabled={disabled}
+            title={`推理预算：${reasoningMeta.key}（${reasoningMeta.tip}）`}
+          >
+            <Lightbulb size={20} />
+            <span className="reasoning-level-dot" />
           </button>
           {/* MCP: icon + tool count text, matching Flutter Row layout */}
           <button ref={mcpBtnRef} type="button" className={`btn-compact ${mcpToolCount > 0 ? 'btn-active' : ''}`} onClick={() => setMcpOpen(!mcpOpen)} disabled={disabled} title="MCP 服务器" style={{ width: 'auto', gap: 4, paddingRight: mcpToolCount > 0 ? 4 : undefined }}>
@@ -267,8 +351,8 @@ export function ChatInputBar(props: Props) {
           <button ref={quickPhraseBtnRef} type="button" className="btn-compact" onClick={() => setQuickPhraseOpen(!quickPhraseOpen)} disabled={disabled} title="快捷短语">
             <Zap size={20} />
           </button>
-          <button type="button" className="btn-compact" onClick={() => setExtrasExpanded(!extrasExpanded)} title={extrasExpanded ? '收起' : '展开更多'} style={{ transition: 'transform 0.2s', transform: extrasExpanded ? 'rotate(90deg)' : 'none' }}>
-            <ChevronRight size={20} />
+          <button type="button" className="btn-compact" onClick={() => setExtrasExpanded(!extrasExpanded)} title={extrasExpanded ? '收起' : '展开更多'}>
+            {extrasExpanded ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
           </button>
 
           {extrasExpanded && (

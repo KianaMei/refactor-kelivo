@@ -12,6 +12,7 @@ import { StoragePage } from './pages/StoragePage'
 import { AgentPage } from './pages/AgentPage'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ConfirmProvider } from './hooks/useConfirm'
+import { Toaster } from './components/ui/sonner'
 
 export default function App() {
   const [tab, setTab] = useState<NavKey>('chat')
@@ -157,6 +158,7 @@ export default function App() {
 
   return (
     <ConfirmProvider>
+      <Toaster />
       <div style={styles.appContainer}>
         <TitleBar />
         <div style={styles.root}>

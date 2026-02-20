@@ -6,8 +6,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 
+import { DEFAULT_TRANSLATE_PROMPT } from '../../../shared/types'
 import type { AppConfig, AssistantConfig } from '../../../shared/types'
 import type { ChatMessageInput } from '../../../shared/chat'
+import type { ChatMessage as ChatStreamMessage } from '../../../shared/chatStream'
 import type { DbConversation, DbMessage, DbWorkspace } from '../../../shared/db-types'
 import { ConversationSidebar, type Conversation } from './chat/ConversationSidebar'
 import { WorkspaceSelector } from './chat/WorkspaceSelector'
@@ -18,6 +20,7 @@ import { ChatTopBar } from '../components/ChatTopBar'
 import { MessageAnchorLine } from '../components/MessageAnchorLine'
 import { SidebarResizeHandle } from '../components/SidebarResizeHandle'
 import { useChatStreamEvents } from './chat/useChatStreamEvents'
+import { rendererSendMessageStream } from '../lib/chatService'
 import { ChatPagePopovers } from './chat/ChatPagePopovers'
 import { useResolvedAssetUrl } from './chat/useResolvedAssetUrl'
 import type { EffortValue } from '../components/ReasoningBudgetPopover'
@@ -45,6 +48,21 @@ function dbConvToConversation(c: DbConversation, assistantCount?: number): Conve
 }
 
 function dbMsgToChatMessage(m: DbMessage): ChatMessage {
+  // 解析 toolCalls 数据（兼容新旧格式）
+  let toolCalls: ChatMessage['toolCalls']
+  let blocks: ChatMessage['blocks']
+  if (m.toolCalls) {
+    const data = m.toolCalls as any
+    if (Array.isArray(data)) {
+      // 旧格式：直接是数组
+      toolCalls = data
+    } else if (data.toolCalls) {
+      // 新格式：{ toolCalls: [...], blocks: [...] }
+      toolCalls = data.toolCalls
+      blocks = data.blocks?.length ? data.blocks : undefined
+    }
+  }
+
   return {
     id: m.id,
     role: m.role as 'user' | 'assistant',
@@ -55,6 +73,8 @@ function dbMsgToChatMessage(m: DbMessage): ChatMessage {
     reasoning: m.reasoningText ?? undefined,
     translation: m.translation ?? undefined,
     usage: m.tokenUsage ?? undefined,
+    toolCalls,
+    blocks,
     // 透传模型信息
     providerId: m.providerId ?? undefined,
     modelId: m.modelId ?? undefined
@@ -125,6 +145,7 @@ export function ChatPage(props: Props) {
   // UI 状态
   const [isGenerating, setIsGenerating] = useState(false)
   const streamingRef = useRef<{ streamId: string; convId: string; msgId: string } | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   type MentionSendQueue = {
     convId: string
@@ -374,24 +395,88 @@ export function ChatPage(props: Props) {
   }, [activeMessages, selectedVersions, isGenerating])
 
   // DB: 流式完成后持久化消息
-  const handleStreamDone = useCallback((info: { msgId: string; convId: string; content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number }; reasoning?: string }) => {
+  const handleStreamDone = useCallback((info: { msgId: string; convId: string; content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number }; reasoning?: string; toolCalls?: unknown[]; blocks?: unknown[] }) => {
+    const toolCallsData = info.toolCalls || info.blocks
+      ? { toolCalls: info.toolCalls ?? [], blocks: info.blocks ?? [] }
+      : null
+
     void window.api.db.messages.update(info.msgId, {
       content: info.content,
       isStreaming: false,
       tokenUsage: info.usage ?? null,
       totalTokens: info.usage?.totalTokens ?? null,
-      reasoningText: info.reasoning ?? null
+      reasoningText: info.reasoning ?? null,
+      toolCalls: toolCallsData
     })
     void window.api.db.conversations.update(info.convId, {})
   }, [])
 
-  useChatStreamEvents({
+  const { consumeStream } = useChatStreamEvents({
     streamingRef,
     setMessagesByConv,
     setIsGenerating,
     setLoadingConversationIds,
     onStreamDone: handleStreamDone
   })
+
+  /** 在 Renderer 进程直接发起 AI 流式请求并消费 */
+  async function runRendererStream(params: {
+    providerId: string
+    modelId: string
+    messages: ChatMessageInput[]
+    assistantId?: string | null
+    enableSearchTool?: boolean
+    enableMemory?: boolean
+    thinkingBudget?: number
+    maxToolLoopIterations?: number
+    userImagePaths?: string[]
+    temperature?: number
+    topP?: number
+    maxTokens?: number
+    customHeaders?: Record<string, string>
+    customBody?: Record<string, unknown>
+  }) {
+    const appConfig = await window.api.config.get()
+    const providerConfig = appConfig.providerConfigs[params.providerId]
+    if (!providerConfig) throw new Error(`Provider ${params.providerId} not configured`)
+    const assistantSnapshot =
+      params.assistantId && appConfig.assistantConfigs[params.assistantId]
+        ? appConfig.assistantConfigs[params.assistantId]
+        : null
+
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
+    let userImages: Array<{ mime: string; base64: string }> | undefined
+    if (params.userImagePaths && params.userImagePaths.length > 0) {
+      const result = await window.api.chat.preprocess({ imagePaths: params.userImagePaths })
+      userImages = result.images.length > 0 ? result.images : undefined
+    }
+
+    const generator = rendererSendMessageStream({
+      config: providerConfig,
+      modelId: params.modelId,
+      messages: params.messages as ChatStreamMessage[],
+      userImages,
+      assistantId: params.assistantId,
+      enableSearchTool: params.enableSearchTool,
+      searchServiceId: appConfig.searchConfig?.global?.defaultServiceId ?? undefined,
+      enableMemory: params.enableMemory,
+      mcpServerIds: assistantSnapshot?.mcpServerIds ?? [],
+      mcpServers: appConfig.mcpServers ?? [],
+      mcpToolCallMode: appConfig.mcpToolCallMode,
+      thinkingBudget: params.thinkingBudget,
+      maxToolLoopIterations: params.maxToolLoopIterations,
+      temperature: params.temperature,
+      topP: params.topP,
+      maxTokens: params.maxTokens,
+      customHeaders: params.customHeaders,
+      customBody: params.customBody,
+      signal: ac.signal
+    })
+
+    await consumeStream(generator)
+  }
 
   // 滚动到底部
   async function startNextMentionedModelIfAny() {
@@ -471,21 +556,19 @@ export function ChatPage(props: Props) {
         recentChats
       })
 
-      await window.api.chat.startStream({
-        streamId,
+      await runRendererStream({
         providerId,
         modelId,
         messages: reqMessages,
         assistantId: queue.assistantId,
         enableSearchTool: queue.enableSearchTool,
+        enableMemory: queue.assistantSnapshot?.enableMemory,
         thinkingBudget: queue.thinkingBudget,
         maxToolLoopIterations: queue.maxToolLoopIterations,
         userImagePaths: queue.userImagePaths,
-        documents: queue.documents,
         temperature: assistant?.temperature,
         topP: assistant?.topP,
         maxTokens: assistant?.maxTokens,
-        stream: assistant?.streamOutput,
         customHeaders: queue.customHeaders,
         customBody: queue.customBody
       })
@@ -833,21 +916,19 @@ export function ChatPage(props: Props) {
           recentChats
         })
 
-        await window.api.chat.startStream({
-          streamId,
+        await runRendererStream({
           providerId,
           modelId,
           messages: reqMessages,
           assistantId: assistantIdForTools,
           enableSearchTool,
+          enableMemory: assistant?.enableMemory,
           thinkingBudget,
           maxToolLoopIterations,
           userImagePaths: attachmentPayload.userImagePaths,
-          documents: attachmentPayload.documents,
           temperature: assistant?.temperature,
           topP: assistant?.topP,
           maxTokens: assistant?.maxTokens,
-          stream: assistant?.streamOutput,
           customHeaders,
           customBody
         })
@@ -875,7 +956,8 @@ export function ChatPage(props: Props) {
     const st = streamingRef.current
     if (!st) return
     mentionSendQueueRef.current = null
-    void window.api.chat.abort(st.streamId)
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
   }
 
   async function toggleSearchEnabled() {
@@ -982,19 +1064,18 @@ export function ChatPage(props: Props) {
             })
             const customHeaders = buildCustomHeaders(assistant)
             const customBody = buildCustomBody(assistant)
-            await window.api.chat.startStream({
-              streamId,
+            await runRendererStream({
               providerId,
               modelId,
               messages: reqMessages,
               assistantId: activeAssistantId ?? null,
               enableSearchTool: config.searchConfig?.global?.enabled === true,
+              enableMemory: assistant?.enableMemory,
               thinkingBudget: activeConversation?.thinkingBudget ?? -1,
               maxToolLoopIterations: assistant?.maxToolLoopIterations ?? 10,
               temperature: assistant?.temperature,
               topP: assistant?.topP,
               maxTokens: assistant?.maxTokens,
-              stream: assistant?.streamOutput,
               customHeaders,
               customBody
             })
@@ -1111,19 +1192,18 @@ export function ChatPage(props: Props) {
         })
         const customHeaders = buildCustomHeaders(activeAssistant)
         const customBody = buildCustomBody(activeAssistant)
-        await window.api.chat.startStream({
-          streamId,
+        await runRendererStream({
           providerId,
           modelId,
           messages: reqMessages,
           assistantId: activeAssistantId ?? null,
           enableSearchTool: config.searchConfig?.global?.enabled === true,
+          enableMemory: activeAssistant?.enableMemory,
           thinkingBudget: activeConversation?.thinkingBudget ?? -1,
           maxToolLoopIterations: activeAssistant?.maxToolLoopIterations ?? 10,
           temperature: activeAssistant?.temperature,
           topP: activeAssistant?.topP,
           maxTokens: activeAssistant?.maxTokens,
-          stream: activeAssistant?.streamOutput,
           customHeaders,
           customBody
         })
@@ -1204,34 +1284,7 @@ export function ChatPage(props: Props) {
 
   // 翻译消息
   const [translatingMsgId, setTranslatingMsgId] = useState<string | null>(null)
-  const translationRef = useRef<{ streamId: string; msgId: string; content: string } | null>(null)
-
-  // 监听翻译流事件
-  useEffect(() => {
-    const unsubChunk = window.api.chat.onChunk((evt) => {
-      if (translationRef.current && evt.streamId === translationRef.current.streamId) {
-        translationRef.current.content += evt.chunk.content
-        // 实时更新翻译内容
-        const msgId = translationRef.current.msgId
-        const content = translationRef.current.content
-        setMessagesByConv((prev) => {
-          const list = prev[activeConvId] ?? []
-          return {
-            ...prev,
-            [activeConvId]: list.map((m) =>
-              m.id === msgId ? { ...m, translation: content } : m
-            )
-          }
-        })
-        if (evt.chunk.isDone) {
-          void window.api.db.messages.update(msgId, { translation: content })
-          translationRef.current = null
-          setTranslatingMsgId(null)
-        }
-      }
-    })
-    return () => unsubChunk()
-  }, [activeConvId])
+  const translationAbortRef = useRef<AbortController | null>(null)
 
   async function handleTranslateMessage(msg: ChatMessage) {
     if (translatingMsgId) return // 已在翻译中
@@ -1251,16 +1304,29 @@ export function ChatPage(props: Props) {
     }
 
     const assistant = activeAssistant
-    const providerId = assistant?.boundModelProvider ?? config.currentModelProvider
-    const modelId = assistant?.boundModelId ?? config.currentModelId
+    const appConfig = await window.api.config.get()
+    const providerId =
+      appConfig.translateModelProvider ??
+      assistant?.boundModelProvider ??
+      appConfig.currentModelProvider
+    const modelId =
+      appConfig.translateModelId ??
+      assistant?.boundModelId ??
+      appConfig.currentModelId
 
     if (!providerId || !modelId) return
 
     setTranslatingMsgId(msg.id)
 
     try {
-      // 使用 AI 进行翻译
-      const translatePrompt = `请将以下内容翻译成中文（如果已是中文则翻译成英文），只输出翻译结果，不要其他解释：\n\n${msg.content}`
+      const sourceText = String(msg.content ?? '')
+      const targetLang = /[\u4e00-\u9fff]/.test(sourceText)
+        ? 'English'
+        : 'Simplified Chinese'
+      const promptTemplate = appConfig.translatePrompt ?? config.translatePrompt ?? DEFAULT_TRANSLATE_PROMPT
+      const translatePrompt = promptTemplate
+        .replaceAll('{source_text}', sourceText)
+        .replaceAll('{target_lang}', targetLang)
 
       // 初始化翻译状态
       setMessagesByConv((prev) => {
@@ -1273,19 +1339,47 @@ export function ChatPage(props: Props) {
         }
       })
 
-      const streamId = safeUuid()
-      translationRef.current = { streamId, msgId: msg.id, content: '' }
-      await window.api.chat.startStream({
-        streamId,
-        providerId,
+      const providerConfig = appConfig.providerConfigs[providerId]
+      if (!providerConfig) throw new Error(`Provider ${providerId} not configured`)
+      const translationMaxTokens =
+        assistant?.maxTokens && assistant.maxTokens > 0
+          ? assistant.maxTokens
+          : 4096
+
+      const ac = new AbortController()
+      translationAbortRef.current = ac
+
+      const generator = rendererSendMessageStream({
+        config: providerConfig,
         modelId,
-        messages: [{ role: 'user', content: translatePrompt }],
+        messages: [{ role: 'user', content: translatePrompt }] as ChatStreamMessage[],
         temperature: 0.3,
-        stream: true
+        maxTokens: translationMaxTokens,
+        signal: ac.signal
       })
+
+      let translationContent = ''
+      for await (const chunk of generator) {
+        if (chunk.content) {
+          translationContent += chunk.content
+          const content = translationContent
+          setMessagesByConv((prev) => {
+            const list = prev[activeConvId] ?? []
+            return {
+              ...prev,
+              [activeConvId]: list.map((m) =>
+                m.id === msg.id ? { ...m, translation: content } : m
+              )
+            }
+          })
+        }
+      }
+
+      void window.api.db.messages.update(msg.id, { translation: translationContent })
     } catch (e) {
       console.error('Translation failed:', e)
-      translationRef.current = null
+    } finally {
+      translationAbortRef.current = null
       setTranslatingMsgId(null)
     }
   }
@@ -1596,6 +1690,8 @@ export function ChatPage(props: Props) {
           quickPhrases={quickPhrases}
           onQuickPhrase={(content) => setDraft((prev) => prev + content)}
           onManageQuickPhrases={() => props.onOpenSettings?.('quickPhrases')}
+          currentModelId={effectiveModelId ?? undefined}
+          currentProviderName={currentProvider?.name}
 
           searchConfig={config.searchConfig}
           onSearchConfigChange={(newSearchConfig) => {

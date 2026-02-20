@@ -1,7 +1,6 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
 
-import type { AppConfig, ProviderConfigV2, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress } from '../../../shared/types'
-import type { ChatStreamChunkEvent, ChatStreamErrorEvent, ChatStreamStartParams } from '../../../shared/chat'
+import type { AppConfig, ProviderConfigV2, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress, McpCallToolRequest, McpCallToolResponse } from '../../../shared/types'
 import type { ModelsListResult } from '../../../shared/models'
 import type {
   DbConversation,
@@ -34,6 +33,14 @@ import type {
 } from '../../../shared/agentRuntime'
 import type { DepsInstallParams, DepsProgressEvent, DepsStatusResult, DepsUninstallParams } from '../../../shared/deps'
 
+interface PreprocessImageParams {
+  imagePaths: string[]
+}
+
+interface PreprocessImageResult {
+  images: Array<{ mime: string; base64: string }>
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -44,11 +51,8 @@ declare global {
         save: (cfg: AppConfig) => Promise<AppConfig>
       }
       chat: {
-        startStream: (params: ChatStreamStartParams) => Promise<string>
-        abort: (streamId: string) => Promise<void>
         test: (providerId: string, modelId: string) => Promise<void>
-        onChunk: (fn: (evt: ChatStreamChunkEvent) => void) => () => void
-        onError: (fn: (evt: ChatStreamErrorEvent) => void) => () => void
+        preprocess: (params: PreprocessImageParams) => Promise<PreprocessImageResult>
       }
       models: {
         list: (providerId: string) => Promise<ModelsListResult>
@@ -107,6 +111,7 @@ declare global {
         memories: {
           list: (assistantId: string) => Promise<DbMemory[]>
           create: (input: MemoryCreateInput) => Promise<DbMemory>
+          update: (id: number, content: string) => Promise<DbMemory | null>
           delete: (id: number) => Promise<void>
           deleteByAssistant: (assistantId: string) => Promise<void>
         }
@@ -185,6 +190,7 @@ declare global {
           | { success: true; tools: Array<{ name: string; description?: string; schema?: Record<string, unknown> }> }
           | { success: false; error: string }
         >
+        callTool: (request: McpCallToolRequest) => Promise<McpCallToolResponse>
       }
       backup: {
         exportLocal: (options: { includeChats: boolean; includeFiles: boolean }) => Promise<{ success: boolean; data?: Buffer; error?: string }>

@@ -1,19 +1,15 @@
 /**
- * Streaming HTTP Client
- * 基于 Node.js fetch API 的 SSE 流式请求处理
+ * Streaming HTTP Client (main)
+ * re-export shared 工具函数 + 保留带代理支持的 postJsonStream
  */
 
 import type { ProviderConfigV2 } from '../../shared/types'
 
-/** SSE 流式响应 */
-export interface StreamResponse {
-  statusCode: number
-  headers: Headers
-  /** 可迭代的流，每次 yield 一行 SSE 数据 */
-  lines: AsyncGenerator<string, void, unknown>
-  /** 原始流 (用于错误处理) */
-  rawStream: ReadableStream<Uint8Array> | null
-}
+// re-export shared 层的纯函数和类型
+export { parseSSELine, readErrorBody, isAbortError, joinUrl } from '../../shared/streamingHttpClient'
+export type { StreamResponse } from '../../shared/streamingHttpClient'
+
+import { postJsonStream as sharedPostJsonStream } from '../../shared/streamingHttpClient'
 
 // 可选的代理 agent 模块（延迟加载）
 let HttpsProxyAgent: typeof import('https-proxy-agent').HttpsProxyAgent | null = null
@@ -24,54 +20,6 @@ try {
   // https-proxy-agent 未安装，代理功能将不可用
 }
 
-/**
- * 发送流式 JSON 请求 (POST)
- * 返回 SSE 行迭代器
- */
-export async function postJsonStream(params: {
-  url: string | URL
-  headers: Record<string, string>
-  body: Record<string, unknown>
-  config?: ProviderConfigV2
-  signal?: AbortSignal
-}): Promise<StreamResponse> {
-  const { url, headers, body, config, signal } = params
-
-  // 构建 fetch 选项
-  const fetchOptions: RequestInit & { agent?: unknown } = {
-    method: 'POST',
-    headers: {
-      ...headers,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body),
-    signal
-  }
-
-  // 配置代理 (如果启用且 https-proxy-agent 可用)
-  if (config?.proxyEnabled && config.proxyHost && config.proxyPort && HttpsProxyAgent) {
-    const proxyUrl = buildProxyUrl(config)
-    if (proxyUrl) {
-      fetchOptions.agent = new HttpsProxyAgent(proxyUrl)
-    }
-  }
-
-  // 注意: SSL 验证跳过在 Node.js fetch 中需要通过环境变量 NODE_TLS_REJECT_UNAUTHORIZED=0 设置
-  // 或者在 Electron 中使用 session.setCertificateVerifyProc
-
-  const response = await fetch(url.toString(), fetchOptions as RequestInit)
-
-  return {
-    statusCode: response.status,
-    headers: response.headers,
-    lines: parseSSEStream(response.body),
-    rawStream: response.body
-  }
-}
-
-/**
- * 构建代理 URL
- */
 function buildProxyUrl(config: ProviderConfigV2): string | null {
   if (!config.proxyEnabled || !config.proxyHost || !config.proxyPort) {
     return null
@@ -91,9 +39,52 @@ function buildProxyUrl(config: ProviderConfigV2): string | null {
 }
 
 /**
- * 解析 SSE 流为行迭代器
+ * Main 侧 postJsonStream — 在 shared 版本基础上增加代理支持
  */
-async function* parseSSEStream(
+export async function postJsonStream(params: {
+  url: string | URL
+  headers: Record<string, string>
+  body: Record<string, unknown>
+  config?: ProviderConfigV2
+  signal?: AbortSignal
+}) {
+  const { config } = params
+
+  // 无代理配置时直接走 shared 版本
+  if (!config?.proxyEnabled || !config.proxyHost || !config.proxyPort || !HttpsProxyAgent) {
+    return sharedPostJsonStream(params)
+  }
+
+  // 有代理配置时使用 Node.js 的 https-proxy-agent
+  const proxyUrl = buildProxyUrl(config)
+  if (!proxyUrl) {
+    return sharedPostJsonStream(params)
+  }
+
+  const { url, headers, body, signal } = params
+  const fetchOptions: RequestInit & { agent?: unknown } = {
+    method: 'POST',
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body),
+    signal,
+    agent: new HttpsProxyAgent(proxyUrl)
+  }
+
+  const response = await fetch(url.toString(), fetchOptions as RequestInit)
+
+  return {
+    statusCode: response.status,
+    headers: response.headers,
+    lines: internalParseSSEStream(response.body),
+    rawStream: response.body
+  }
+}
+
+/** 内联 SSE 解析（与 shared 版本相同，因 parseSSEStream 未导出） */
+async function* internalParseSSEStream(
   stream: ReadableStream<Uint8Array> | null
 ): AsyncGenerator<string, void, unknown> {
   if (!stream) return
@@ -107,7 +98,6 @@ async function* parseSSEStream(
       const { done, value } = await reader.read()
 
       if (done) {
-        // 处理剩余的 buffer
         if (buffer.trim()) {
           yield buffer.trim()
         }
@@ -116,9 +106,8 @@ async function* parseSSEStream(
 
       buffer += decoder.decode(value, { stream: true })
 
-      // 按行分割
       const lines = buffer.split('\n')
-      buffer = lines.pop() ?? '' // 最后一行可能不完整，保留在 buffer
+      buffer = lines.pop() ?? ''
 
       for (const line of lines) {
         const trimmed = line.trim()
@@ -130,70 +119,4 @@ async function* parseSSEStream(
   } finally {
     reader.releaseLock()
   }
-}
-
-/**
- * 解析单个 SSE 数据行
- * 返回 data 字段的内容，如果是 [DONE] 则返回 null
- */
-export function parseSSELine(line: string): string | null {
-  if (!line.startsWith('data:')) {
-    return null
-  }
-
-  const data = line.substring(5).trimStart()
-
-  if (data === '[DONE]') {
-    return null
-  }
-
-  return data
-}
-
-/**
- * 读取完整的错误响应体
- */
-export async function readErrorBody(stream: ReadableStream<Uint8Array> | null): Promise<string> {
-  if (!stream) return ''
-
-  const reader = stream.getReader()
-  const decoder = new TextDecoder('utf-8')
-  const chunks: string[] = []
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(decoder.decode(value, { stream: true }))
-    }
-    return chunks.join('')
-  } catch {
-    return chunks.join('')
-  } finally {
-    reader.releaseLock()
-  }
-}
-
-/**
- * 检查是否是中止错误
- */
-export function isAbortError(err: unknown): boolean {
-  if (!err) return false
-  if (err instanceof DOMException && err.name === 'AbortError') return true
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase()
-    if (msg.includes('abort') || msg.includes('aborted')) return true
-  }
-  return false
-}
-
-/**
- * 连接 URL 路径
- */
-export function joinUrl(baseUrl: string, path: string): string {
-  const base = new URL(baseUrl)
-  const basePath = base.pathname.replace(/\/+$/, '')
-  const extra = path.replace(/^\/+/, '')
-  base.pathname = `${basePath}/${extra}`
-  return base.toString()
 }

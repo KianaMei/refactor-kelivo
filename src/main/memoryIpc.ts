@@ -12,6 +12,10 @@ export function registerMemoryIpc(): void {
     return repo.createMemory(input)
   })
 
+  ipcMain.handle(IpcChannel.DbMemoryUpdate, (_e, id: number, content: string) => {
+    return repo.updateMemory(id, content)
+  })
+
   ipcMain.handle(IpcChannel.DbMemoryDelete, (_e, id: number) => {
     repo.deleteMemory(id)
   })

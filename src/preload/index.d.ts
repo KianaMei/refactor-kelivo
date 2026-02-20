@@ -1,11 +1,8 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { StorageReport } from '../shared/types'
-import type { AppConfig, ProviderConfigV2, BundleImportResult, McpListToolsResponse } from '../shared/types'
-import type { IpcChannel } from '../shared/ipc'
+import type { AppConfig, ProviderConfigV2, BundleImportResult, McpListToolsResponse, McpCallToolRequest, McpCallToolResponse, StorageReport, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress } from '../shared/types'
+import type { ModelsListResult } from '../shared/models'
 import type { OcrRunRequest, OcrRunResult } from '../shared/ocr'
-import type { SearchRequest, SearchResponse } from '../shared/search'
-import type { SearchServiceConfigUnion } from '../shared/search'
-import type { WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress } from '../shared/types'
+import type { SearchRequest, SearchResponse, SearchServiceConfigUnion } from '../shared/search'
 import type {
     DbConversation,
     ConversationCreateInput,
@@ -28,8 +25,14 @@ import type {
     AgentMessageCreateInput,
     AgentMessageUpdateInput
 } from '../shared/db-types'
-import type { ChatStreamChunkEvent, ChatStreamErrorEvent, ChatStreamStartParams } from '../shared/chat'
-import type { ModelsListResult } from '../shared/models'
+
+interface PreprocessImageParams {
+    imagePaths: string[]
+}
+
+interface PreprocessImageResult {
+    images: Array<{ mime: string; base64: string }>
+}
 
 declare global {
     interface Window {
@@ -45,11 +48,8 @@ declare global {
                 openDataFolder: () => Promise<void>
             }
             chat: {
-                startStream: (params: ChatStreamStartParams) => Promise<string>
-                abort: (streamId: string) => Promise<void>
                 test: (providerId: string, modelId: string) => Promise<void>
-                onChunk: (fn: (evt: ChatStreamChunkEvent) => void) => () => void
-                onError: (fn: (evt: ChatStreamErrorEvent) => void) => () => void
+                preprocess: (params: PreprocessImageParams) => Promise<PreprocessImageResult>
             }
             models: {
                 list: (providerId: string) => Promise<ModelsListResult>
@@ -101,6 +101,7 @@ declare global {
                 memories: {
                     list: (assistantId: string) => Promise<DbMemory[]>
                     create: (input: MemoryCreateInput) => Promise<DbMemory>
+                    update: (id: number, content: string) => Promise<DbMemory | null>
                     delete: (id: number) => Promise<void>
                     deleteByAssistant: (assistantId: string) => Promise<void>
                 }
@@ -141,6 +142,7 @@ declare global {
             }
             mcp: {
                 listTools: (serverId: string) => Promise<McpListToolsResponse>
+                callTool: (request: McpCallToolRequest) => Promise<McpCallToolResponse>
             }
             backup: {
                 exportLocal: (options: { includeChats: boolean; includeFiles: boolean }) => Promise<{ success: boolean; data?: Buffer; error?: string }>

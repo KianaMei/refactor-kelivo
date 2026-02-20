@@ -10,11 +10,9 @@ import {
   Bot,
   Check,
   MessageSquare,
-  Play,
   Plus,
   Settings,
   Shield,
-  Square,
   Trash2,
   X
 } from 'lucide-react'
@@ -29,9 +27,12 @@ import type {
 } from '../../../shared/types'
 import type { DbAgentMessage, DbAgentSession } from '../../../shared/db-types'
 import type { AgentPermissionRequestEvent, AgentRunStartParams } from '../../../shared/agentRuntime'
-import { MarkdownView } from '../components/MarkdownView'
-import { AgentSettingsBar } from './agent/AgentSettingsBar'
+import { toast } from 'sonner'
 import { AgentConfigDialog } from './agent/AgentConfigDialog'
+import { AgentAlertDialog } from './agent/components/AgentAlertDialog'
+import { AgentHome } from './agent/components/AgentHome'
+import { AgentMessages } from './agent/components/AgentMessages'
+import { AgentComposer } from './agent/components/AgentComposer'
 
 function safeUuid(): string {
   try {
@@ -91,8 +92,8 @@ export function AgentPage(props: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null)
   const [agentConfigOpen, setAgentConfigOpen] = useState(false)
+  const [showConfigAlert, setShowConfigAlert] = useState(false)
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
   const currentAgentIdRef = useRef<string>(currentAgentId)
   const currentSessionIdRef = useRef<string>(currentSessionId)
   const runningRunIdRef = useRef<string | null>(runningRunId)
@@ -151,11 +152,6 @@ export function AgentPage(props: Props) {
       .catch(() => { })
     return () => { cancelled = true }
   }, [currentSessionId, sessions])
-
-  // 滚动到底部
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length])
 
   // 增量事件订阅
   useEffect(() => {
@@ -248,14 +244,13 @@ export function AgentPage(props: Props) {
     if (isRunning) return
 
     if (!apiProviderId) {
-      alert('请先在顶部选择一个 Providers 配置（用于提供 API Key）。')
+      setShowConfigAlert(true)
       return
     }
 
     let allowDangerouslySkipPermissions = false
     if (sdkProvider === 'claude' && claudePermissionMode === 'bypassPermissions') {
-      const ok = window.confirm('你选择了 bypassPermissions（高风险）。确认继续本次运行吗？')
-      if (!ok) return
+      toast.warning('正在以 bypassPermissions 高风险模式运行 Agent')
       allowDangerouslySkipPermissions = true
     }
 
@@ -281,7 +276,7 @@ export function AgentPage(props: Props) {
       setInput('')
     } catch (e) {
       setIsRunning(false)
-      alert(e instanceof Error ? e.message : String(e))
+      toast.error(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -414,102 +409,68 @@ export function AgentPage(props: Props) {
         </div>
       </div>
 
-      {/* 右侧：消息区 + 运行配置 */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {/* 顶部：运行配置 */}
-        {/* 顶部：运行配置 */}
+      {/* 右侧：主界面 (Home 或 Chat) */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
-
-        {/* 消息列表 */}
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
-          {currentSession ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {messages.map((m) => (
-                <div key={m.id} className={`agentMsg ${m.type}`}>
-                  {m.type === 'assistant' ? (
-                    <div className="agentBubble agentBubbleAssistant">
-                      <MarkdownView content={m.content} />
-                      {m.isStreaming ? <div style={{ opacity: 0.5, fontSize: 11, marginTop: 6 }}>输出中…</div> : null}
-                    </div>
-                  ) : m.type === 'user' ? (
-                    <div className="agentBubble agentBubbleUser">
-                      <MarkdownView content={m.content} />
-                    </div>
-                  ) : m.type === 'tool' ? (
-                    <div className="agentBubble agentBubbleTool">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ fontWeight: 700 }}>{m.toolName ?? 'tool'}</div>
-                        <div style={{ opacity: 0.7, fontSize: 12 }}>{m.toolStatus ?? ''}</div>
-                      </div>
-                      {m.toolInputPreview ? (
-                        <pre style={{ marginTop: 8, padding: 10, borderRadius: 8, background: 'var(--panel)', fontSize: 12, overflow: 'auto' }}>
-                          {m.toolInputPreview}
-                        </pre>
-                      ) : null}
-                      {m.toolResult ? (
-                        <pre style={{ marginTop: 8, padding: 10, borderRadius: 8, background: 'var(--panel)', fontSize: 12, overflow: 'auto' }}>
-                          {m.toolResult}
-                        </pre>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="agentBubble agentBubbleSystem">
-                      <MarkdownView content={m.content} />
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-          ) : (
-            <div style={{ opacity: 0.7 }}>请选择或创建一个会话。</div>
-          )}
-        </div>
-
-        {/* 输入区 */}
-        {/* 输入区 */}
-        <div className="agentInputBar frosted" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <textarea
-            className="input text-sm"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="输入你的任务…"
-            style={{ minHeight: 80, resize: 'vertical', border: 'none', background: 'transparent', outline: 'none' }}
+        {/* 如果没有消息且不是运行中（可选：或者明确定义了 currentSessionId 为空/新会话），显示 Home View */}
+        {(!messages.length && !isRunning) ? (
+          <AgentHome
+            input={input}
+            setInput={setInput}
+            onRun={handleSubmit}
+            onStop={handleStop}
+            isRunning={isRunning}
+            workingDirectory={workingDirectory}
+            config={config}
+            sdkProvider={sdkProvider}
+            setSdkProvider={setSdkProvider}
+            apiProviderId={apiProviderId}
+            setApiProviderId={setApiProviderId}
+            modelId={modelId}
+            setModelId={setModelId}
+            claudePermissionMode={claudePermissionMode}
+            setClaudePermissionMode={setClaudePermissionMode}
+            codexSandboxMode={codexSandboxMode}
+            setCodexSandboxMode={setCodexSandboxMode}
+            codexApprovalPolicy={codexApprovalPolicy}
+            setCodexApprovalPolicy={setCodexApprovalPolicy}
+            onOpenConfig={() => setAgentConfigOpen(true)}
           />
+        ) : (
+          <>
+            {/* Chat View */}
+            <AgentMessages messages={messages} currentSessionId={currentSessionId} isRunning={isRunning} />
 
-          {/* 底部工具栏：左侧设置 Pills，右侧执行按钮 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-            <AgentSettingsBar
-              config={config}
-              sdkProvider={sdkProvider}
-              setSdkProvider={setSdkProvider}
-              apiProviderId={apiProviderId}
-              setApiProviderId={setApiProviderId}
-              modelId={modelId}
-              setModelId={setModelId}
-              claudePermissionMode={claudePermissionMode}
-              setClaudePermissionMode={setClaudePermissionMode}
-              codexSandboxMode={codexSandboxMode}
-              setCodexSandboxMode={setCodexSandboxMode}
-              codexApprovalPolicy={codexApprovalPolicy}
-              setCodexApprovalPolicy={setCodexApprovalPolicy}
-              onOpenConfig={() => setAgentConfigOpen(true)}
-            />
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div style={{ fontSize: 12, opacity: 0.5, marginRight: 8 }}>{workingDirectory}</div>
-              {isRunning ? (
-                <button type="button" className="btn btn-primary btn-icon" onClick={handleStop} title="停止">
-                  <Square size={16} fill="white" />
-                </button>
-              ) : (
-                <button type="button" className="btn btn-primary btn-icon" onClick={handleSubmit} disabled={!input.trim()} title="执行">
-                  <Play size={16} fill="white" />
-                </button>
-              )}
+            {/* Bottom Bar Composer */}
+            <div style={{ padding: '0 24px 24px', flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+              <div style={{ width: '100%', maxWidth: 920 }}>
+                <AgentComposer
+                  mode="bar"
+                  input={input}
+                  setInput={setInput}
+                  onRun={handleSubmit}
+                  onStop={handleStop}
+                  isRunning={isRunning}
+                  workingDirectory={workingDirectory}
+                  config={config}
+                  sdkProvider={sdkProvider}
+                  setSdkProvider={setSdkProvider}
+                  apiProviderId={apiProviderId}
+                  setApiProviderId={setApiProviderId}
+                  modelId={modelId}
+                  setModelId={setModelId}
+                  claudePermissionMode={claudePermissionMode}
+                  setClaudePermissionMode={setClaudePermissionMode}
+                  codexSandboxMode={codexSandboxMode}
+                  setCodexSandboxMode={setCodexSandboxMode}
+                  codexApprovalPolicy={codexApprovalPolicy}
+                  setCodexApprovalPolicy={setCodexApprovalPolicy}
+                  onOpenConfig={() => setAgentConfigOpen(true)}
+                />
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       {/* 权限请求弹窗（仅在 SDK 需要时触发） */}
@@ -589,7 +550,16 @@ export function AgentPage(props: Props) {
         config={config}
         onSave={handleAgentConfigSave}
       />
+
+      {/* Missing Config Alert */}
+      <AgentAlertDialog
+        open={showConfigAlert}
+        onOpenChange={setShowConfigAlert}
+        title="需要配置 Provider"
+        description="未检测到可用的 Provider 配置 (API Key)。是否立即进行配置？"
+        confirmText="去配置"
+        onConfirm={() => setAgentConfigOpen(true)}
+      />
     </div>
   )
 }
-

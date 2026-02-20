@@ -587,6 +587,41 @@ function ServiceDetailWithKeys({ service, onUpdate }: {
 }
 
 // ============================================================================
+// DDG 地区选项
+// ============================================================================
+const DDG_REGION_OPTIONS = [
+  { value: 'wt-wt', label: '全球' },
+  { value: 'cn-zh', label: '中国' },
+  { value: 'us-en', label: '美国' },
+  { value: 'uk-en', label: '英国' },
+  { value: 'jp-jp', label: '日本' },
+  { value: 'kr-kr', label: '韩国' },
+  { value: 'de-de', label: '德国' },
+  { value: 'fr-fr', label: '法国' },
+  { value: 'ru-ru', label: '俄罗斯' },
+  { value: 'hk-tzh', label: '香港' },
+  { value: 'tw-tzh', label: '台湾' },
+  { value: 'sg-en', label: '新加坡' },
+  { value: 'au-en', label: '澳大利亚' },
+  { value: 'ca-en', label: '加拿大' },
+  { value: 'in-en', label: '印度' }
+]
+
+const DDG_SAFE_SEARCH_OPTIONS = [
+  { value: 'off', label: '关闭' },
+  { value: 'moderate', label: '适中' },
+  { value: 'strict', label: '严格' }
+]
+
+const DDG_TIME_RANGE_OPTIONS = [
+  { value: '', label: '不限' },
+  { value: 'd', label: '过去一天' },
+  { value: 'w', label: '过去一周' },
+  { value: 'm', label: '过去一月' },
+  { value: 'y', label: '过去一年' }
+]
+
+// ============================================================================
 // 服务详情 - 无需 Key
 // ============================================================================
 function ServiceDetailSimple({ service, onUpdate }: {
@@ -594,9 +629,14 @@ function ServiceDetailSimple({ service, onUpdate }: {
   onUpdate: (updates: Partial<SearchServiceConfig>) => void
 }) {
   const brand = SERVICE_BRANDS[service.type]
+  const sc = service.serviceConfig ?? {}
+
+  const updateServiceConfig = (key: string, value: unknown) => {
+    onUpdate({ serviceConfig: { ...sc, [key]: value } })
+  }
 
   return (
-    <div style={{ padding: 20 }}>
+    <div style={{ padding: 20, maxWidth: 480 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
         <ServiceBadge type={service.type} size={44} />
         <div style={{ flex: 1 }}>
@@ -617,6 +657,60 @@ function ServiceDetailSimple({ service, onUpdate }: {
         <div style={{ maxWidth: 400 }}>
           <label style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>实例地址</label>
           <input className="input" style={{ width: '100%', fontSize: 13 }} placeholder="https://searx.example.com" value={service.baseUrl || ''} onChange={e => onUpdate({ baseUrl: e.target.value || undefined })} />
+        </div>
+      )}
+
+      {service.type === 'duckduckgo' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>搜索地区</label>
+            <CustomSelect
+              value={String(sc.region ?? 'wt-wt')}
+              onChange={(val) => updateServiceConfig('region', val)}
+              options={DDG_REGION_OPTIONS}
+              width="100%"
+              style={{ fontSize: 13 }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>安全搜索</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {DDG_SAFE_SEARCH_OPTIONS.map(opt => {
+                const isActive = (sc.safeSearch ?? 'moderate') === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => updateServiceConfig('safeSearch', opt.value)}
+                    style={{
+                      flex: 1,
+                      padding: '6px 0',
+                      fontSize: 13,
+                      fontWeight: isActive ? 600 : 400,
+                      borderRadius: 6,
+                      border: isActive ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                      background: isActive ? 'var(--primary-alpha)' : 'transparent',
+                      color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 100ms ease'
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>时间范围</label>
+            <CustomSelect
+              value={String(sc.timeRange ?? '')}
+              onChange={(val) => updateServiceConfig('timeRange', val)}
+              options={DDG_TIME_RANGE_OPTIONS}
+              width="100%"
+              style={{ fontSize: 13 }}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -700,17 +794,22 @@ export function SearchPane({ config, onSave }: { config: AppConfig; onSave: (nex
       searchConfig: { ...searchConfig, services: newServices }
     })
 
-    // 如果有 Key 变更，同步注册到后端
+    // 同步注册到后端
     const updatedService = newServices.find(s => s.id === id)
-    if (updatedService && updatedService.apiKeys.length > 0 && updatedService.enabled) {
-      try {
-        await window.api.search.register(id, {
-          type: updatedService.type as 'tavily' | 'exa' | 'brave' | 'duckduckgo',
-          apiKey: updatedService.apiKeys[0].key,
-          baseUrl: updatedService.baseUrl
-        } as any, globalConfig.defaultServiceId === id)
-      } catch (e) {
-        console.error('Failed to register search service:', e)
+    if (updatedService && updatedService.enabled) {
+      const needsKey = SERVICE_BRANDS[updatedService.type]?.needsKey
+      if (!needsKey || updatedService.apiKeys.length > 0) {
+        try {
+          const regConfig: Record<string, unknown> = {
+            type: updatedService.type,
+            ...(updatedService.apiKeys[0]?.key ? { apiKey: updatedService.apiKeys[0].key } : {}),
+            ...(updatedService.baseUrl ? { baseUrl: updatedService.baseUrl } : {}),
+            ...(updatedService.serviceConfig ?? {})
+          }
+          await window.api.search.register(id, regConfig as any, globalConfig.defaultServiceId === id)
+        } catch (e) {
+          console.error('Failed to register search service:', e)
+        }
       }
     }
   }, [config, onSave, searchConfig, services, globalConfig])

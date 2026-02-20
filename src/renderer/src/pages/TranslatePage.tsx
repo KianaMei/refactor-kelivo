@@ -8,9 +8,11 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Languages, ChevronDown, Copy, Eraser, Square, Check, Bot } from 'lucide-react'
 
-import type { ChatMessageInput } from '../../../shared/chat'
+import type { ChatMessage as ChatStreamMessage } from '../../../shared/chatStream'
 import type { AppConfig, ProviderConfigV2 } from '../../../shared/types'
 import { DEFAULT_TRANSLATE_PROMPT } from '../../../shared/types'
+import { isAbortError } from '../../../shared/streamingHttpClient'
+import { rendererSendMessageStream } from '../lib/chatService'
 import { getBrandIcon } from '../utils/brandAssets'
 import { DesktopPopover } from '../components/DesktopPopover'
 import { ModelSelectPopover } from '../components/ModelSelectPopover'
@@ -40,15 +42,8 @@ export function TranslatePage(props: {
   const [isTranslating, setIsTranslating] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
-  const streamingRef = useRef<{ streamId: string } | null>(null)
+  const streamingRef = useRef<AbortController | null>(null)
 
-  function safeUuid(): string {
-    try {
-      return crypto.randomUUID()
-    } catch {
-      return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-    }
-  }
   const modelBtnRef = useRef<HTMLButtonElement>(null)
 
   const model = useMemo(() => {
@@ -78,37 +73,6 @@ export function TranslatePage(props: {
     }
   }, [])
 
-  // Stream listeners
-  useEffect(() => {
-    const offChunk = window.api.chat.onChunk((evt) => {
-      const st = streamingRef.current
-      if (!st || st.streamId !== evt.streamId) return
-      if (evt.chunk.content) {
-        setOutput((prev) => {
-          if (!prev) {
-            return evt.chunk.content.replace(/^\s+/, '')
-          }
-          return prev + evt.chunk.content
-        })
-      }
-      if (evt.chunk.isDone) {
-        streamingRef.current = null
-        setIsTranslating(false)
-      }
-    })
-    const offError = window.api.chat.onError((evt) => {
-      const st = streamingRef.current
-      if (!st || st.streamId !== evt.streamId) return
-      setOutput((prev) => (prev ? prev + '\n\n' : '') + `[error] ${evt.message}`)
-      streamingRef.current = null
-      setIsTranslating(false)
-    })
-    return () => {
-      offChunk()
-      offError()
-    }
-  }, [])
-
   const handleSelectModel = useCallback(
     async (providerId: string, modelId: string) => {
       await props.onSave({
@@ -123,7 +87,7 @@ export function TranslatePage(props: {
   const translate = useCallback(async () => {
     const text = source.trim()
     if (!text || isTranslating) return
-    if (!model.providerId || !model.modelId) {
+    if (!model.providerId || !model.modelId || !model.provider) {
       setOutput('请先配置翻译/对话默认模型。')
       props.onOpenDefaultModelSettings()
       return
@@ -137,32 +101,41 @@ export function TranslatePage(props: {
     setOutput('')
     setIsTranslating(true)
 
-    const messages: ChatMessageInput[] = [{ role: 'user', content: prompt }]
+    const ac = new AbortController()
+    streamingRef.current = ac
+
     try {
-      const streamId = safeUuid()
-      streamingRef.current = { streamId }
-      await window.api.chat.startStream({
-        streamId,
-        providerId: model.providerId,
+      const messages: ChatStreamMessage[] = [{ role: 'user', content: prompt }]
+      const generator = rendererSendMessageStream({
+        config: model.provider,
         modelId: model.modelId,
-        messages
+        messages,
+        signal: ac.signal
       })
+      for await (const chunk of generator) {
+        if (chunk.content) {
+          setOutput((prev) => {
+            if (!prev) return chunk.content!.replace(/^\s+/, '')
+            return prev + chunk.content
+          })
+        }
+      }
     } catch (e) {
-      setOutput(`[error] ${e instanceof Error ? e.message : String(e)}`)
+      if (!isAbortError(e)) {
+        setOutput((prev) => (prev ? prev + '\n\n' : '') + `[error] ${e instanceof Error ? e.message : String(e)}`)
+      }
+    } finally {
       streamingRef.current = null
       setIsTranslating(false)
     }
   }, [source, isTranslating, model, targetLang, props])
 
   const stop = useCallback(() => {
-    const st = streamingRef.current
-    if (!st) return
-    void window.api.chat.abort(st.streamId)
+    streamingRef.current?.abort()
   }, [])
 
   const clearAll = useCallback(() => {
-    const st = streamingRef.current
-    if (st) void window.api.chat.abort(st.streamId)
+    streamingRef.current?.abort()
     streamingRef.current = null
     setIsTranslating(false)
     setSource('')

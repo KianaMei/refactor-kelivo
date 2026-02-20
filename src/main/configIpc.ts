@@ -1,8 +1,9 @@
-import { ipcMain } from 'electron'
+import { ipcMain, session } from 'electron'
 
 import { IpcChannel } from '../shared/ipc'
 import type { AppConfig } from '../shared/types'
 import { loadConfig, saveConfigAndReturn } from './configStore'
+import { applyProxyConfig } from './proxyManager'
 
 export function registerConfigIpc(): void {
   ipcMain.handle(IpcChannel.ConfigGet, async () => {
@@ -10,7 +11,11 @@ export function registerConfigIpc(): void {
   })
 
   ipcMain.handle(IpcChannel.ConfigSave, async (_event, cfg: AppConfig) => {
-    // 返回标准化后的最终配置，避免 renderer setState 时持有缺字段对象导致页面白屏。
-    return await saveConfigAndReturn(cfg)
+    const saved = await saveConfigAndReturn(cfg)
+    // 配置变更后动态更新全局代理
+    applyProxyConfig(session.defaultSession, saved).catch((err) =>
+      console.warn('[ProxyManager] Failed to update proxy:', err)
+    )
+    return saved
   })
 }

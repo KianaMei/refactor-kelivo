@@ -26,6 +26,7 @@ interface MessageRow {
   reasoning_started_at: number | null
   reasoning_finished_at: number | null
   reasoning_segments: string | null
+  tool_calls: string | null
   translation: string | null
   created_at: number
 }
@@ -49,6 +50,7 @@ function rowToMessage(row: MessageRow): DbMessage {
     reasoningStartedAt: row.reasoning_started_at,
     reasoningFinishedAt: row.reasoning_finished_at,
     reasoningSegments: row.reasoning_segments ? JSON.parse(row.reasoning_segments) : null,
+    toolCalls: row.tool_calls ? JSON.parse(row.tool_calls) : null,
     translation: row.translation,
     createdAt: row.created_at
   }
@@ -142,6 +144,10 @@ export function updateMessage(id: string, input: MessageUpdateInput): DbMessage 
   if (input.reasoningSegments !== undefined) {
     sets.push('reasoning_segments = ?')
     args.push(input.reasoningSegments ? JSON.stringify(input.reasoningSegments) : null)
+  }
+  if (input.toolCalls !== undefined) {
+    sets.push('tool_calls = ?')
+    args.push(input.toolCalls ? JSON.stringify(input.toolCalls) : null)
   }
   if (input.translation !== undefined) { sets.push('translation = ?'); args.push(input.translation) }
 

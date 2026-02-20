@@ -279,6 +279,7 @@ export interface SearchServiceConfig {
   strategy: SearchLoadBalanceStrategy
   connectionStatus: SearchConnectionStatus
   lastError?: string
+  serviceConfig?: Record<string, unknown>
 }
 
 export interface SearchGlobalConfig {
@@ -302,7 +303,7 @@ export function createDefaultSearchConfig(): SearchConfig {
       timeout: 10
     },
     services: [
-      { id: 'duckduckgo', name: 'DuckDuckGo', type: 'duckduckgo', enabled: true, apiKeys: [], strategy: 'roundRobin', connectionStatus: 'connected' }
+      { id: 'duckduckgo', name: 'DuckDuckGo', type: 'duckduckgo', enabled: true, apiKeys: [], strategy: 'roundRobin', connectionStatus: 'connected', serviceConfig: { region: 'wt-wt', safeSearch: 'moderate', timeRange: '' } }
     ]
   }
 }
@@ -1543,7 +1544,8 @@ function normalizeSearchConfig(input: unknown): SearchConfig {
           apiKeys,
           strategy,
           connectionStatus,
-          lastError: typeof x['lastError'] === 'string' ? x['lastError'] : undefined
+          lastError: typeof x['lastError'] === 'string' ? x['lastError'] : undefined,
+          serviceConfig: isRecord(x['serviceConfig']) ? (x['serviceConfig'] as Record<string, unknown>) : undefined
         }
       })
     : def.services
@@ -1702,8 +1704,20 @@ export interface BundleImportResult {
   providers: ProviderConfigV2[]
 }
 
+export type McpToolSummary = Pick<McpToolConfig, 'name' | 'description' | 'schema'>
+
 export type McpListToolsResponse =
-  | { success: true; tools: Array<Pick<McpToolConfig, 'name' | 'description' | 'schema'>> }
+  | { success: true; tools: McpToolSummary[] }
+  | { success: false; error: string }
+
+export interface McpCallToolRequest {
+  serverId: string
+  toolName: string
+  arguments?: Record<string, unknown>
+}
+
+export type McpCallToolResponse =
+  | { success: true; content: string; isError?: boolean }
   | { success: false; error: string }
 
 export interface StorageItemDetail {

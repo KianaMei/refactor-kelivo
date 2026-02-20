@@ -5,13 +5,14 @@ import type Database from 'better-sqlite3'
 
 import * as migration001 from './migrations/001_initial'
 import * as migration002 from './migrations/002_agent_sessions_provider'
+import * as migration003 from './migrations/003_message_tool_calls'
 
 interface Migration {
   version: number
   up: (db: Database.Database) => void
 }
 
-const migrations: Migration[] = [migration001, migration002]
+const migrations: Migration[] = [migration001, migration002, migration003]
 
 let db: Database.Database | null = null
 
