@@ -60,7 +60,7 @@ export function AssistantAvatar(props: { assistant: AssistantConfig; size?: numb
       style={{
         width: size,
         height: size,
-        borderRadius: '50%',
+        borderRadius: 12,
         background: 'var(--primary-bg)',
         color: 'var(--primary)',
         display: 'flex',

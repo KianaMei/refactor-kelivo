@@ -6,7 +6,6 @@
 import { useMemo, useRef } from 'react'
 
 interface HeadingItem {
-  id: string
   level: number
   text: string
 }
@@ -16,66 +15,58 @@ interface Props {
   messageId: string
 }
 
-// 简单的 slug 生成器
-function createSlugger() {
-  const occurrences = new Map<string, number>()
-  return {
-    slug(text: string): string {
-      const base = text
-        .toLowerCase()
-        .replace(/[^\w\u4e00-\u9fa5]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-      const count = occurrences.get(base) || 0
-      occurrences.set(base, count + 1)
-      return count > 0 ? `${base}-${count}` : base
-    }
-  }
+// 剥离 markdown 内联格式
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    .trim()
 }
 
 // 从 markdown 内容提取标题
-function extractHeadings(content: string, messageId: string): HeadingItem[] {
+function extractHeadings(content: string): HeadingItem[] {
   const headings: HeadingItem[] = []
-  const slugger = createSlugger()
-
-  // 匹配 markdown 标题: # Title, ## Title, etc.
   const headingRegex = /^(#{1,6})\s+(.+)$/gm
   let match
 
   while ((match = headingRegex.exec(content)) !== null) {
     const level = match[1].length
-    const text = match[2].trim()
+    const text = stripInlineMarkdown(match[2].trim())
     if (text) {
-      const slug = slugger.slug(text)
-      const id = `heading-${messageId}--${slug}`
-      headings.push({ id, level, text })
+      headings.push({ level, text })
     }
   }
 
   return headings
 }
 
-export function MessageOutline({ content, messageId }: Props) {
+export function MessageOutline({ content }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const headings = useMemo(() => extractHeadings(content, messageId), [content, messageId])
+  const headings = useMemo(() => extractHeadings(content), [content])
 
   const minLevel = useMemo(() => {
     return headings.length ? Math.min(...headings.map(h => h.level)) : 1
   }, [headings])
 
-  const scrollToHeading = (id: string) => {
-    const heading = document.getElementById(id)
-    if (heading) {
-      const scrollContainer = heading.closest('.chatMessagesScroll') as HTMLElement | null
-      if (scrollContainer) {
-        const containerRect = scrollContainer.getBoundingClientRect()
-        const headingRect = heading.getBoundingClientRect()
-        const elementTopWithinContainer = headingRect.top - containerRect.top + scrollContainer.scrollTop
-        const desiredTop = elementTopWithinContainer - 20
-        scrollContainer.scrollTo({ top: Math.max(0, desiredTop), behavior: 'smooth' })
-      } else {
-        heading.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
+  const scrollToHeading = (index: number) => {
+    const bubble = containerRef.current?.closest('.chatBubble')
+    if (!bubble) return
+    const allHeadings = bubble.querySelectorAll('h1, h2, h3, h4, h5, h6')
+    const heading = allHeadings[index] as HTMLElement | undefined
+    if (!heading) return
+
+    const scrollContainer = heading.closest('.chatMessagesScroll') as HTMLElement | null
+    if (scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const headingRect = heading.getBoundingClientRect()
+      const top = headingRect.top - containerRect.top + scrollContainer.scrollTop - 20
+      scrollContainer.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    } else {
+      heading.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }
 
@@ -88,7 +79,7 @@ export function MessageOutline({ content, messageId }: Props) {
           <div
             key={index}
             className="msgOutlineItem"
-            onClick={() => scrollToHeading(heading.id)}
+            onClick={() => scrollToHeading(index)}
           >
             <div
               className="msgOutlineDot"

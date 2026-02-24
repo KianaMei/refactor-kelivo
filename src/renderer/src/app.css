@@ -583,17 +583,16 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .msgRow { display: flex; gap: 10px; margin-bottom: 12px; }
 .msgRowUser { flex-direction: row-reverse; }
 .msgAvatar {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius);
-  background: var(--surface-2);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   color: var(--text-2);
 }
-.msgAvatarUser { background: var(--primary-bg); color: var(--primary); }
+.msgAvatarUser { color: var(--primary); }
 /* 消息区域整体宽度：
  * - 助手：固定 920px，与深度思考卡片一致
  * - 用户：保持 70% 的常见聊天布局
@@ -3277,15 +3276,19 @@ code, pre, .mdCodeBlock {
   cursor: pointer;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  padding: 2px 0;
-  transition: opacity 0.1s linear;
+  padding: 4px 0;
+  transition: opacity 0.1s linear, padding 0.15s ease;
+}
+.messageAnchorLineHovered .messageAnchorItem {
+  padding: 8px 0;
 }
 .messageAnchorTextContainer {
+  position: absolute;
+  right: 100%;
+  margin-right: 8px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  justify-content: space-between;
   text-align: right;
   gap: 2px;
   transform-origin: right center;
@@ -3312,7 +3315,7 @@ code, pre, .mdCodeBlock {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 4px;
   background: var(--surface-2);
   color: var(--text-2);
   flex-shrink: 0;
@@ -3330,6 +3333,33 @@ code, pre, .mdCodeBlock {
 .messageAnchorAvatarBottom {
   background: transparent;
   color: var(--primary);
+}
+
+/* ========== 头像大图浮层 ========== */
+.avatarLightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out;
+}
+.avatarLightboxContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.avatarLightboxContent button {
+  border-radius: 12px !important;
+}
+.avatarLightboxName {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
 }
 
 /* ========== 消息大纲导航（Cherry Studio 风格） ========== */
@@ -3382,9 +3412,9 @@ code, pre, .mdCodeBlock {
   background: var(--text-3);
 }
 .msgOutlineDot {
-  height: 4px;
+  height: 2px;
   background: var(--border);
-  border-radius: 2px;
+  border-radius: 1px;
   flex-shrink: 0;
   transition: background 0.2s ease;
 }

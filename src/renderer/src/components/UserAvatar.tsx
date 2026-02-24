@@ -23,7 +23,7 @@ export function UserAvatar(props: UserAvatarProps) {
             <img
                 src={src}
                 alt={name}
-                style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                style={{ width: '100%', height: '100%', borderRadius: 'var(--radius)', objectFit: 'cover' }}
                 onError={(e) => {
                     // 图片加载失败时显示首字母
                     const parent = e.currentTarget.parentElement
@@ -62,7 +62,7 @@ export function UserAvatar(props: UserAvatarProps) {
             style={{
                 width: size,
                 height: size,
-                borderRadius: '50%',
+                borderRadius: 'var(--radius)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

@@ -36,11 +36,12 @@ import { StreamingDots, PureLoadingAnimation } from '../../components/LoadingInd
 import { ThinkingBlock } from './components/ThinkingBlock'
 import { groupMessageParts } from './utils/groupMessageParts'
 
-const GEMINI_THOUGHT_SIG_COMMENT = /<!--\s*gemini_thought_signatures:.*?-->/gs
+const GEMINI_THOUGHT_SIG_COMMENT = /\n?<!--\s*gemini_thought_signatures:[\s\S]*?-->/g
 
 function stripGeminiThoughtSignatures(raw: string): string {
   if (!raw) return raw
-  return raw.replace(GEMINI_THOUGHT_SIG_COMMENT, '').trimEnd()
+  // Also strip any trailing whitespace after removing the comment
+  return raw.replace(GEMINI_THOUGHT_SIG_COMMENT, '').replace(/\s+$/, '')
 }
 
 function extractInlineThink(raw: string): { content: string; reasoning: string } {
@@ -148,6 +149,7 @@ export function MessageBubble(props: Props) {
   const [webViewOpen, setWebViewOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [menuDeleteConfirm, setMenuDeleteConfirm] = useState(false)
+  const [avatarLightbox, setAvatarLightbox] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -394,9 +396,9 @@ export function MessageBubble(props: Props) {
         {showAvatar && (
           <div className="msgAvatar">
             {props.useAssistantAvatar ? (
-              <BrandAvatar name={assistantLabel} size={22} customAvatarPath={props.assistantAvatar} />
+              <BrandAvatar name={assistantLabel} size={36} customAvatarPath={props.assistantAvatar} />
             ) : (
-              <Bot size={16} />
+              <Bot size={20} />
             )}
           </div>
         )}
@@ -412,13 +414,13 @@ export function MessageBubble(props: Props) {
     <div id={`msg-${message.id}`} className={`msgRow ${isUser ? 'msgRowUser' : ''}`}>
       {/* 头像 */}
       {showAvatar && (
-        <div className={`msgAvatar ${isUser ? 'msgAvatarUser' : ''}`}>
+        <div className={`msgAvatar ${isUser ? 'msgAvatarUser' : ''}`} onClick={() => setAvatarLightbox(true)} style={{ cursor: 'pointer' }}>
           {isUser ? (
-            <UserAvatar user={props.user} size={16} />
+            <UserAvatar user={props.user} size={36} />
           ) : props.useAssistantAvatar ? (
-            <BrandAvatar name={assistantLabel} size={22} customAvatarPath={props.assistantAvatar} />
+            <BrandAvatar name={assistantLabel} size={36} customAvatarPath={props.assistantAvatar} />
           ) : (
-            <Bot size={16} />
+            <Bot size={20} />
           )}
         </div>
       )}
@@ -772,6 +774,25 @@ export function MessageBubble(props: Props) {
         onClose={() => setWebViewOpen(false)}
         message={message}
       />
+
+      {/* 头像大图浮层 */}
+      {avatarLightbox && createPortal(
+        <div className="avatarLightboxOverlay" onClick={() => setAvatarLightbox(false)}>
+          <div className="avatarLightboxContent" onClick={e => e.stopPropagation()}>
+            {isUser ? (
+              <UserAvatar user={props.user} size={200} />
+            ) : props.useAssistantAvatar ? (
+              <BrandAvatar name={assistantLabel} size={200} customAvatarPath={props.assistantAvatar} />
+            ) : (
+              <Bot size={120} />
+            )}
+            <div className="avatarLightboxName">
+              {isUser ? (props.user?.name || '你') : assistantLabel}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* 开发中提示浮层 */}
       {devTip && createPortal(

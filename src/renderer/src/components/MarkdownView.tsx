@@ -13,6 +13,17 @@ function safeCopy(text: string): void {
   void navigator.clipboard.writeText(text)
 }
 
+// 从 React children 递归提取纯文本（用于生成与 MessageOutline 一致的 slug）
+function extractText(node: unknown): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join('')
+  if (typeof node === 'object' && 'props' in (node as any)) {
+    return extractText((node as any).props.children)
+  }
+  return ''
+}
+
 // 简单的 slug 生成器
 function createSlugger() {
   const occurrences = new Map<string, number>()
@@ -48,32 +59,32 @@ export const MarkdownView = memo(
               )
             },
             h1({ children }) {
-              const text = String(children ?? '')
+              const text = extractText(children)
               const id = props.messageId ? `heading-${props.messageId}--${slugger.slug(text)}` : undefined
               return <h1 id={id}>{children}</h1>
             },
             h2({ children }) {
-              const text = String(children ?? '')
+              const text = extractText(children)
               const id = props.messageId ? `heading-${props.messageId}--${slugger.slug(text)}` : undefined
               return <h2 id={id}>{children}</h2>
             },
             h3({ children }) {
-              const text = String(children ?? '')
+              const text = extractText(children)
               const id = props.messageId ? `heading-${props.messageId}--${slugger.slug(text)}` : undefined
               return <h3 id={id}>{children}</h3>
             },
             h4({ children }) {
-              const text = String(children ?? '')
+              const text = extractText(children)
               const id = props.messageId ? `heading-${props.messageId}--${slugger.slug(text)}` : undefined
               return <h4 id={id}>{children}</h4>
             },
             h5({ children }) {
-              const text = String(children ?? '')
+              const text = extractText(children)
               const id = props.messageId ? `heading-${props.messageId}--${slugger.slug(text)}` : undefined
               return <h5 id={id}>{children}</h5>
             },
             h6({ children }) {
-              const text = String(children ?? '')
+              const text = extractText(children)
               const id = props.messageId ? `heading-${props.messageId}--${slugger.slug(text)}` : undefined
               return <h6 id={id}>{children}</h6>
             },

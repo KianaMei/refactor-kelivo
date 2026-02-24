@@ -146,8 +146,8 @@ export function MessageAnchorLine({
           <div
             className="messageAnchorAvatar messageAnchorAvatarBottom"
             style={{
-              width: 16 + calculateValueByDistance(0, 8),
-              height: 16 + calculateValueByDistance(0, 8),
+              width: 10 + calculateValueByDistance(0, 8),
+              height: 10 + calculateValueByDistance(0, 8),
             }}
           >
             <ChevronsDown size={12 + calculateValueByDistance(0, 6)} />
@@ -159,7 +159,7 @@ export function MessageAnchorLine({
           const itemIndex = index + 1
           const opacity = mouseY !== null ? 0.5 + calculateValueByDistance(itemIndex, 0.5) : 0.4
           const scale = 1 + calculateValueByDistance(itemIndex, 0.3)
-          const avatarSize = 16 + calculateValueByDistance(itemIndex, 8)
+          const avatarSize = 10 + calculateValueByDistance(itemIndex, 8)
           const preview = getMessagePreview(msg.content)
           const displayName = msg.role === 'user' ? userName : (assistantName || msg.modelId || 'Assistant')
 

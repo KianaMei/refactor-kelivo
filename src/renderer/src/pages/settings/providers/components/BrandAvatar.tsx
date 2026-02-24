@@ -134,7 +134,7 @@ export function BrandAvatar({
 
   const initial = name.charAt(0).toUpperCase() || '?'
   const brandAsset = getBrandAsset(name)
-  const borderRadius = square ? 12 : '50%'
+  const borderRadius = 12
   const sizeStyle = fill ? { width: '100%', height: '100%' } : { width: size, height: size }
 
   // 自定义头像优先
