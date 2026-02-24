@@ -57,12 +57,20 @@ export function buildChatRequestMessages(args: {
   const rules = assistant?.regexRules
   const template = assistant?.messageTemplate ?? '{{ message }}'
 
-  const userContent = applyAssistantRegex(
+  let userContent = applyAssistantRegex(
     applyMessageTemplate(template, userInput),
     'user',
     rules,
     'request'
   )
+  // 防御：避免把空消息发给模型（会触发 400 empty_content）
+  if (!userContent.trim()) {
+    const fallback = String(userInput ?? '').trim()
+    if (!fallback) {
+      throw new Error('用户消息为空，无法发送请求')
+    }
+    userContent = fallback
+  }
 
   const raw = [
     ...history.map((m) => ({
@@ -70,7 +78,7 @@ export function buildChatRequestMessages(args: {
       content: applyAssistantRegex(m.content, m.role, rules, 'request')
     })),
     { role: 'user' as const, content: userContent }
-  ]
+  ].filter((m) => m.content.trim().length > 0)
 
   const limited = (() => {
     if (!assistant?.limitContextMessages) return raw

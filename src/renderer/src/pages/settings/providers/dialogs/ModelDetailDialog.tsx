@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import type { ModelOverride, ModelType, Modality, ModelAbility } from '../types'
 import { useDialogClose } from '../../../../hooks/useDialogClose'
 
@@ -76,7 +77,8 @@ export function ModelDetailDialog({
 
     // 检查重复
     if (providerModels.includes(id) && id !== initialModelId) {
-      return // TODO: 显示错误提示
+      toast.error('模型 ID 已存在')
+      return
     }
 
     setSaving(true)

@@ -9,13 +9,7 @@ function isRecord(v: unknown): v is Record<string, any> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-function safeUuid(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-  }
-}
+import { safeUuid } from '../../../../shared/utils'
 
 function normalizeTransport(v: unknown): McpTransportType {
   if (v === 'sse' || v === 'http' || v === 'stdio' || v === 'inmemory') return v

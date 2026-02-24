@@ -1,3 +1,6 @@
+import type { ImageStudioConfig } from './imageStudio'
+import { createDefaultImageStudioConfig, normalizeImageStudioConfig } from './imageStudio'
+
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type ThemePalette = 'default' | 'blue' | 'purple' | 'green' | 'orange' | 'pink' | 'teal' | 'red' | 'yellow'
@@ -425,8 +428,16 @@ export interface AppConfigV2 {
   assistantMemories: AssistantMemory[]
   // 搜索服务配置
   searchConfig: SearchConfig
+  // 全局代理
+  proxyEnabled?: boolean
+  proxyType?: 'http' | 'https' | 'socks5'
+  proxyHost?: string
+  proxyPort?: string
+  proxyUsername?: string
+  proxyPassword?: string
   // 备份配置
   backupConfig: BackupConfig
+  imageStudio: ImageStudioConfig
   // 显示设置
   display: DisplaySettings
   ui: UiStateV2
@@ -699,8 +710,15 @@ export function createDefaultConfig(): AppConfigV2 {
     mcpToolCallMode: 'native',
     quickPhrases: [],
     assistantMemories: [],
+    proxyEnabled: false,
+    proxyType: 'http',
+    proxyHost: '',
+    proxyPort: '8080',
+    proxyUsername: '',
+    proxyPassword: '',
     searchConfig: createDefaultSearchConfig(),
     backupConfig: createDefaultBackupConfig(),
+    imageStudio: createDefaultImageStudioConfig(),
     display: createDefaultDisplaySettings(),
     ui: {
       desktop: {
@@ -1038,6 +1056,7 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
 
   // 备份配置
   const backupConfig: BackupConfig = normalizeBackupConfig(cfg['backupConfig'])
+  const imageStudio: ImageStudioConfig = normalizeImageStudioConfig(cfg['imageStudio'])
 
   return {
     version: 2,
@@ -1067,8 +1086,17 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
     mcpToolCallMode,
     quickPhrases,
     assistantMemories,
+    proxyEnabled: typeof cfg['proxyEnabled'] === 'boolean' ? (cfg['proxyEnabled'] as boolean) : def.proxyEnabled,
+    proxyType: (['http', 'https', 'socks5'] as const).includes(cfg['proxyType'] as 'http' | 'https' | 'socks5')
+      ? (cfg['proxyType'] as 'http' | 'https' | 'socks5')
+      : def.proxyType,
+    proxyHost: typeof cfg['proxyHost'] === 'string' ? (cfg['proxyHost'] as string) : def.proxyHost,
+    proxyPort: typeof cfg['proxyPort'] === 'string' ? (cfg['proxyPort'] as string) : def.proxyPort,
+    proxyUsername: typeof cfg['proxyUsername'] === 'string' ? (cfg['proxyUsername'] as string) : def.proxyUsername,
+    proxyPassword: typeof cfg['proxyPassword'] === 'string' ? (cfg['proxyPassword'] as string) : def.proxyPassword,
     searchConfig,
     backupConfig,
+    imageStudio,
     display,
     ui
   }
@@ -1725,5 +1753,6 @@ export interface StorageItemDetail {
   path: string
   size: number
   modifiedAt: number
-  kind?: 'avatar' | 'chat' | 'other'
+  kind?: 'avatar' | 'chat' | 'generated' | 'other'
+  thumbnailPath?: string
 }

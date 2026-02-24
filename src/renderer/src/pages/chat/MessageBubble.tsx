@@ -3,7 +3,7 @@
  * 对齐旧版 Kelivo 的 chat_message_widget.dart
  * 包括：消息内容、操作菜单（编辑/复制/导出/删除）、版本选择等
  */
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Copy,
@@ -17,7 +17,6 @@ import {
   Volume2,
   VolumeX,
   Check,
-  User,
   Bot,
   Languages,
   Loader2,
@@ -28,13 +27,14 @@ import {
   GitBranch
 } from 'lucide-react'
 import { MarkdownView } from '../../components/MarkdownView'
-import { ToolCallItem } from './ToolCallItem'
 import { MessageOutline } from '../../components/MessageOutline'
 import type { DisplaySettings, UserConfig } from '../../../../shared/types'
 import { BrandAvatar } from '../settings/providers/components/BrandAvatar'
 import { UserAvatar } from '../../components/UserAvatar'
 import { SelectCopyDialog, ShareDialog, EditBottomSheet, WebViewDialog } from './MessageDialogs'
-import { AnimatedLoadingText, StreamingDots, PureLoadingAnimation } from '../../components/LoadingIndicators'
+import { StreamingDots, PureLoadingAnimation } from '../../components/LoadingIndicators'
+import { ThinkingBlock } from './components/ThinkingBlock'
+import { groupMessageParts } from './utils/groupMessageParts'
 
 const GEMINI_THOUGHT_SIG_COMMENT = /<!--\s*gemini_thought_signatures:.*?-->/gs
 
@@ -82,6 +82,7 @@ export interface ChatMessage {
   reasoningDuration?: number // 推理时间（秒）
   // 翻译
   translation?: string
+  translationExpanded?: boolean
   // Token 使用
   usage?: {
     promptTokens: number
@@ -116,6 +117,7 @@ interface Props {
   onSpeak?: (msg: ChatMessage) => void
   onVersionChange?: (msg: ChatMessage, version: number) => void
   onTranslate?: (msg: ChatMessage) => void
+  onTranslationExpandChange?: (msg: ChatMessage, expanded: boolean) => void
   onResend?: (msg: ChatMessage) => void
   onMentionReAnswer?: (msg: ChatMessage) => void
   onFork?: (msg: ChatMessage) => void
@@ -139,29 +141,15 @@ export function MessageBubble(props: Props) {
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
   const [copied, setCopied] = useState(false)
   const [devTip, setDevTip] = useState<string | null>(null)
-  const [showReasoning, setShowReasoning] = useState(() => {
-    // 对齐 Flutter：inline <think> 在「已完成」且「关闭自动折叠」时默认展开；
-    // 原生 reasoningText 则始终默认折叠。
-    const autoCollapse = displaySettings?.autoCollapseThinking !== false
-    const usingInlineThink = !message.reasoning && extractedThinking.trim().length > 0
-    const finishedInlineThink = usingInlineThink && !isLoading
-    if (finishedInlineThink && !autoCollapse) return true
-    return false
-  })
-  const [showTranslation, setShowTranslation] = useState(true)
+  const [showTranslation, setShowTranslation] = useState(() => message.translationExpanded !== false)
   const [selectCopyOpen, setSelectCopyOpen] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [editSheetOpen, setEditSheetOpen] = useState(false)
   const [webViewOpen, setWebViewOpen] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState(false) // 删除二次确认状态
-  const [menuDeleteConfirm, setMenuDeleteConfirm] = useState(false) // 菜单内删除确认状态
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [menuDeleteConfirm, setMenuDeleteConfirm] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
-  const reasoningBodyRef = useRef<HTMLDivElement>(null)
-  const reasoningToggleRef = useRef<HTMLButtonElement>(null)
-  const scrollAdjustRef = useRef<{ container: Element; offsetBefore: number } | null>(null)
-  const reasoningManuallyToggledRef = useRef<boolean>(false)
-  const prevLoadingRef = useRef<boolean>(isLoading)
   const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const menuDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -192,43 +180,10 @@ export function MessageBubble(props: Props) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [menuOpen])
 
-  // 对齐 Flutter：推理完成后自动折叠（native reasoning 强制；inline think 尊重手动切换）
   useEffect(() => {
-    const wasLoading = prevLoadingRef.current
-    const autoCollapse = displaySettings?.autoCollapseThinking !== false
-    const usingInlineThink = !message.reasoning && extractedThinking.trim().length > 0
-    if (wasLoading && !isLoading && autoCollapse) {
-      // Flutter：inline think 如果用户手动切换过，就不要强行自动折叠
-      if (!usingInlineThink || !reasoningManuallyToggledRef.current) {
-        setShowReasoning(false)
-      }
-    }
-    prevLoadingRef.current = isLoading
-  }, [isLoading, displaySettings?.autoCollapseThinking, extractedThinking, message.reasoning])
-
-  // 展开/收起深度思考时，保持按钮在视口中的相对位置不变
-  useLayoutEffect(() => {
-    const adjust = scrollAdjustRef.current
-    if (!adjust) return
-    scrollAdjustRef.current = null
-    const btn = reasoningToggleRef.current
-    if (!btn) return
-    const btnRect = btn.getBoundingClientRect()
-    const containerRect = adjust.container.getBoundingClientRect()
-    const offsetAfter = btnRect.top - containerRect.top
-    const delta = offsetAfter - adjust.offsetBefore
-    if (delta !== 0) {
-      adjust.container.scrollTop += delta
-    }
-  }, [showReasoning])
-
-  // 对齐 Flutter：推理流式输出时，预览区域自动滚动到底部
-  useEffect(() => {
-    if (!isLoading) return
-    const el = reasoningBodyRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [isLoading, effectiveReasoning])
+    if (!message.translation) return
+    setShowTranslation(message.translationExpanded !== false)
+  }, [message.id, message.translation, message.translationExpanded])
 
   // 菜单渲染后修正位置，确保不超出可视区域
   const clampMenuRef = useCallback((node: HTMLDivElement | null) => {
@@ -353,6 +308,15 @@ export function MessageBubble(props: Props) {
     }
   }
 
+  function setTranslationExpanded(expanded: boolean) {
+    setShowTranslation(expanded)
+    props.onTranslationExpandChange?.(message, expanded)
+  }
+
+  function toggleTranslationExpanded() {
+    setTranslationExpanded(!showTranslation)
+  }
+
   const hasVersions = message.totalVersions !== undefined && message.totalVersions > 1
   const currentVersion = message.version ?? 0
   const totalVersions = message.totalVersions ?? 1
@@ -408,15 +372,19 @@ export function MessageBubble(props: Props) {
     }
   }
 
-  // 加载中且没有内容时，只显示纯净的加载动画，不显示消息气泡和按钮
-  const isPureLoading = isLoading && !message.content
-  const reasoningText = (effectiveReasoning ?? '').trim().replace(/\\n/g, '\n')
-  const hasReasoning = !isUser && reasoningText.length > 0
-  const reasoningLoading = !isUser && isLoading
-  const showReasoningBody = hasReasoning && (showReasoning || reasoningLoading)
-  const previewReasoning = hasReasoning && reasoningLoading && !showReasoning
-  const reasoningElapsed = message.reasoningDuration !== undefined ? `(${message.reasoningDuration.toFixed(1)}s)` : undefined
+  // 加载中且没有任何内容时，只显示纯净的加载动画
+  const isPureLoading = isLoading && !message.content && !effectiveReasoning && !(message.toolCalls && message.toolCalls.length > 0)
   const enableReasoningMarkdown = displaySettings?.enableReasoningMarkdown !== false
+  const autoCollapseThinking = displaySettings?.autoCollapseThinking !== false
+
+  // 使用 groupMessageParts 分组消息块
+  const messageParts = useMemo(
+    () => !isUser && showStickerToolUI
+      ? groupMessageParts(message, effectiveReasoning, displayContent)
+      : [],
+    [message.id, message.content, message.reasoning, message.toolCalls, message.blocks, effectiveReasoning, displayContent, isUser, showStickerToolUI]
+  )
+  const hasThinkingBlocks = messageParts.some((p) => p.type === 'thinking')
 
   // 纯加载状态 - 只显示动画
   if (isPureLoading && !isUser) {
@@ -483,93 +451,32 @@ export function MessageBubble(props: Props) {
           </div>
         )}
 
-        {/* 助手消息：推理+回复 统一卡片 / 普通消息气泡 */}
-        {!isUser && hasReasoning ? (
-          /* 有推理内容时：使用统一卡片 */
-          <div className="assistantUnifiedCard">
-            {/* 深度思考区域 */}
-            <div className={`msgReasoning ${reasoningLoading ? 'msgReasoning--loading' : ''}`}>
-              <button
-                ref={reasoningToggleRef}
-                type="button"
-                className="msgReasoningToggle"
-                onClick={() => {
-                  reasoningManuallyToggledRef.current = true
-                  const btn = reasoningToggleRef.current
-                  const scrollContainer = btn?.closest('.chatMessagesScroll')
-                  if (btn && scrollContainer) {
-                    const btnRect = btn.getBoundingClientRect()
-                    const containerRect = scrollContainer.getBoundingClientRect()
-                    scrollAdjustRef.current = {
-                      container: scrollContainer,
-                      offsetBefore: btnRect.top - containerRect.top
-                    }
-                  }
-                  setShowReasoning(!showReasoning)
-                }}
-              >
-                <span className="msgReasoningIcon" aria-hidden="true" />
-                <span className={`msgReasoningTitle ${reasoningLoading ? 'msgShimmer' : ''}`}>深度思考</span>
-                {reasoningElapsed && (
-                  <span className={`msgReasoningElapsed ${reasoningLoading ? 'msgShimmer' : ''}`}>{reasoningElapsed}</span>
-                )}
-                <span className="msgReasoningSpacer" />
-                <ChevronRight
-                  size={14}
-                  style={{ transform: showReasoning ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
-                />
-              </button>
-              {showReasoningBody && (
-                <div
-                  ref={reasoningBodyRef}
-                  className={`msgReasoningContent scrollbarHover ${previewReasoning ? 'msgReasoningContentPreview' : ''}`}
-                >
-                  {enableReasoningMarkdown ? (
-                    <MarkdownView content={reasoningText} />
-                  ) : (
-                    <pre className="msgReasoningPlain">{reasoningText}</pre>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* 回复内容区域 */}
-            <div className="chatBubble" style={{ position: 'relative' }}>
-              {message.blocks && showStickerToolUI ? (
-                message.blocks.map((block, idx) =>
-                  block.type === 'text' ? (
-                    <MarkdownView key={idx} content={block.content} messageId={`${message.id}-b${idx}`} />
-                  ) : (
-                    <ToolCallItem key={idx} tc={message.toolCalls!.find((t) => t.id === block.toolCallId)!} />
-                  )
-                )
-              ) : (
-                <>
-                  <MessageOutline content={displayContent} messageId={message.id} />
-                  <MarkdownView content={displayContent} messageId={message.id} />
-                </>
-              )}
-              {isLoading && message.content && (
-                <StreamingDots />
-              )}
-            </div>
-          </div>
-        ) : (
-          /* 普通消息：使用独立气泡 */
-          <div className={`chatBubble ${isUser ? 'chatBubbleUser' : ''}`} style={{ ...getBubbleStyle(), position: 'relative' }}>
-            {!isUser && message.blocks && showStickerToolUI ? (
-              message.blocks.map((block, idx) =>
-                block.type === 'text' ? (
-                  <MarkdownView key={idx} content={block.content} messageId={`${message.id}-b${idx}`} />
-                ) : (
-                  <ToolCallItem key={idx} tc={message.toolCalls!.find((t) => t.id === block.toolCallId)!} />
-                )
-              )
+        {/* 助手消息：使用 groupMessageParts 分块渲染 */}
+        {!isUser && hasThinkingBlocks ? (
+          messageParts.map((part, idx) =>
+            part.type === 'thinking' ? (
+              <ThinkingBlock
+                key={`think-${idx}`}
+                steps={part.steps}
+                isLoading={isLoading}
+                autoCollapseThinking={autoCollapseThinking}
+                enableReasoningMarkdown={enableReasoningMarkdown}
+              />
             ) : (
-              <>
-                {!isUser && <MessageOutline content={displayContent} messageId={message.id} />}
-                <MarkdownView content={displayContent} messageId={message.id} />
-              </>
-            )}
+              <div key={`content-${idx}`} className="chatBubble" style={{ position: 'relative' }}>
+                <MessageOutline content={part.text} messageId={`${message.id}-p${idx}`} />
+                <MarkdownView content={part.text} messageId={`${message.id}-p${idx}`} />
+                {isLoading && idx === messageParts.length - 1 && message.content && (
+                  <StreamingDots />
+                )}
+              </div>
+            )
+          )
+        ) : (
+          /* 用户消息 或 无 thinking 块的助手消息：使用独立气泡 */
+          <div className={`chatBubble ${isUser ? 'chatBubbleUser' : ''}`} style={{ ...getBubbleStyle(), position: 'relative' }}>
+            {!isUser && <MessageOutline content={displayContent} messageId={message.id} />}
+            <MarkdownView content={displayContent} messageId={message.id} />
             {isLoading && message.content && (
               <StreamingDots />
             )}
@@ -582,7 +489,7 @@ export function MessageBubble(props: Props) {
             <button
               type="button"
               className="msgTranslationToggle"
-              onClick={() => setShowTranslation(!showTranslation)}
+              onClick={toggleTranslationExpanded}
             >
               <Languages size={14} />
               <span>翻译</span>
@@ -596,15 +503,6 @@ export function MessageBubble(props: Props) {
                 <MarkdownView content={message.translation} />
               </div>
             )}
-          </div>
-        )}
-
-        {/* 工具调用卡片（仅无 blocks 时在底部显示，有 blocks 时已交替渲染） */}
-        {showStickerToolUI && !message.blocks && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="tcList">
-            {message.toolCalls.map((tc) => (
-              <ToolCallItem key={tc.id} tc={tc} />
-            ))}
           </div>
         )}
 

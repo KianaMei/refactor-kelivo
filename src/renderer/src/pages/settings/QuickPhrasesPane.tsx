@@ -6,14 +6,7 @@ import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Textarea } from '../../components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog'
-
-function safeUuid(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-  }
-}
+import { safeUuid } from '../../../../shared/utils'
 
 export function QuickPhrasesPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
   const { config, onSave } = props

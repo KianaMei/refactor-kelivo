@@ -290,6 +290,24 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 }
 .navRailBtn:hover { background: var(--surface-2); color: var(--text); }
 .navRailBtnActive { background: var(--primary-bg); color: var(--primary); }
+.navRailDragItem { display: flex; flex-direction: column; align-items: center; position: relative; }
+.navRailBtnReorder {
+  border: 1.5px dashed var(--border) !important;
+  cursor: grab !important;
+  opacity: 0.85;
+}
+.navRailBtnReorder:hover { border-color: var(--primary) !important; opacity: 1; }
+.navRailDragItem--dragging { opacity: 0.3; }
+.navRailDragItem--dragging .navRailBtn { cursor: grabbing !important; }
+.navRailDragItem--over::before {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 2px;
+  margin-bottom: 1px;
+}
 
 /* ========== Chat 侧边栏 ========== */
 .chatSidebar {
@@ -3773,7 +3791,8 @@ code, pre, .mdCodeBlock {
 }
 
 .msgReasoningTitle {
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 12px;
 }
 
 .msgReasoningElapsed {
@@ -4945,3 +4964,4596 @@ code, pre, .mdCodeBlock {
   transform-origin: center;
 }
 
+.chatHistoryLoading {
+  width: min(720px, 100%);
+  margin: 8px auto 0;
+  padding: 8px 4px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chatHistoryLoadingRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.chatHistoryLoadingRow--right {
+  justify-content: flex-end;
+}
+
+.chatHistoryLoadingAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chatHistoryLoadingBubbleStack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chatHistoryLoadingBubble {
+  height: 12px;
+  border-radius: 999px;
+}
+
+.chatHistoryLoadingBubble--sm {
+  width: 140px;
+}
+
+.chatHistoryLoadingBubble--md {
+  width: 220px;
+}
+
+.chatHistoryLoadingBubble--lg {
+  width: min(320px, 62vw);
+}
+
+.chatHistoryLoadingRow--right .chatHistoryLoadingBubble {
+  margin-left: auto;
+}
+
+.chatHistoryLoadingWave {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-2) 84%, var(--surface-3));
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.chatHistoryLoadingWave::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--text) 24%, transparent) 50%, transparent 100%);
+  animation: chatHistoryLoadingWave 1.5s ease-in-out infinite;
+}
+
+.chatHistoryLoadingTyping {
+  margin-left: 38px;
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 84%, var(--surface-3));
+}
+
+.chatHistoryLoadingTyping span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-2) 72%, transparent);
+  animation: chatHistoryLoadingDot 1.2s ease-in-out infinite;
+}
+
+.chatHistoryLoadingTyping span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chatHistoryLoadingTyping span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chatHistoryLoadingWave {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(140%);
+  }
+}
+
+@keyframes chatHistoryLoadingDot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatHistoryLoadingWave::after,
+  .chatHistoryLoadingTyping span {
+    animation: none;
+    transform: none;
+  }
+}
+
+
+/* ========== Image Studio ========== */
+.imageStudioPage {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 9%, transparent), transparent 45%),
+    var(--bg);
+}
+
+.imageStudioSidebar {
+  width: 430px;
+  min-width: 360px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.imageStudioSidebarInner {
+  height: 100%;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.imageStudioCard {
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.imageStudioHeroCard {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 18%, var(--surface)) 0%, var(--surface) 70%),
+    var(--surface);
+}
+
+.imageStudioHeroTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.imageStudioHeroDesc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.imageStudioHeroStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.imageStudioHeroStats > span {
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-3) 35%, transparent);
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+}
+
+.imageStudioSectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text-1);
+}
+
+.imageStudioSectionHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.imageStudioLabel {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+
+.imageStudioSelect {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 10px;
+}
+
+.imageStudioSelectCompact {
+  width: 130px;
+}
+
+.imageStudioTextarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+}
+
+.imageStudioHint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
+.imageStudioHintWarning {
+  color: #f59e0b;
+}
+
+.imageStudioCounter {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.imageStudioRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.imageStudioRowWrap {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.imageStudioInputGrow {
+  flex: 1;
+  min-width: 0;
+}
+
+.imageStudioActionsCompact {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.imageStudioInputList {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.imageStudioInputItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.imageStudioThumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.imageStudioThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.imageStudioThumbPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.imageStudioInputInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.imageStudioInputType {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.imageStudioInputName {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imageStudioInputActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.imageStudioFieldGroup {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.imageStudioGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.imageStudioInlineTwo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.imageStudioSeedRow {
+  margin-top: 10px;
+  align-items: flex-end;
+}
+
+.imageStudioSwitchList {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioSwitchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.imageStudioSwitchRowHighlight {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+.imageStudioCheckbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.imageStudioSubmitActions {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.imageStudioMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.imageStudioMainHeader {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.imageStudioMainTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.imageStudioMainTitle {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.imageStudioMainSub {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imageStudioMainTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.imageStudioMainBody {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(310px, 0.85fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.imageStudioDetailsColumn,
+.imageStudioHistoryColumn {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imageStudioLogsCard,
+.imageStudioOutputsCard,
+.imageStudioHistoryCard {
+  min-height: 0;
+}
+
+.imageStudioLogPanel {
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.imageStudioLogLine {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.imageStudioOutputGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 10px;
+}
+
+.imageStudioOutputCard {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.imageStudioOutputPreview {
+  aspect-ratio: 1 / 1;
+  background: var(--surface-2);
+}
+
+.imageStudioOutputImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.imageStudioOutputMeta {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioOutputName {
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imageStudioOutputActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.imageStudioHistoryCard {
+  display: flex;
+  flex-direction: column;
+}
+
+.imageStudioHistoryList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.imageStudioHistoryItem {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioHistoryItem.is-active {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+  background: color-mix(in srgb, var(--primary-bg) 58%, var(--surface));
+}
+
+.imageStudioHistoryTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.imageStudioHistoryTime {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.imageStudioHistoryPrompt {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.imageStudioHistoryMeta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.imageStudioHistoryActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.imageStudioStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.imageStudioStatus--queued {
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.14);
+  border-color: rgba(217, 119, 6, 0.3);
+}
+
+.imageStudioStatus--inProgress {
+  color: #0284c7;
+  background: rgba(2, 132, 199, 0.14);
+  border-color: rgba(2, 132, 199, 0.3);
+}
+
+.imageStudioStatus--completed {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.14);
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+.imageStudioStatus--failed {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.14);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.imageStudioStatus--cancelled {
+  color: #6b7280;
+  background: rgba(107, 114, 128, 0.18);
+  border-color: rgba(107, 114, 128, 0.35);
+}
+
+.imageStudioEmpty {
+  padding: 16px 12px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+@media (max-width: 1450px) {
+  .imageStudioMainBody {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1180px) {
+  .imageStudioPage {
+    flex-direction: column;
+  }
+
+  .imageStudioSidebar {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .imageStudioSidebarInner {
+    max-height: 54vh;
+  }
+}
+
+@media (max-width: 860px) {
+  .imageStudioGrid2,
+  .imageStudioInlineTwo {
+    grid-template-columns: 1fr;
+  }
+
+  .imageStudioMainTitleGroup {
+    flex-wrap: wrap;
+  }
+
+  .imageStudioMainTools {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .imageStudioMainHeader {
+    flex-wrap: wrap;
+  }
+}
+
+/* ========== Image Studio V2 ========== */
+.imageStudioV2Page {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 340px;
+  gap: 12px;
+  padding: 12px;
+  background:
+    radial-gradient(circle at top center, color-mix(in srgb, var(--primary) 9%, transparent), transparent 42%),
+    var(--bg);
+}
+
+.imageStudioV2Side {
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  overflow: hidden;
+}
+
+.imageStudioV2Scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imageStudioV2Center {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imageStudioV2Card {
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  padding: 12px;
+}
+
+.imageStudioV2CardTitle {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.imageStudioV2CardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.imageStudioV2Label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 8px 0 6px;
+}
+
+.imageStudioV2Hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+
+.imageStudioV2HintWarning {
+  color: #f59e0b;
+}
+
+.imageStudioV2Select {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 10px;
+}
+
+.imageStudioV2SelectCompact {
+  width: 130px;
+}
+
+.imageStudioV2Row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.imageStudioV2RowWrap {
+  flex-wrap: wrap;
+}
+
+.imageStudioV2InputGrow {
+  flex: 1;
+  min-width: 0;
+}
+
+.imageStudioV2Field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.imageStudioV2Grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.imageStudioV2SeedRow {
+  align-items: flex-end;
+}
+
+.imageStudioV2SwitchList {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioV2Switch {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  min-height: 38px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.imageStudioV2SwitchHighlight {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+.imageStudioV2Checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.imageStudioV2ActionButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.imageStudioV2MetaGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.imageStudioV2MetaGrid span {
+  font-size: 11px;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  text-align: center;
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+}
+
+.imageStudioV2ResultCard {
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.imageStudioV2ResultHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.imageStudioV2ResultTitle {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.imageStudioV2ResultStage {
+  min-height: 320px;
+  max-height: 56vh;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.imageStudioV2ImageButton {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  padding: 0;
+}
+
+.imageStudioV2ResultImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.imageStudioV2ImageHint {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  font-size: 11px;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.imageStudioV2OutputTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.imageStudioV2OutputStrip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.imageStudioV2OutputThumb {
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.imageStudioV2OutputThumb.is-active {
+  border-color: color-mix(in srgb, var(--primary) 64%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+.imageStudioV2OutputThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.imageStudioV2CoreRow {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 12px;
+}
+
+.imageStudioV2ReferenceCard,
+.imageStudioV2PromptCard {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.imageStudioV2Counter {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.imageStudioV2ReferenceList {
+  margin-top: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioV2ReferenceItem {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.imageStudioV2ReferenceThumb {
+  width: 58px;
+  height: 58px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  background: var(--surface-2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.imageStudioV2ReferenceThumb:disabled {
+  cursor: default;
+}
+
+.imageStudioV2ReferenceThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.imageStudioV2ReferenceInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.imageStudioV2ReferenceType {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.imageStudioV2ReferenceName {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imageStudioV2ReferenceActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.imageStudioV2PromptInput {
+  width: 100%;
+  flex: 1;
+  min-height: 180px;
+  resize: none;
+  line-height: 1.6;
+}
+
+.imageStudioV2PromptMeta {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.imageStudioV2HistoryCard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.imageStudioV2LogPanel {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.imageStudioV2LogLine {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.imageStudioV2HistoryList {
+  margin-top: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioV2HistoryItem {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageStudioV2HistoryItem.is-active {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+  background: color-mix(in srgb, var(--primary-bg) 58%, var(--surface));
+}
+
+.imageStudioV2HistoryTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.imageStudioV2HistoryTime {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.imageStudioV2HistoryPrompt {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.imageStudioV2HistoryMeta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.imageStudioV2HistoryActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.imageStudioV2EmptyState {
+  width: 100%;
+  min-height: 120px;
+  border: 1px dashed color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 12px;
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--surface-2) 84%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 12px;
+}
+
+.imageStudioV2Lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.imageStudioV2LightboxInner {
+  width: min(1200px, 100%);
+  max-height: 92vh;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.imageStudioV2LightboxHeader {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.imageStudioV2LightboxTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imageStudioV2LightboxBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b0b0d;
+}
+
+.imageStudioV2LightboxImage {
+  max-width: 100%;
+  max-height: calc(92vh - 52px);
+  object-fit: contain;
+}
+
+@media (max-width: 1600px) {
+  .imageStudioV2Page {
+    grid-template-columns: 290px minmax(0, 1fr) 300px;
+  }
+}
+
+@media (max-width: 1360px) {
+  .imageStudioV2Page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(0, auto);
+  }
+
+  .imageStudioV2Center {
+    order: 1;
+  }
+
+  .imageStudioV2SideLeft {
+    order: 2;
+  }
+
+  .imageStudioV2SideRight {
+    order: 3;
+  }
+
+  .imageStudioV2Side {
+    max-height: 44vh;
+  }
+}
+
+@media (max-width: 960px) {
+  .imageStudioV2CoreRow,
+  .imageStudioV2Grid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .imageStudioV2ResultHeader {
+    flex-wrap: wrap;
+  }
+
+  .imageStudioV2ResultStage {
+    min-height: 260px;
+  }
+}
+
+/* ========== Image Studio Cherry Style ========== */
+.is3Page {
+  display: grid;
+  grid-template-columns: 316px minmax(0, 1fr) 96px;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding: 10px;
+  background: var(--bg);
+}
+
+.is3Left,
+.is3Right {
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-radius: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.is3Scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.is3Block {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 65%, var(--surface));
+  padding: 10px;
+}
+
+.is3BlockTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.is3BlockTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.is3Label {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.is3LabelInline {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.is3LabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.is3Hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+.is3HintWarning {
+  color: #f59e0b;
+}
+
+.is3Select {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.is3SelectCompact {
+  width: 110px;
+}
+
+.is3Row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.is3Wrap {
+  flex-wrap: wrap;
+}
+
+.is3Grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.is3Grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.is3Field {
+  margin-top: 10px;
+}
+
+.is3Range {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.is3SwitchList {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.is3SwitchItem {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.is3SwitchItemAccent {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+.is3Checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.is3HistoryBlock {
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.is3HistoryTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.is3HistoryList {
+  margin-top: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.is3HistoryItem {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.is3HistoryItem.is-active {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+  background: color-mix(in srgb, var(--primary-bg) 65%, var(--surface));
+}
+
+.is3HistoryTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.is3HistoryTime {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.is3HistoryPrompt {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.is3HistoryActions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.is3Center {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  overflow: hidden;
+}
+
+.is3Modes {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.is3ModeTab {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.is3ModeTab:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.is3ModeTab.is-active {
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+}
+
+.is3CanvasSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 0;
+  gap: 10px;
+}
+
+.is3CanvasHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.is3CanvasTitle {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.is3Canvas {
+  flex: 1;
+  min-height: 280px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.is3CanvasImageButton {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  position: relative;
+  cursor: zoom-in;
+}
+
+.is3CanvasImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.is3CanvasImageHint {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.48);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.is3CanvasEmpty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.is3Bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 14px 12px;
+  min-height: 240px;
+}
+
+.is3RefPanel,
+.is3PromptPanel {
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  padding: 10px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.is3RefList {
+  margin-top: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.is3RefItem {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.is3RefThumb {
+  width: 50px;
+  height: 50px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  overflow: hidden;
+  padding: 0;
+  cursor: zoom-in;
+  flex-shrink: 0;
+}
+
+.is3RefThumb:disabled {
+  cursor: default;
+}
+
+.is3RefThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.is3RefInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.is3RefName {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is3RefActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.is3PromptInput {
+  width: 100%;
+  flex: 1;
+  min-height: 140px;
+  resize: none;
+  line-height: 1.55;
+}
+
+.is3PromptFooter {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.is3Right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  gap: 10px;
+}
+
+.is3ThumbAdd {
+  width: 76px;
+  height: 76px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  color: var(--text-2);
+  font-size: 28px;
+  cursor: pointer;
+}
+
+.is3ThumbAdd:hover {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+}
+
+.is3ThumbList {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.is3Thumb {
+  width: 76px;
+  height: 76px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  cursor: pointer;
+}
+
+.is3Thumb.is-active {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.is3ThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.is3ThumbEmpty {
+  width: 100%;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.is3Lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2100;
+  padding: 20px;
+}
+
+.is3LightboxInner {
+  width: min(1200px, 100%);
+  max-height: 92vh;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.is3LightboxHeader {
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.is3LightboxTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is3LightboxBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0b0d;
+}
+
+.is3LightboxImage {
+  max-width: 100%;
+  max-height: calc(92vh - 48px);
+  object-fit: contain;
+}
+
+@media (max-width: 1440px) {
+  .is3Page {
+    grid-template-columns: 290px minmax(0, 1fr) 90px;
+  }
+}
+
+@media (max-width: 1220px) {
+  .is3Page {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(0, auto);
+  }
+
+  .is3Right {
+    flex-direction: row;
+    align-items: flex-start;
+    min-height: 120px;
+  }
+
+  .is3ThumbList {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+@media (max-width: 960px) {
+  .is3Bottom,
+  .is3Grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ========== Image Studio Layout v4 ========== */
+.is4Page {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+  background: radial-gradient(circle at top, color-mix(in srgb, var(--surface-2) 60%, transparent), transparent 36%),
+    var(--bg);
+}
+
+.is4Side {
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.is4SideScroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.is4Card {
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 68%, var(--surface));
+  padding: 12px;
+}
+
+.is4CardTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+
+.is4Label {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.is4LabelInline {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.is4LabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.is4Hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+
+.is4HintWarning {
+  color: #f59e0b;
+}
+
+.is4Select {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.is4SelectCompact {
+  width: 110px;
+}
+
+.is4Row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.is4Wrap {
+  flex-wrap: wrap;
+}
+
+.is4Grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.is4Grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.is4Field {
+  margin-top: 10px;
+}
+
+.is4Range {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.is4SwitchList {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.is4SwitchItem {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.is4SwitchItemAccent {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.is4Checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.is4Center {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.is4ResultPanel {
+  min-height: 0;
+  flex: 1;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.is4ResultHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.is4ResultTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.is4ResultStage {
+  flex: 1;
+  min-height: 280px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 94%, transparent);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.is4ResultImageButton {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  position: relative;
+  cursor: zoom-in;
+}
+
+.is4ResultImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.is4ResultHint {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.is4Empty {
+  color: var(--text-3);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.is4OutputStrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.is4OutputThumb {
+  width: 74px;
+  height: 74px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  padding: 0;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.is4OutputThumb.is-active {
+  border-color: color-mix(in srgb, var(--primary) 62%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 32%, transparent);
+}
+
+.is4OutputThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.is4Composer {
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.is4ComposerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.is4RefToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.is4RefRail {
+  min-height: 110px;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.is4RefItem {
+  width: 176px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.is4RefThumb {
+  width: 100%;
+  height: 88px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.is4RefThumb:disabled {
+  cursor: default;
+}
+
+.is4RefThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.is4RefName {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is4RefActions {
+  display: flex;
+  gap: 4px;
+}
+
+.is4PromptPanel {
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+  padding: 10px;
+}
+
+.is4PromptTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.is4PromptInput {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.is4PromptFooter {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.is4HistoryCard {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.is4HistoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.is4HistoryTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.is4SummaryGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.is4SummaryItem {
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.is4SummaryItem strong {
+  color: var(--text-1);
+}
+
+.is4HistoryList {
+  margin-top: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.is4HistoryItem {
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.is4HistoryItem.is-active {
+  border-color: color-mix(in srgb, var(--primary) 56%, var(--border));
+  background: color-mix(in srgb, var(--primary-bg) 56%, var(--surface));
+}
+
+.is4HistoryThumb {
+  width: 76px;
+  height: 76px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.is4HistoryThumb:disabled {
+  cursor: default;
+}
+
+.is4HistoryThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.is4HistoryBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.is4HistoryTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.is4HistoryTime {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.is4HistoryPrompt {
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.is4HistoryMeta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.is4HistoryLog {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.is4HistoryActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.is4Lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2100;
+  padding: 20px;
+}
+
+.is4LightboxInner {
+  width: min(1240px, 100%);
+  max-height: 92vh;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.is4LightboxHeader {
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.is4LightboxTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is4LightboxBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0b0d;
+}
+
+.is4LightboxImage {
+  max-width: 100%;
+  max-height: calc(92vh - 48px);
+  object-fit: contain;
+}
+
+@media (max-width: 1560px) {
+  .is4Page {
+    grid-template-columns: 300px minmax(0, 1fr) 330px;
+  }
+}
+
+@media (max-width: 1320px) {
+  .is4Page {
+    grid-template-columns: 292px minmax(0, 1fr);
+  }
+
+  .is4Right {
+    grid-column: 1 / -1;
+    min-height: 320px;
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 980px) {
+  .is4Page {
+    grid-template-columns: 1fr;
+  }
+
+  .is4Left,
+  .is4Right {
+    max-height: 44vh;
+  }
+
+  .is4RefToolbar,
+  .is4Grid2 {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .is4ResultHeader,
+  .is4ComposerHead,
+  .is4LabelRow {
+    flex-wrap: wrap;
+  }
+}
+
+/* ========== Image Studio Cherry Pixel Copy ========== */
+.imageStudioCherryRoot {
+  /* 复用应用全局主题变量，避免绘图页与其它页面割裂。*/
+  --color-background: var(--surface);
+  --color-background-soft: var(--surface-2);
+  --color-background-mute: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-soft: color-mix(in srgb, var(--border) 70%, transparent);
+  --color-border-mute: color-mix(in srgb, var(--border) 40%, transparent);
+
+  --color-primary: var(--primary);
+  --color-primary-soft: color-mix(in srgb, var(--primary) 65%, transparent);
+  --color-primary-mute: color-mix(in srgb, var(--primary) 30%, transparent);
+
+  --color-text-2: var(--text-2);
+  --color-text-secondary: var(--text-2);
+  --color-icon: var(--text-2);
+  --color-error: var(--danger);
+  --color-hover: var(--hover-bg);
+  --color-active: var(--active-bg);
+
+  --navbar-height: 44px;
+  --assistants-width: 275px;
+  --list-item-border-radius: 10px;
+
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.imageStudioCherryRoot,
+.imageStudioCherryRoot * {
+  box-sizing: border-box;
+}
+
+.imageStudioCherryRoot button,
+.imageStudioCherryRoot input,
+.imageStudioCherryRoot select,
+.imageStudioCherryRoot textarea {
+  font: inherit;
+}
+
+.csPaintContainer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.csPaintContent {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  background-color: var(--color-background);
+  overflow: hidden;
+  position: relative;
+}
+
+.csRefDock {
+  flex: 0 0 360px;
+  max-width: 360px;
+  min-width: 280px;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-right: 0.5px solid var(--color-border);
+  background: var(--color-background);
+  overflow: hidden;
+}
+
+.csRefDockHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 2px 0;
+  /* 标题与上传区拉开一点距离，避免视觉“挤在一起” */
+  margin-bottom: 6px;
+}
+
+.csRefDockTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--text-1);
+  letter-spacing: 0.2px;
+}
+
+.csRefDockMeta {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.csRefDropzone {
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-background-soft));
+  border-radius: 16px;
+  padding: 16px 14px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csRefDropzone:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 62%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 11%, var(--color-background-soft));
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.18);
+}
+
+.csRefDropzone:active {
+  transform: translateY(1px);
+}
+
+.csRefDropzoneInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.csRefDropzoneText {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-2);
+}
+
+.csRefDropzoneSub {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.csRefDock .csRefList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-border) 55%, transparent) transparent;
+}
+
+.csRefDock .csHint {
+  text-align: center;
+}
+
+.csPaintLeft {
+  width: var(--assistants-width);
+  max-width: var(--assistants-width);
+  min-height: 0;
+  border-right: 0.5px solid var(--color-border);
+  background-color: var(--color-background);
+}
+
+.csSettingsTrigger {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.22);
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease, box-shadow 0.12s ease;
+  /* 高于抽屉遮罩层，保证“再次点击配置名可收起（toggle）”，但低于全屏预览等全局弹层 */
+  z-index: 2051;
+}
+
+.csSettingsTrigger:hover {
+  background: var(--surface-3);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.28);
+}
+
+.csSettingsTrigger:active {
+  transform: translateY(1px);
+}
+
+.csSettingsTrigger:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 28%, transparent),
+    0 14px 26px rgba(0, 0, 0, 0.28);
+}
+
+.csSettingsTriggerText {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.csSettingsDrawerOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2050;
+  background: rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  animation: csSettingsOverlayIn 0.12s ease-out;
+}
+
+.csSettingsPanelOverlay {
+  /* 放在 csPaintContent 内部绝对定位，避免与应用顶栏(TitleBar/Nav)坐标系不一致导致“左上角重叠” */
+  position: absolute;
+  inset: 0;
+  z-index: 2050;
+  background: rgba(0, 0, 0, 0.10);
+}
+
+.csSettingsPanel {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: min(980px, calc(100% - 20px));
+  height: min(760px, calc(100% - 20px));
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-background) 92%, transparent);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: csSettingsPanelIn 0.18s ease-out;
+}
+
+.csSettingsPanelHeader {
+  height: 44px;
+  padding: 0 10px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-background-soft) 78%, transparent),
+    color-mix(in srgb, var(--color-background) 92%, transparent)
+  );
+}
+
+.csSettingsPanelTitle {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.csSettingsPanelPill {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: color-mix(in srgb, var(--color-background) 78%, transparent);
+  color: var(--text-1);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.22);
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.06s ease, box-shadow 0.15s ease;
+}
+
+.csSettingsPanelPill:hover {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+}
+
+.csSettingsPanelPill:active {
+  transform: translateY(1px);
+}
+
+.csSettingsPanelPill:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent),
+    0 10px 20px rgba(0, 0, 0, 0.22);
+}
+
+.csSettingsPanelPillText {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.csSettingsPanelPillChevron {
+  color: var(--color-icon);
+}
+
+.csSettingsPanelHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.csSettingsPanelBody {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.csSettingsPanelColumns {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.csSettingsPanelLeft {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.csSettingsPanelLeft .csSettingsGroup {
+  flex: 0 0 auto;
+}
+
+.csSettingsPanelLeft .csSettingsGroup.is-grow {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.csSettingsGroupRef {
+  min-height: 0;
+}
+
+.csSettingsGroup {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: color-mix(in srgb, var(--color-background) 96%, transparent);
+}
+
+.csSettingsGroupHeader {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  background: color-mix(in srgb, var(--color-background-soft) 84%, transparent);
+}
+
+.csSettingsGroupTitle {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-1);
+}
+
+.csSettingsGroupMeta {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.csSettingsGroupBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-border) 55%, transparent) transparent;
+}
+
+/* 让设置面板更“密度高”、更像应用自身 UI，而不是大字号默认样式 */
+.csSettingsPanel .csLabel {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.csSettingsPanel .csHint {
+  font-size: 11px;
+}
+
+.csSettingsPanel .csControl {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-background-soft) 90%, transparent);
+  border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
+}
+
+.csSettingsPanel .csBtn {
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.csSettingsPanel .csIconBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.csMiniIconBtnDanger {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-border-soft));
+}
+
+.csMiniIconBtnDanger:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, var(--color-background-mute));
+  border-color: color-mix(in srgb, var(--color-error) 55%, var(--color-border));
+}
+
+.csRefList {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.csRefItem {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  background: color-mix(in srgb, var(--color-background-soft) 86%, transparent);
+}
+
+.csRefThumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background);
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+  flex: 0 0 auto;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csRefThumb:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.csRefThumb:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.csRefThumb:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.csRefThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.csRefThumbEmpty {
+  color: var(--text-3);
+}
+
+.csRefMeta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.csRefName {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.csRefSub {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.csRefActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.csRefItem:hover .csRefActions,
+.csRefItem:focus-within .csRefActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@keyframes csSettingsPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 980px) {
+  .csSettingsPanel {
+    width: calc(100% - 20px);
+    height: calc(100% - 20px);
+  }
+
+  .csSettingsPanelColumns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.csSettingsDrawer {
+  width: min(var(--assistants-width), calc(100% - 120px));
+  height: calc(100% - 16px);
+  margin: 8px 0 8px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-background);
+  box-shadow: 18px 0 42px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  animation: csSettingsDrawerIn 0.16s ease-out;
+  overflow: hidden;
+}
+
+.csSettingsDrawerHeader {
+  height: var(--navbar-height);
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 0.5px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-background) 92%, transparent);
+}
+
+.csSettingsDrawerTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes csSettingsDrawerIn {
+  from {
+    transform: translateX(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes csSettingsOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.csPaintLeftScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 右侧为覆盖式滚动条预留空间，避免遮挡卡片右边界与开关等控件 */
+  padding: 14px 28px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-border) 55%, transparent) transparent;
+}
+
+.csPaintLeftScroll::-webkit-scrollbar,
+.csThumbList::-webkit-scrollbar {
+  width: 10px;
+}
+
+.csPaintLeftScroll::-webkit-scrollbar-track,
+.csThumbList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.csPaintLeftScroll::-webkit-scrollbar-thumb,
+.csThumbList::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.csPaintLeftScroll::-webkit-scrollbar-thumb:hover,
+.csThumbList::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-border) 85%, transparent);
+  background-clip: padding-box;
+}
+
+.csSettingItem {
+  margin-bottom: 0;
+  padding: 10px;
+  border-radius: var(--list-item-border-radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+  box-shadow: 0 0 0 1px var(--color-border-mute) inset;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.csSettingItem:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  background: var(--color-background-mute);
+}
+
+.csSettingTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.csSettingTitleRow .csSettingTitle {
+  margin-bottom: 0;
+}
+
+.csSettingTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 5px;
+}
+
+.csLabel {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+.csLabelInline {
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+.csHint {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.csHintBlock {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-background) 60%, transparent);
+}
+
+.csHintWarn {
+  color: #f59e0b;
+}
+
+/* 轻量级 Tooltip：用于替换 title 原生提示（更一致、更好看） */
+.csTip {
+  position: relative;
+}
+
+.csTip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%) translateY(2px);
+  padding: 5px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  color: var(--text-1);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 100;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.csTip[data-tip]::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%) translateY(2px) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 99;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.csTip:hover::after,
+.csTip:focus-visible::after,
+.csTip:focus-within::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.csTip:hover::before,
+.csTip:focus-visible::before,
+.csTip:focus-within::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) rotate(45deg);
+}
+
+.csTip:disabled::before,
+.csTip:disabled::after {
+  display: none;
+}
+
+.csRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.csGrow {
+  flex: 1;
+  min-width: 0;
+}
+
+.csGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.csControl {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background-mute);
+  color: var(--text-1);
+  outline: none;
+  font-size: 11px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.csControl:hover {
+  border-color: color-mix(in srgb, var(--color-border) 80%, var(--color-border-soft));
+}
+
+.csControl::placeholder {
+  color: var(--text-3);
+}
+
+.csControl:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.csControl:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+select.csControl {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='currentColor' d='M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px 14px;
+}
+
+.csBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background-soft);
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 11px;
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csBtn:hover {
+  background: var(--color-background-mute);
+  border-color: var(--color-border);
+  box-shadow: 0 0 0 1px var(--color-border-mute) inset;
+}
+
+.csBtn:active {
+  transform: translateY(1px);
+}
+
+.csBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.csBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.csIconBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background-soft);
+  color: var(--text-1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csIconBtn:hover {
+  background: var(--color-background-mute);
+  border-color: var(--color-border);
+  box-shadow: 0 0 0 1px var(--color-border-mute) inset;
+}
+
+.csIconBtnDanger {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-border-soft));
+}
+
+.csIconBtnDanger:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, var(--color-background-mute));
+  border-color: color-mix(in srgb, var(--color-error) 55%, var(--color-border));
+}
+
+.csIconBtn:active {
+  transform: translateY(1px);
+}
+
+.csIconBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.csMiniIconBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csMiniIconBtn:hover {
+  background: var(--color-background-mute);
+  border-color: var(--color-border);
+  box-shadow: 0 0 0 1px var(--color-border-mute) inset;
+}
+
+.csMiniIconBtn:active {
+  transform: translateY(1px);
+}
+
+.csMiniIconBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.csUploadGrid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.csUploadGrid .csHint {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 10px 0;
+}
+
+.csUploadTileWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.csUploadTile {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background-soft);
+  border-radius: 6px;
+  overflow: hidden;
+  padding: 0;
+  cursor: zoom-in;
+  position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csUploadTile:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.csUploadTile:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.csUploadTileDelete {
+  position: absolute;
+  /* 放到缩略图外侧，避免遮挡参考图内容 */
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-background) 94%, transparent);
+  color: var(--color-error);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.82;
+  pointer-events: auto;
+  transition: opacity 0.15s ease, background-color 0.15s ease, transform 0.06s ease, border-color 0.15s ease;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+}
+
+.csUploadTileWrap:hover .csUploadTileDelete,
+.csUploadTileWrap:focus-within .csUploadTileDelete {
+  opacity: 1;
+}
+
+.csUploadTileDelete:hover {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+}
+
+.csUploadTileDelete:active {
+  transform: translateY(1px);
+}
+
+.csUploadTileDelete:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.csUploadTile:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.csUploadTileImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.csUploadTileEmpty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+.csUploadTileActions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.csUploadTileWrap:hover .csUploadTileActions,
+.csUploadTileWrap:focus-within .csUploadTileActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.csField {
+  margin-top: 12px;
+}
+
+.csLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.csRange {
+  width: 100%;
+  accent-color: var(--color-primary);
+  height: 18px;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.csRange::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 35%, var(--color-background-mute));
+}
+
+.csRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-top: -5px;
+  background: var(--color-primary);
+  border: 2px solid var(--color-background);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.csRange:focus-visible {
+  outline: none;
+}
+
+.csSwitchRow {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-background-soft);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.csSwitchRow:hover {
+  border-color: color-mix(in srgb, var(--color-border) 80%, var(--color-border-soft));
+}
+
+.csSwitchRowAccent {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border-soft));
+}
+
+.csToggle {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-mute);
+  position: relative;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.csToggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.csToggle:checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.csToggle:checked::after {
+  transform: translateX(18px);
+}
+
+.csToggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.csPaintMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background-color: var(--color-background);
+}
+
+.csArtboard {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding: 0 20px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.csArtboardInner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 0;
+}
+
+.csArtboardInner.is-dim {
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+
+.csArtboardImageContainer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(960px, 100%);
+  height: min(680px, 100%);
+  padding: 14px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-background-soft) 86%, transparent);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.csArtboardTools {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.csArtboardToolsRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.csArtboardImageContainer:hover .csArtboardTools,
+.csArtboardImageContainer:focus-within .csArtboardTools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.csArtboardBadge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--color-background) 72%, transparent);
+  border: 1px solid var(--color-border);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.35);
+}
+
+.csArtboardToolBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-background) 74%, transparent);
+  color: var(--text-1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.06s ease, box-shadow 0.15s ease;
+}
+
+.csArtboardToolBtn:hover {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-primary) 26%, var(--color-border));
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.45);
+}
+
+.csArtboardToolBtnDanger {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+}
+
+.csArtboardToolBtnDanger:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, var(--color-hover));
+  border-color: color-mix(in srgb, var(--color-error) 55%, var(--color-border));
+}
+
+.csArtboardToolBtn:active {
+  transform: translateY(1px);
+}
+
+.csArtboardToolBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.csArtboardImageButton {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: zoom-in;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.csArtboardImageButton:hover .csArtboardImage {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.52);
+}
+
+.csArtboardImageButton:active .csArtboardImage {
+  transform: translateY(1px);
+}
+
+.csArtboardImage {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: var(--color-background-soft);
+  display: block;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-soft);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.06s ease;
+}
+
+.csArtboardPlaceholder {
+  width: min(960px, calc(100% - 40px));
+  height: min(680px, calc(100% - 40px));
+  background-color: var(--color-background-soft);
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.csNavButton {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  opacity: 0.7;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--text-1);
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s ease, transform 0.06s ease, box-shadow 0.15s ease;
+  backdrop-filter: blur(6px);
+}
+
+.csNavButton:hover {
+  opacity: 1;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.4);
+}
+
+.csNavButton:active {
+  transform: translateY(-50%) translateY(1px);
+}
+
+.csNavButton--left {
+  left: 10px;
+}
+
+.csNavButton--right {
+  right: 10px;
+}
+
+.csImageCounter {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.csLoadingOverlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  z-index: 3;
+  animation: csOverlayIn 0.16s ease-out;
+  will-change: transform, opacity;
+}
+
+.csSpinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  border-top-color: var(--color-primary);
+  animation: csSpin 1s linear infinite;
+}
+
+@keyframes csOverlayIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes csSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.csLoadingText {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.csCancelBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--text-1);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.06s ease;
+}
+
+.csCancelBtn:hover {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
+}
+
+.csCancelBtn:active {
+  transform: translateY(1px);
+}
+
+.csInputContainer {
+  display: flex;
+  flex-direction: column;
+  min-height: 95px;
+  max-height: 95px;
+  position: relative;
+  border: 1px solid var(--color-border-soft);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  margin: 0 20px 15px 20px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-background-soft) 78%, transparent);
+  box-shadow: 0 0 0 1px var(--color-border-mute) inset;
+}
+
+.csInputContainer:hover {
+  border-color: color-mix(in srgb, var(--color-border) 75%, var(--color-border-soft));
+}
+
+.csInputContainer:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.csTextarea {
+  padding: 10px 44px 40px 10px;
+  border-radius: 0;
+  display: flex;
+  flex: 1;
+  resize: none !important;
+  overflow: auto;
+  width: auto;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.csPromptExpandBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-background) 82%, transparent);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.06s ease;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+}
+
+.csInputContainer:hover .csPromptExpandBtn,
+.csInputContainer:focus-within .csPromptExpandBtn {
+  opacity: 1;
+}
+
+.csPromptExpandBtn:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
+}
+
+.csPromptExpandBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.csPromptExpandBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.csPromptGenerateBtn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 55%, var(--color-border-soft));
+  background: var(--color-primary);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.86;
+  transition: opacity 0.15s ease, filter 0.15s ease, border-color 0.15s ease, transform 0.06s ease;
+  z-index: 2;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.csInputContainer:hover .csPromptGenerateBtn,
+.csInputContainer:focus-within .csPromptGenerateBtn {
+  opacity: 1;
+}
+
+.csPromptGenerateBtn:hover:not(:disabled) {
+  filter: brightness(1.06);
+  border-color: color-mix(in srgb, var(--color-primary) 80%, var(--color-border));
+}
+
+.csPromptGenerateBtn:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.98);
+}
+
+.csPromptGenerateBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.csTextarea:disabled {
+  opacity: 0.7;
+}
+
+.csTextarea::placeholder {
+  color: var(--text-3);
+}
+
+.csPaintingsList {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background-color: var(--color-background);
+  width: 100px;
+  border-left: 0.5px solid var(--color-border);
+  height: 100%;
+  /* 允许 tooltip/菜单溢出显示（否则右侧顶部提示会被裁切），滚动由内部列表承担 */
+  overflow: visible;
+  /* 避免对主画布做连续 layout 动画导致“卡顿”：宽度直接切换，仅做内容淡入淡出。 */
+  transition: padding 0.12s ease;
+  contain: layout paint;
+}
+
+.csPaintingsList.is-collapsed {
+  width: 44px;
+  padding: 10px 6px;
+  gap: 8px;
+}
+
+.csPaintingsListBody {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0s;
+  will-change: opacity, transform;
+}
+
+.csPaintingsList.is-collapsed .csPaintingsListBody {
+  opacity: 0;
+  transform: translateX(10px);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+}
+
+.csHistoryToggleBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.22);
+  transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, transform 0.06s ease;
+}
+
+.csHistoryToggleBtn:hover {
+  background: var(--surface-3);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.28);
+}
+
+.csHistoryToggleBtn:active {
+  transform: translateY(1px);
+}
+
+.csHistoryToggleBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+
+.csNewPaintingButton {
+  width: 80px;
+  height: 80px;
+  min-height: 80px;
+  background-color: var(--color-background-soft);
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  border: 1px dashed var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-2);
+  font-size: 28px;
+}
+
+.csNewPaintingButton:hover {
+  background-color: var(--color-background-mute);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.csThumbList {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  overflow-y: auto;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-border) 55%, transparent) transparent;
+}
+
+.csThumbWrap {
+  position: relative;
+  /* 列表较长时显著降低首次展开/滚动的渲染开销 */
+  content-visibility: auto;
+  contain-intrinsic-size: 80px 80px;
+}
+
+.csThumb {
+  width: 80px;
+  height: 80px;
+  background-color: var(--color-background-soft);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border: 1px solid var(--color-background-soft);
+  overflow: hidden;
+  position: relative;
+  padding: 0;
+}
+
+.csThumb.selected {
+  border: 1px solid var(--color-primary);
+}
+
+.csThumb:hover {
+  background-color: var(--color-background-mute);
+}
+
+.csThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.csThumbDelete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 50%;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-background) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.csThumbWrap:hover .csThumbDelete {
+  opacity: 1;
+}
+
+.csThumbEmpty {
+  width: 100%;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.csPromptModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2200;
+  padding: 20px;
+}
+
+.csPromptModalInner {
+  width: min(980px, 100%);
+  height: min(70vh, 720px);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: csPromptModalIn 0.16s ease-out;
+}
+
+@keyframes csPromptModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.csPromptModalHeader {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.csPromptModalTitle {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.csPromptModalActions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.csPromptModalTextarea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 14px;
+}
+
+.csPromptModalTextarea::placeholder {
+  color: var(--text-3);
+}
+
+.csPromptModalTextarea:disabled {
+  opacity: 0.7;
+}
+
+.csPromptModalFooter {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.csPromptModalHint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.csLightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2100;
+  padding: 20px;
+}
+
+.csLightboxInner {
+  width: min(1240px, 100%);
+  max-height: 92vh;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.csLightboxHeader {
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.csLightboxHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.csLightboxTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.csLightboxBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: #0a0b0d;
+}
+
+.csLightboxImage {
+  max-width: 100%;
+  max-height: calc(92vh - 48px);
+  object-fit: contain;
+}
+
+.csContextMenuOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2205;
+}
+
+.csContextMenu {
+  position: absolute;
+  width: 210px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.csContextMenuItem {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  user-select: none;
+}
+
+.csContextMenuItemDanger {
+  color: var(--color-error);
+}
+
+.csContextMenuItemDanger svg {
+  color: var(--color-error);
+}
+
+.csContextMenuItem svg {
+  color: var(--color-icon);
+}
+
+.csContextMenuItem:hover {
+  background: var(--color-hover);
+}
+
+.csContextMenuItemDanger:hover {
+  background: color-mix(in srgb, var(--color-error) 18%, transparent);
+}
+
+.csContextMenuItem:hover svg {
+  color: var(--text-1);
+}
+
+.csContextMenuItem:active {
+  background: var(--color-active);
+}
+
+.csContextMenuItem:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+@media (max-width: 1080px) {
+  .imageStudioCherryRoot {
+    --assistants-width: 210px;
+  }
+}
+
+/* ========== ChainOfThought 新增动画 ========== */
+
+@keyframes dotBreathing {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.dotLoadingWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.dotLoadingDot {
+  border-radius: 50%;
+  background: currentColor;
+  animation: dotBreathing 1.2s ease-in-out infinite;
+}
+
+@keyframes cotTitleSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ChainOfThought 内的样式覆盖 — 去掉分割线和多余间距 */
+.cotStepExpanded .msgReasoningContent {
+  padding: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-2);
+  max-height: 300px;
+}
+
+[data-theme='dark'] .cotStepExpanded .msgReasoningContent {
+  background: transparent;
+}
+
+.cotStepExpanded .tcContent {
+  border-top: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ToolDenyDialog */
+.cotDenyOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.cotDenyDialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  width: 360px;
+  max-width: 90vw;
+}
+
+.cotDenyTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-1);
+}
+
+.cotDenyInput {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  color: var(--text);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.cotDenyActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cotDenyCancel,
+.cotDenyConfirm {
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.cotDenyConfirm {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+/* Tool approval buttons */
+.cotApprovalBtns {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.cotApproveBtn,
+.cotDenyBtn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.cotApproveBtn:hover {
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.cotDenyBtn:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}

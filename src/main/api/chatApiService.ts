@@ -1,6 +1,6 @@
 /**
- * Chat API Service
- * 统一的聊天 API 入口，根据 Provider 类型路由到相应的 Adapter
+ * Chat API Service (main)
+ * 薄包装层：将 userImagePaths 转换为 userImages，委托给 shared
  */
 
 import type { ProviderConfigV2 } from '../../shared/types'
@@ -10,99 +10,55 @@ import type {
   ToolDefinition,
   OnToolCallFn
 } from '../../shared/chatStream'
-import { classifyProviderKind, isXAIEndpoint } from './helpers/chatApiHelper'
-import * as openaiAdapter from './adapters/openai/openaiAdapter'
-import * as claudeAdapter from './adapters/claudeAdapter'
-import * as googleAdapter from './adapters/googleAdapter'
+import {
+  sendMessageStream as sharedSendMessageStream,
+  type UserImage
+} from '../../shared/api/chatApiService'
+import { encodeBase64File } from './helpers/chatApiHelper'
+import { mimeFromPath } from '../../shared/chatApiHelper'
 
-/** 发送流式消息的参数 */
+/** 发送流式消息的参数（保持 userImagePaths 接口不变） */
 export interface SendMessageStreamParams {
-  /** Provider 配置 */
   config: ProviderConfigV2
-  /** 模型 ID */
   modelId: string
-  /** 消息列表 */
   messages: ChatMessage[]
-  /** 用户附加的图片路径 */
   userImagePaths?: string[]
-  /** 思考预算 (token 数或 effort level) */
   thinkingBudget?: number
-  /** 温度 */
   temperature?: number
-  /** Top P */
   topP?: number
-  /** 最大输出 tokens */
   maxTokens?: number
-  /** 最大工具调用轮数 */
   maxToolLoopIterations?: number
-  /** 工具列表 */
   tools?: ToolDefinition[]
-  /** 工具调用回调 */
   onToolCall?: OnToolCallFn
-  /** 额外请求头 */
   extraHeaders?: Record<string, string>
-  /** 额外请求体参数 */
   extraBody?: Record<string, unknown>
-  /** 中止信号 */
   signal?: AbortSignal
+}
+
+async function resolveImagePath(filePath: string): Promise<{ mime: string; base64: string }> {
+  return { mime: mimeFromPath(filePath), base64: await encodeBase64File(filePath, false) }
 }
 
 /**
  * 发送流式聊天消息
- * 根据 provider 类型自动路由到相应的 adapter
+ * 将文件路径转为预编码图片后委托给 shared
  */
 export async function* sendMessageStream(
   params: SendMessageStreamParams
 ): AsyncGenerator<ChatStreamChunk> {
-  const { config, modelId, ...rest } = params
+  const { userImagePaths, ...rest } = params
 
-  // 确定 provider 类型
-  const kind = classifyProviderKind(config.id, config.providerType)
-
-  // 检查是否是 xAI 端点 (需要特殊处理)
-  if (isXAIEndpoint(config)) {
-    // xAI 使用 OpenAI 兼容 API (Chat Completions)
-    yield* openaiAdapter.sendStream({
-      config: { ...config, useResponseApi: false }, // xAI 不支持 Responses API
-      modelId,
-      ...rest
-    })
-    return
+  let userImages: UserImage[] | undefined
+  if (userImagePaths?.length) {
+    userImages = await Promise.all(
+      userImagePaths.map(async (p) => ({
+        mime: mimeFromPath(p),
+        base64: await encodeBase64File(p, false)
+      }))
+    )
   }
 
-  // 根据 provider 类型路由
-  switch (kind) {
-    case 'openai':
-      // OpenAI 兼容 API (包括 OpenAI, Azure, 各种中转)
-      // 根据 config.useResponseApi 自动选择 Chat Completions 或 Responses API
-      yield* openaiAdapter.sendStream({
-        config,
-        modelId,
-        ...rest
-      })
-      break
-
-    case 'claude':
-      // Anthropic Claude API
-      yield* claudeAdapter.sendStream({
-        config,
-        modelId,
-        ...rest
-      })
-      break
-
-    case 'google':
-      // Google Gemini / Vertex AI
-      yield* googleAdapter.sendStream({
-        config,
-        modelId,
-        ...rest
-      })
-      break
-
-    default:
-      throw new Error(`Unknown provider kind: ${kind}`)
-  }
+  yield* sharedSendMessageStream({ ...rest, userImages, resolveImagePath })
 }
 
 /**
@@ -117,7 +73,6 @@ export async function generateText(params: {
 }): Promise<string> {
   const { config, modelId, prompt, extraHeaders, extraBody } = params
 
-  // 使用流式 API 收集完整响应
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }]
 
   let result = ''

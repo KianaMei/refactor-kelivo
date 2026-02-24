@@ -131,11 +131,18 @@ async function fetchOpenAIModels(provider: ProviderConfig): Promise<string[]> {
     throw new Error(`HTTP ${resp.status}: ${text}`)
   }
 
-  const data = (await resp.json()) as any
+  const data = (await resp.json()) as Record<string, unknown>
   const rawList = Array.isArray(data?.data) ? data.data : []
   return rawList
-    .map((m: any) => (typeof m?.id === 'string' ? m.id : typeof m?.name === 'string' ? m.name : null))
-    .filter((x: any) => typeof x === 'string' && x.trim().length > 0) as string[]
+    .map((m: unknown) => {
+      if (m && typeof m === 'object') {
+        const obj = m as Record<string, unknown>
+        if (typeof obj.id === 'string') return obj.id
+        if (typeof obj.name === 'string') return obj.name
+      }
+      return null
+    })
+    .filter((x: unknown) => typeof x === 'string' && (x as string).trim().length > 0) as string[]
 }
 
 /** 获取 Google Gemini API 的模型列表 */
@@ -159,14 +166,17 @@ async function fetchGoogleModels(provider: ProviderConfig): Promise<string[]> {
     throw new Error(`HTTP ${resp.status}: ${text}`)
   }
 
-  const data = (await resp.json()) as any
+  const data = (await resp.json()) as Record<string, unknown>
   // Google 返回 { models: [{ name: "models/gemini-pro", ... }] }
   const rawList = Array.isArray(data?.models) ? data.models : []
   return rawList
-    .map((m: any) => {
-      // name 格式为 "models/gemini-pro"，取出模型 ID
-      const name = typeof m?.name === 'string' ? m.name : ''
-      return name.startsWith('models/') ? name.substring(7) : name
+    .map((m: unknown) => {
+      if (m && typeof m === 'object') {
+        const obj = m as Record<string, unknown>
+        const name = typeof obj.name === 'string' ? obj.name : ''
+        return name.startsWith('models/') ? name.substring(7) : name
+      }
+      return ''
     })
     .filter((x: string) => x.trim().length > 0 && !x.includes('embedding'))
 }
@@ -199,12 +209,18 @@ async function fetchClaudeModels(provider: ProviderConfig): Promise<string[]> {
     throw new Error(`HTTP ${resp.status}: ${text}`)
   }
 
-  const data = (await resp.json()) as any
+  const data = (await resp.json()) as Record<string, unknown>
   // Claude 返回 { data: [{ id: "claude-3-opus-...", ... }] }
   const rawList = Array.isArray(data?.data) ? data.data : []
   const ids = rawList
-    .map((m: any) => typeof m?.id === 'string' ? m.id : null)
-    .filter((x: any) => typeof x === 'string' && x.trim().length > 0) as string[]
+    .map((m: unknown) => {
+      if (m && typeof m === 'object') {
+        const obj = m as Record<string, unknown>
+        if (typeof obj.id === 'string') return obj.id
+      }
+      return null
+    })
+    .filter((x: unknown) => typeof x === 'string' && (x as string).trim().length > 0) as string[]
   
   // 如果没有获取到模型，返回默认列表
   return ids.length > 0 ? ids : getDefaultClaudeModels()

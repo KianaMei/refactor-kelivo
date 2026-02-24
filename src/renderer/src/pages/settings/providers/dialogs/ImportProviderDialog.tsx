@@ -34,7 +34,6 @@ export function ImportProviderDialog({
     }
   }, [step, onClose])
 
-  console.log('[ImportProviderDialog] render with open:', open)
   useDialogClose(open, handleDialogClose)
 
   if (!open) return null

@@ -34,7 +34,7 @@ interface ToolMeta {
   params?: string
 }
 
-function resolveToolMeta(tc: ToolCallData): ToolMeta {
+export function resolveToolMeta(tc: ToolCallData): ToolMeta {
   const args = tc.arguments ?? {}
   switch (tc.name) {
     case 'web_search':
@@ -179,7 +179,7 @@ function ToolCallArgs({ args }: { args?: Record<string, unknown> }) {
 
 // ─── 结果内容渲染 ───
 
-function ToolResultContent({ tc }: { tc: ToolCallData }) {
+export function ToolResultContent({ tc }: { tc: ToolCallData }) {
   if (!tc.result) return null
 
   if (tc.name === 'web_search' || tc.name === 'builtin_search') {

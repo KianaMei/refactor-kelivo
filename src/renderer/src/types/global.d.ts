@@ -1,6 +1,6 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
 
-import type { AppConfig, ProviderConfigV2, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress, McpCallToolRequest, McpCallToolResponse } from '../../../shared/types'
+import type { AppConfig, ProviderConfigV2, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress, McpCallToolRequest, McpCallToolResponse, StorageReport } from '../../../shared/types'
 import type { ModelsListResult } from '../../../shared/models'
 import type {
   DbConversation,
@@ -32,6 +32,20 @@ import type {
   AgentRunStartResult
 } from '../../../shared/agentRuntime'
 import type { DepsInstallParams, DepsProgressEvent, DepsStatusResult, DepsUninstallParams } from '../../../shared/deps'
+import type {
+  ImageStudioCancelResult,
+  ImageStudioDeleteRequest,
+  ImageStudioEvent,
+  ImageStudioHistoryDeleteResult,
+  ImageStudioHistoryGetResult,
+  ImageStudioHistoryListResult,
+  ImageStudioListRequest,
+  ImageStudioOutputDeleteRequest,
+  ImageStudioOutputDeleteResult,
+  ImageStudioRetryRequest,
+  ImageStudioSubmitRequest,
+  ImageStudioSubmitResult
+} from '../../../shared/imageStudio'
 
 interface PreprocessImageParams {
   imagePaths: string[]
@@ -191,6 +205,16 @@ declare global {
           | { success: false; error: string }
         >
         callTool: (request: McpCallToolRequest) => Promise<McpCallToolResponse>
+      }
+      imageStudio: {
+        submit: (request: ImageStudioSubmitRequest) => Promise<ImageStudioSubmitResult>
+        cancel: (generationId: string) => Promise<ImageStudioCancelResult>
+        historyList: (request: ImageStudioListRequest) => Promise<ImageStudioHistoryListResult>
+        historyGet: (generationId: string) => Promise<ImageStudioHistoryGetResult>
+        historyDelete: (request: ImageStudioDeleteRequest) => Promise<ImageStudioHistoryDeleteResult>
+        outputDelete: (request: ImageStudioOutputDeleteRequest) => Promise<ImageStudioOutputDeleteResult>
+        historyRetry: (request: ImageStudioRetryRequest) => Promise<ImageStudioSubmitResult>
+        onEvent: (fn: (event: ImageStudioEvent) => void) => () => void
       }
       backup: {
         exportLocal: (options: { includeChats: boolean; includeFiles: boolean }) => Promise<{ success: boolean; data?: Buffer; error?: string }>

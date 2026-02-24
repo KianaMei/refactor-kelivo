@@ -162,6 +162,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
       url,
       headers,
       body,
+      config,
       signal
     })
 

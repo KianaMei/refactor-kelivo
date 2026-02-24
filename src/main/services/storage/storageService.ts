@@ -1,8 +1,57 @@
-import { app } from 'electron'
-import { join } from 'path'
-import { readdir, stat, rm } from 'fs/promises'
+import { app, nativeImage } from 'electron'
+import { join, extname } from 'path'
+import { readdir, stat, rm, mkdir, writeFile, access } from 'fs/promises'
+import { createHash } from 'crypto'
 import { getDb } from '../../db/database'
 import type { StorageReport, StorageCategory, StorageItem, StorageCategoryKey, StorageItemDetail } from '../../../shared/types'
+
+const THUMB_SIZE = 400
+const THUMB_DIR_NAME = '.thumbnails'
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svg'])
+
+function getThumbnailDir(): string {
+    return join(app.getPath('userData'), THUMB_DIR_NAME)
+}
+
+function thumbName(filePath: string): string {
+    const hash = createHash('md5').update(`${filePath}:${THUMB_SIZE}:92`).digest('hex')
+    return `${hash}.jpg`
+}
+
+async function fileExists(p: string): Promise<boolean> {
+    try { await access(p); return true } catch { return false }
+}
+
+async function ensureThumbnail(filePath: string): Promise<string | undefined> {
+    const ext = extname(filePath).toLowerCase()
+    if (!IMAGE_EXTS.has(ext)) return undefined
+
+    const thumbDir = getThumbnailDir()
+    const thumbPath = join(thumbDir, thumbName(filePath))
+
+    if (await fileExists(thumbPath)) return thumbPath
+
+    try {
+        await mkdir(thumbDir, { recursive: true })
+        const img = nativeImage.createFromPath(filePath)
+        if (img.isEmpty()) return undefined
+
+        const { width, height } = img.getSize()
+        if (width <= THUMB_SIZE && height <= THUMB_SIZE) return undefined // 原图已经很小
+
+        const scale = Math.min(THUMB_SIZE / width, THUMB_SIZE / height)
+        const resized = img.resize({
+            width: Math.round(width * scale),
+            height: Math.round(height * scale),
+            quality: 'good'
+        })
+        const buf = resized.toJPEG(92)
+        await writeFile(thumbPath, buf)
+        return thumbPath
+    } catch {
+        return undefined
+    }
+}
 
 // 辅助函数：计算目录大小
 async function getDirSize(dirPath: string): Promise<number> {
@@ -59,6 +108,8 @@ export async function getStorageReport(): Promise<StorageReport> {
     // 2. 文件统计
     const avatarDir = join(userData, 'avatars')
     const avatarSize = await getDirSize(avatarDir)
+    const generatedDir = join(userData, 'images', 'generated')
+    const generatedSize = await getDirSize(generatedDir)
 
     const logsDir = join(userData, 'logs') // 假设日志在这里，或者 electron-log 的默认位置
     const logsSize = await getDirSize(logsDir)
@@ -87,10 +138,11 @@ export async function getStorageReport(): Promise<StorageReport> {
         },
         {
             key: 'images',
-            name: '图片',
-            size: avatarSize,
+            name: 'Images',
+            size: avatarSize + generatedSize,
             items: [
-                { id: 'avatars', name: '助手/用户头像', size: avatarSize, clearable: true }
+                { id: 'avatars', name: 'Avatars', size: avatarSize, clearable: true },
+                { id: 'generated', name: 'Generated Images', size: generatedSize, clearable: true }
             ]
         },
         {
@@ -132,8 +184,11 @@ export async function clearStorageItem(categoryKey: StorageCategoryKey, itemId: 
     } else if (categoryKey === 'images') {
         if (itemId === 'avatars' || itemId === null) {
             const avatarDir = join(userData, 'avatars')
-            // 保留某些文件？或者全部删除
             await clearDir(avatarDir)
+        }
+        if (itemId === 'generated' || itemId === null) {
+            const generatedDir = join(userData, 'images', 'generated')
+            await clearDir(generatedDir)
         }
     }
 
@@ -156,9 +211,11 @@ async function getAllFiles(dirPath: string): Promise<StorageItemDetail[]> {
             if (stats.isDirectory()) {
                 results = results.concat(await getAllFiles(filePath))
             } else if (stats.isFile()) {
-                let kind: 'avatar' | 'chat' | 'other' = 'other'
+                let kind: 'avatar' | 'chat' | 'generated' | 'other' = 'other'
                 if (filePath.includes('avatars') && filePath.includes('providers')) {
                     kind = 'avatar'
+                } else if (filePath.includes('images') && filePath.includes('generated')) {
+                    kind = 'generated'
                 } else if (filePath.includes('uploads') || filePath.includes('chat')) { // Future proofing
                     kind = 'chat'
                 }
@@ -179,9 +236,9 @@ async function getAllFiles(dirPath: string): Promise<StorageItemDetail[]> {
 // 获取详情列表（文件级）
 export async function getStorageCategoryItems(categoryKey: string): Promise<StorageItemDetail[]> {
     const userData = app.getPath('userData')
-    let targetDir = ''
 
     if (categoryKey === 'logs') {
+        let targetDir = ''
         const logsPath = app.getPath('logs')
         try {
             const stats = await stat(logsPath)
@@ -191,18 +248,36 @@ export async function getStorageCategoryItems(categoryKey: string): Promise<Stor
         } catch {
             targetDir = join(userData, 'logs')
         }
-    } else if (categoryKey === 'images') {
-        targetDir = join(userData, 'avatars')
-    } else {
-        return []
+
+        try {
+            const result = await getAllFiles(targetDir)
+            return result.sort((a, b) => b.modifiedAt - a.modifiedAt)
+        } catch {
+            return []
+        }
     }
 
-    try {
-        const result = await getAllFiles(targetDir)
-        return result.sort((a, b) => b.modifiedAt - a.modifiedAt)
-    } catch {
-        return []
+    if (categoryKey === 'images') {
+        const avatarDir = join(userData, 'avatars')
+        const generatedDir = join(userData, 'images', 'generated')
+        const avatarItems = (await getAllFiles(avatarDir)).map(i => ({ ...i, kind: 'avatar' as const }))
+        const generatedItems = (await getAllFiles(generatedDir)).map(i => ({ ...i, kind: 'generated' as const }))
+        const allItems = [...avatarItems, ...generatedItems].sort((a, b) => b.modifiedAt - a.modifiedAt)
+
+        // 并发生成缩略图（限制并发数避免阻塞）
+        const BATCH = 8
+        for (let i = 0; i < allItems.length; i += BATCH) {
+            const batch = allItems.slice(i, i + BATCH)
+            const thumbs = await Promise.all(batch.map(item => ensureThumbnail(item.path)))
+            for (let j = 0; j < batch.length; j++) {
+                if (thumbs[j]) batch[j].thumbnailPath = thumbs[j]
+            }
+        }
+
+        return allItems
     }
+
+    return []
 }
 
 // 批量删除

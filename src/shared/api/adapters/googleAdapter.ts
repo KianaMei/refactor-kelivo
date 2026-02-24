@@ -351,6 +351,7 @@ export interface GoogleStreamParams {
   extraHeaders?: Record<string, string>
   extraBody?: Record<string, unknown>
   signal?: AbortSignal
+  resolveImagePath?: (filePath: string) => Promise<{ mime: string; base64: string }>
 }
 
 /**
@@ -371,7 +372,8 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     onToolCall,
     extraHeaders,
     extraBody,
-    signal
+    signal,
+    resolveImagePath
   } = params
 
   const upstreamModelId = apiModelId(config, modelId)
@@ -487,8 +489,12 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
             parts.push({ text: ref.value })
           }
         } else if (ref.type === 'path') {
-          // 本地路径在 shared 版本中无法解析，跳过
-          parts.push({ text: `(image) ${ref.value}` })
+          if (resolveImagePath) {
+            const img = await resolveImagePath(ref.value)
+            parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } })
+          } else {
+            parts.push({ text: `(image) ${ref.value}` })
+          }
         } else {
           parts.push({ text: `(image) ${ref.value}` })
         }
@@ -610,6 +616,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       url: url.toString(),
       headers: hdrs,
       body,
+      config,
       signal
     })
 

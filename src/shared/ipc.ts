@@ -89,5 +89,15 @@ export const IpcChannel = {
   DepsGetStatus: 'deps:getStatus',
   DepsInstall: 'deps:install',
   DepsUninstall: 'deps:uninstall',
-  DepsProgress: 'deps:progress'
+  DepsProgress: 'deps:progress',
+
+  // Image Studio
+  ImageStudioSubmit: 'imageStudio:submit',
+  ImageStudioCancel: 'imageStudio:cancel',
+  ImageStudioHistoryList: 'imageStudio:history:list',
+  ImageStudioHistoryGet: 'imageStudio:history:get',
+  ImageStudioHistoryDelete: 'imageStudio:history:delete',
+  ImageStudioOutputDelete: 'imageStudio:output:delete',
+  ImageStudioHistoryRetry: 'imageStudio:history:retry',
+  ImageStudioEvent: 'imageStudio:event'
 } as const

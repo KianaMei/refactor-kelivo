@@ -31,7 +31,6 @@ export function ProviderSettingsDialog({
   const [proxyUsername, setProxyUsername] = useState(provider.proxyUsername || '')
   const [proxyPassword, setProxyPassword] = useState(provider.proxyPassword || '')
 
-  console.log('[ProviderSettingsDialog] render with open:', open)
   useDialogClose(open, onClose)
 
   if (!open) return null

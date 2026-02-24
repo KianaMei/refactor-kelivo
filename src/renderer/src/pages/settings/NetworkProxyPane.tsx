@@ -14,12 +14,12 @@ export interface ProxySettings {
 
 export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
   const [proxy, setProxy] = useState<ProxySettings>(() => ({
-    enabled: false,
-    type: 'http',
-    host: '127.0.0.1',
-    port: '8080',
-    username: '',
-    password: '',
+    enabled: props.config.proxyEnabled ?? false,
+    type: props.config.proxyType ?? 'http',
+    host: props.config.proxyHost ?? '127.0.0.1',
+    port: props.config.proxyPort ?? '8080',
+    username: props.config.proxyUsername ?? '',
+    password: props.config.proxyPassword ?? '',
   }))
 
   const [testUrl, setTestUrl] = useState('https://www.google.com')
@@ -27,8 +27,19 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   function updateProxy(patch: Partial<ProxySettings>) {
-    setProxy((prev) => ({ ...prev, ...patch }))
-    // TODO: 持久化到 config
+    setProxy((prev) => {
+      const next = { ...prev, ...patch }
+      void props.onSave({
+        ...props.config,
+        proxyEnabled: next.enabled,
+        proxyType: next.type,
+        proxyHost: next.host,
+        proxyPort: next.port,
+        proxyUsername: next.username,
+        proxyPassword: next.password,
+      }).catch(err => console.error('[NetworkProxyPane] save failed:', err))
+      return next
+    })
   }
 
   async function testConnection() {

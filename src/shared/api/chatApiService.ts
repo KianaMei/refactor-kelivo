@@ -54,6 +54,8 @@ export interface SendMessageStreamParams {
   extraBody?: Record<string, unknown>
   /** 中止信号 */
   signal?: AbortSignal
+  /** 解析本地图片路径为 base64（仅 Main 进程提供） */
+  resolveImagePath?: (filePath: string) => Promise<{ mime: string; base64: string }>
 }
 
 /**

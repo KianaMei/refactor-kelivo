@@ -11,11 +11,7 @@ import { cn } from '../../../lib/utils'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { AssistantAvatar } from './AssistantAvatar'
 import { AssistantEditorDialog } from './AssistantEditorDialog'
-
-function safeUuid(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  return 'ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9)
-}
+import { safeUuid } from '../../../../../shared/utils'
 
 export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
   const { config, onSave } = props

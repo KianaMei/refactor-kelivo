@@ -17,13 +17,7 @@ function isHttpUrl(v: string): boolean {
   }
 }
 
-function safeUuid(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-  }
-}
+import { safeUuid } from '../../../../../shared/utils'
 
 // DragHandle 组件 - 6点拖拽手柄
 function DragHandle({ size = 12 }: { size?: number }) {

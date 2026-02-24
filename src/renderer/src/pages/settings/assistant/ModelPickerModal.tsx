@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, RefreshCw, X } from 'lucide-react'
 
 function humanizeErr(e: unknown): string {
@@ -25,7 +25,7 @@ export function ModelPickerModal(props: {
   const [err, setErr] = useState<string | null>(null)
   const [query, setQuery] = useState('')
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!providerId) {
       setErr('请先选择供应商')
       return
@@ -41,7 +41,7 @@ export function ModelPickerModal(props: {
     } finally {
       setBusy(false)
     }
-  }
+  }, [providerId])
 
   useEffect(() => {
     if (!open) return
@@ -49,8 +49,7 @@ export function ModelPickerModal(props: {
     setModels([])
     setErr(null)
     void refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, providerId])
+  }, [open, providerId, refresh])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

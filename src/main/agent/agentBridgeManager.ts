@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { createInterface } from 'readline'
+import type { AgentPermissionRespondParams } from '../../shared/agentRuntime'
 
 type JsonRpcId = number
 
@@ -12,17 +13,34 @@ type JsonRpcError = {
   data?: unknown
 }
 
+type JsonRpcRequest = {
+  jsonrpc: '2.0'
+  id: JsonRpcId
+  method: string
+  params?: unknown
+}
+
 type JsonRpcResponse = {
   jsonrpc: '2.0'
   id: JsonRpcId
-  result?: any
+  result?: unknown
   error?: JsonRpcError
 }
 
 type JsonRpcNotification = {
   jsonrpc: '2.0'
   method: string
-  params?: any
+  params?: unknown
+}
+
+type JsonRpcMessage = JsonRpcRequest | JsonRpcResponse | JsonRpcNotification
+
+function isJsonRpcResponse(msg: JsonRpcMessage): msg is JsonRpcResponse {
+  return 'id' in msg && !('method' in msg)
+}
+
+function isJsonRpcNotification(msg: JsonRpcMessage): msg is JsonRpcNotification {
+  return 'method' in msg && !('id' in msg)
 }
 
 export type AgentBridgeInitializeResult = {
@@ -37,11 +55,27 @@ export type AgentBridgeInitializeResult = {
 export type AgentBridgeEvent = {
   runId: string
   type: string
-  [k: string]: any
+  [k: string]: unknown
+}
+
+export interface AgentRunParams {
+  runId: string
+  sessionId: string
+  sdkProvider: string
+  prompt: string
+  cwd: string
+  apiKey?: string
+  baseUrl?: string
+  model?: string | null
+  permissionMode?: string | null
+  allowDangerouslySkipPermissions?: boolean
+  sandboxMode?: string | null
+  approvalPolicy?: string | null
+  resumeId?: string | null
 }
 
 type PendingRequest = {
-  resolve: (v: any) => void
+  resolve: (v: unknown) => void
   reject: (e: Error) => void
   timeout: NodeJS.Timeout
 }
@@ -179,54 +213,50 @@ export class AgentBridgeManager {
   private handleStdoutLine(line: string): void {
     const s = String(line ?? '').trim()
     if (!s) return
-    let msg: JsonRpcResponse | JsonRpcNotification | null = null
+    let msg: JsonRpcMessage | null = null
     try {
-      msg = JSON.parse(s)
+      msg = JSON.parse(s) as JsonRpcMessage
     } catch {
       // stdout 只允许 JSON-RPC；解析失败直接忽略
       return
     }
-    if (!msg || (msg as any).jsonrpc !== '2.0') return
+    if (!msg || msg.jsonrpc !== '2.0') return
 
-    const id = (msg as any).id
-    if (id !== undefined && id !== null) {
-      const pending = this.pending.get(id as JsonRpcId)
+    if (isJsonRpcResponse(msg)) {
+      const pending = this.pending.get(msg.id)
       if (!pending) return
-      this.pending.delete(id as JsonRpcId)
+      this.pending.delete(msg.id)
       clearTimeout(pending.timeout)
 
-      const err = (msg as any).error as JsonRpcError | undefined
-      if (err) {
-        const e = new Error(err.message)
-        ;(e as any).code = err.code
-        ;(e as any).data = err.data
+      if (msg.error) {
+        const e = new Error(msg.error.message)
+        ;(e as Record<string, unknown>).code = msg.error.code
+        ;(e as Record<string, unknown>).data = msg.error.data
         pending.reject(e)
       } else {
-        pending.resolve((msg as any).result)
+        pending.resolve(msg.result)
       }
       return
     }
 
-    const method = (msg as any).method
-    if (typeof method === 'string' && method === 'notifications/event') {
-      const params = (msg as any).params
-      if (params && typeof params === 'object') {
-        this.emit(params as AgentBridgeEvent)
+    if (isJsonRpcNotification(msg) && msg.method === 'notifications/event') {
+      if (msg.params && typeof msg.params === 'object') {
+        this.emit(msg.params as AgentBridgeEvent)
       }
     }
   }
 
-  private send(obj: any): void {
+  private send(obj: JsonRpcMessage): void {
     this.ensureProcess()
     if (!this.child) throw new Error('Agent Bridge not started')
     this.child.stdin.write(JSON.stringify(obj) + '\n')
   }
 
-  notify(method: string, params?: any): void {
+  notify(method: string, params?: unknown): void {
     this.send({ jsonrpc: '2.0', method, params })
   }
 
-  request<T = any>(method: string, params?: any, timeoutMs = 60000): Promise<T> {
+  request<T = unknown>(method: string, params?: unknown, timeoutMs = 60000): Promise<T> {
     const id = this.nextId++
     this.ensureProcess()
     return new Promise<T>((resolve, reject) => {
@@ -256,7 +286,7 @@ export class AgentBridgeManager {
     return result
   }
 
-  async run(params: any): Promise<any> {
+  async run(params: AgentRunParams): Promise<unknown> {
     return await this.request('agent.run', params, 1000 * 60 * 60)
   }
 
@@ -264,7 +294,7 @@ export class AgentBridgeManager {
     this.notify('agent.abort', { runId })
   }
 
-  async respondPermission(params: any): Promise<any> {
+  async respondPermission(params: AgentPermissionRespondParams): Promise<unknown> {
     return await this.request('permission.respond', params, 30000)
   }
 

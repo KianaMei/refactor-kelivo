@@ -3,83 +3,28 @@
  * 对齐旧版 Kelivo 的 home_page.dart
  * 包括：双栏布局（会话列表 + 消息区）
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 
-import { DEFAULT_TRANSLATE_PROMPT } from '../../../shared/types'
 import type { AppConfig, AssistantConfig } from '../../../shared/types'
 import type { ChatMessageInput } from '../../../shared/chat'
-import type { ChatMessage as ChatStreamMessage } from '../../../shared/chatStream'
-import type { DbConversation, DbMessage, DbWorkspace } from '../../../shared/db-types'
 import { ConversationSidebar, type Conversation } from './chat/ConversationSidebar'
 import { WorkspaceSelector } from './chat/WorkspaceSelector'
 import { MessageBubble, type ChatMessage } from './chat/MessageBubble'
 import { ChatInputBar, type Attachment, type MentionedModel } from './chat/ChatInputBar'
-import { buildChatRequestMessages, getDefaultAssistantId, getEffectiveAssistant, applyAssistantRegex, buildCustomBody, buildCustomHeaders } from './chat/assistantChat'
+import { buildChatRequestMessages, getEffectiveAssistant, applyAssistantRegex, buildCustomBody, buildCustomHeaders } from './chat/assistantChat'
 import { ChatTopBar } from '../components/ChatTopBar'
 import { MessageAnchorLine } from '../components/MessageAnchorLine'
 import { SidebarResizeHandle } from '../components/SidebarResizeHandle'
-import { useChatStreamEvents } from './chat/useChatStreamEvents'
-import { rendererSendMessageStream } from '../lib/chatService'
 import { ChatPagePopovers } from './chat/ChatPagePopovers'
 import { useResolvedAssetUrl } from './chat/useResolvedAssetUrl'
+import { useMessageTTS } from './chat/useMessageTTS'
+import { useMessageTranslation } from './chat/useMessageTranslation'
+import { useConversationManager } from './chat/useConversationManager'
+import { useChatStream } from './chat/useChatStream'
 import type { EffortValue } from '../components/ReasoningBudgetPopover'
 
-function safeUuid(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-  }
-}
-
-function dbConvToConversation(c: DbConversation, assistantCount?: number): Conversation {
-  return {
-    id: c.id,
-    title: c.title,
-    updatedAt: c.updatedAt,
-    pinned: c.isPinned || undefined,
-    assistantId: c.assistantId ?? undefined,
-    workspaceId: c.workspaceId,
-    truncateIndex: c.truncateIndex,
-    thinkingBudget: c.thinkingBudget,
-    assistantCount
-  }
-}
-
-function dbMsgToChatMessage(m: DbMessage): ChatMessage {
-  // 解析 toolCalls 数据（兼容新旧格式）
-  let toolCalls: ChatMessage['toolCalls']
-  let blocks: ChatMessage['blocks']
-  if (m.toolCalls) {
-    const data = m.toolCalls as any
-    if (Array.isArray(data)) {
-      // 旧格式：直接是数组
-      toolCalls = data
-    } else if (data.toolCalls) {
-      // 新格式：{ toolCalls: [...], blocks: [...] }
-      toolCalls = data.toolCalls
-      blocks = data.blocks?.length ? data.blocks : undefined
-    }
-  }
-
-  return {
-    id: m.id,
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-    ts: m.createdAt,
-    groupId: m.groupId ?? undefined,
-    version: m.version,
-    reasoning: m.reasoningText ?? undefined,
-    translation: m.translation ?? undefined,
-    usage: m.tokenUsage ?? undefined,
-    toolCalls,
-    blocks,
-    // 透传模型信息
-    providerId: m.providerId ?? undefined,
-    modelId: m.modelId ?? undefined
-  }
-}
+import { safeUuid } from '../../../shared/utils'
 
 function sliceAfterTruncate(messages: ChatMessage[], truncateIndex: number | undefined): ChatMessage[] {
   const t = truncateIndex ?? -1
@@ -123,49 +68,25 @@ interface Props {
 export function ChatPage(props: Props) {
   const { config, onSave } = props
 
-  // 工作区状态
-  const [workspaces, setWorkspaces] = useState<DbWorkspace[]>([])
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
-
-  // 会话状态
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [activeConvId, setActiveConvId] = useState<string>('')
-  const [loadingConversationIds, setLoadingConversationIds] = useState<Set<string>>(new Set())
-  const [titleGeneratingConversationIds, setTitleGeneratingConversationIds] = useState<Set<string>>(new Set())
-  const [dbReady, setDbReady] = useState(false)
-
-  // 消息状态
-  const [messagesByConv, setMessagesByConv] = useState<Record<string, ChatMessage[]>>({})
-
-  // 输入状态
-  const [draft, setDraft] = useState('')
-  const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [mentionedModels, setMentionedModels] = useState<MentionedModel[]>([])
+  const {
+    conversations, setConversations, activeConvId, setActiveConvId,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId,
+    dbReady,
+    loadingConversationIds, setLoadingConversationIds,
+    titleGeneratingConversationIds,
+    messagesByConv, setMessagesByConv,
+    defaultAssistantId, activeConversation,
+    sidebarLoadingConversationIds, filteredConversations,
+    handleNewConversation, handleRenameConversation, handleDeleteConversation,
+    handleTogglePinConversation, handleRegenerateConversationTitle,
+    setConversationThinkingBudget, clearConversationContext,
+    handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace,
+  } = useConversationManager({ config, onOpenDefaultModelSettings: props.onOpenDefaultModelSettings })
 
   // UI 状态
-  const [isGenerating, setIsGenerating] = useState(false)
-  const streamingRef = useRef<{ streamId: string; convId: string; msgId: string } | null>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
-
-  type MentionSendQueue = {
-    convId: string
-    assistantId: string | null
-    assistantSnapshot: AssistantConfig | null
-    userInput: string
-    history: ChatMessage[]
-    models: MentionedModel[]
-    thinkingBudget: number
-    maxToolLoopIterations: number
-    enableSearchTool: boolean
-    customHeaders?: Record<string, string>
-    customBody?: Record<string, unknown>
-    userImagePaths: string[]
-    documents: Array<{ path: string; fileName: string; mime: string }>
-  }
-
-  const mentionSendQueueRef = useRef<MentionSendQueue | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollTargetRef = useRef<string | null>(null)
+  const prevActiveConvIdRef = useRef<string>('')
 
   // 模型选择器
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
@@ -189,26 +110,6 @@ export function ChatPage(props: Props) {
 
   // 计算属性
   const activeMessages = messagesByConv[activeConvId] ?? []
-  const activeConversation = conversations.find((c) => c.id === activeConvId)
-
-  // 切换会话时：清理多模型发送队列（避免串到其它会话）
-  useEffect(() => {
-    mentionSendQueueRef.current = null
-  }, [activeConvId])
-  const sidebarLoadingConversationIds = useMemo(() => {
-    if (titleGeneratingConversationIds.size === 0) return loadingConversationIds
-    const next = new Set(loadingConversationIds)
-    for (const id of titleGeneratingConversationIds) next.add(id)
-    return next
-  }, [loadingConversationIds, titleGeneratingConversationIds])
-
-  // 按工作区过滤的对话列表
-  const filteredConversations = useMemo(() => {
-    if (activeWorkspaceId === null) return conversations
-    return conversations.filter((c) => c.workspaceId === activeWorkspaceId)
-  }, [conversations, activeWorkspaceId])
-
-  // 只显示启用且有模型的供应商
   const providers = useMemo(() => {
     const map = config.providerConfigs
     const order = config.providersOrder
@@ -225,7 +126,6 @@ export function ChatPage(props: Props) {
     return order.map((id) => config.assistantConfigs[id]).filter(Boolean)
   }, [config.assistantConfigs, config.assistantsOrder])
 
-  const defaultAssistantId = getDefaultAssistantId(config)
   const activeAssistantId = activeConversation?.assistantId ?? defaultAssistantId
   const activeAssistant = getEffectiveAssistant(config, activeAssistantId)
 
@@ -257,52 +157,6 @@ export function ChatPage(props: Props) {
       }))
   }, [activeAssistant?.mcpServerIds, config.mcpServers])
 
-  // DB: 初始加载工作区和对话列表
-  useEffect(() => {
-    void (async () => {
-      // 加载工作区
-      const wsList = await window.api.db.workspaces.list()
-      setWorkspaces(wsList)
-
-      // 加载对话
-      const result = await window.api.db.conversations.list()
-      if (result.items.length === 0) {
-        setDbReady(true)
-        return
-      }
-      const convs: Conversation[] = await Promise.all(
-        result.items.map(async (c) => {
-          const count = await window.api.db.conversations.assistantCount(c.id)
-          return dbConvToConversation(c, count)
-        })
-      )
-      setConversations(convs)
-      setActiveConvId(convs[0].id)
-      setDbReady(true)
-    })()
-  }, [])
-
-  // DB: 空数据库时自动创建第一个对话
-  useEffect(() => {
-    if (dbReady && conversations.length === 0 && !activeConvId) {
-      handleNewConversation()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbReady])
-
-  // DB: 加载当前对话的消息
-  useEffect(() => {
-    if (!activeConvId) return
-    // 如果已经在内存中有消息（刚创建的对话），跳过
-    if (messagesByConv[activeConvId] !== undefined) return
-    void (async () => {
-      const dbMessages = await window.api.db.messages.list(activeConvId)
-      const msgs = dbMessages.map(dbMsgToChatMessage)
-      setMessagesByConv((prev) => ({ ...prev, [activeConvId]: msgs }))
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConvId])
-
   // 助手记忆（用于注入系统提示词）- 从 DB 加载
   const [assistantMemories, setAssistantMemories] = useState<Array<{ id: number; assistantId: string; content: string }>>([])
 
@@ -314,7 +168,7 @@ export function ChatPage(props: Props) {
     void (async () => {
       const memories = await window.api.db.memories.list(activeAssistantId)
       setAssistantMemories(memories)
-    })()
+    })().catch(err => console.error('[ChatPageNew] load memories failed:', err))
   }, [activeAssistantId])
 
   // 最近对话标题（用于注入系统提示词）
@@ -328,6 +182,26 @@ export function ChatPage(props: Props) {
       .map((c) => ({ timestamp: new Date(c.updatedAt).toISOString().slice(0, 10), title: c.title.trim() }))
   }, [activeAssistantId, activeConvId, conversations])
 
+  // 流式聊天
+  const {
+    isGenerating, setIsGenerating,
+    draft, setDraft,
+    attachments,
+    mentionedModels, setMentionedModels,
+    streamingRef,
+    streamingMsgId,
+    runRendererStream,
+    handleSend, handleStop,
+    handleAddAttachment, handleRemoveAttachment,
+  } = useChatStream({
+    config, activeConvId, activeConversation, activeAssistant, activeAssistantId,
+    activeMessages, selectedVersions, assistantMemories, recentChats,
+    messagesByConv, setMessagesByConv, setConversations, setLoadingConversationIds,
+    sliceAfterTruncate, collapseVersionsForRequest
+  })
+
+  const isActiveConversationReady = !activeConvId || messagesByConv[activeConvId] !== undefined
+
   // 助手聊天背景
   const usePure = config.display?.usePureBackground ?? false
   const backgroundUrl = useResolvedAssetUrl(activeAssistant?.background ?? null)
@@ -335,9 +209,6 @@ export function ChatPage(props: Props) {
   const backgroundColor = (usePure || backgroundUrl) ? null : (backgroundRaw || null)
   const effectiveBackgroundUrl = usePure ? null : backgroundUrl
   const backgroundMaskOpacity = Math.max(0, Math.min(200, config.display?.chatBackgroundMaskStrength ?? 50)) / 200
-
-  // 当前正在流式生成的消息 ID
-  const streamingMsgId = isGenerating ? streamingRef.current?.msgId : null
 
   // 计算要显示的消息（过滤掉非选中版本）
   // 注意：流式输出期间会非常频繁 setState；这里必须避免 O(n^2) 的 filter 循环，否则会导致 UI（尤其滚动）卡死。
@@ -392,573 +263,24 @@ export function ChatPage(props: Props) {
 
     return messagesToShow
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // streamingRef.current 是 ref 值，不触发 re-render，无需加入依赖；isGenerating 已覆盖流式状态变化
   }, [activeMessages, selectedVersions, isGenerating])
 
-  // DB: 流式完成后持久化消息
-  const handleStreamDone = useCallback((info: { msgId: string; convId: string; content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number }; reasoning?: string; toolCalls?: unknown[]; blocks?: unknown[] }) => {
-    const toolCallsData = info.toolCalls || info.blocks
-      ? { toolCalls: info.toolCalls ?? [], blocks: info.blocks ?? [] }
-      : null
-
-    void window.api.db.messages.update(info.msgId, {
-      content: info.content,
-      isStreaming: false,
-      tokenUsage: info.usage ?? null,
-      totalTokens: info.usage?.totalTokens ?? null,
-      reasoningText: info.reasoning ?? null,
-      toolCalls: toolCallsData
-    })
-    void window.api.db.conversations.update(info.convId, {})
-  }, [])
-
-  const { consumeStream } = useChatStreamEvents({
-    streamingRef,
-    setMessagesByConv,
-    setIsGenerating,
-    setLoadingConversationIds,
-    onStreamDone: handleStreamDone
-  })
-
-  /** 在 Renderer 进程直接发起 AI 流式请求并消费 */
-  async function runRendererStream(params: {
-    providerId: string
-    modelId: string
-    messages: ChatMessageInput[]
-    assistantId?: string | null
-    enableSearchTool?: boolean
-    enableMemory?: boolean
-    thinkingBudget?: number
-    maxToolLoopIterations?: number
-    userImagePaths?: string[]
-    temperature?: number
-    topP?: number
-    maxTokens?: number
-    customHeaders?: Record<string, string>
-    customBody?: Record<string, unknown>
-  }) {
-    const appConfig = await window.api.config.get()
-    const providerConfig = appConfig.providerConfigs[params.providerId]
-    if (!providerConfig) throw new Error(`Provider ${params.providerId} not configured`)
-    const assistantSnapshot =
-      params.assistantId && appConfig.assistantConfigs[params.assistantId]
-        ? appConfig.assistantConfigs[params.assistantId]
-        : null
-
-    const ac = new AbortController()
-    abortControllerRef.current = ac
-
-    let userImages: Array<{ mime: string; base64: string }> | undefined
-    if (params.userImagePaths && params.userImagePaths.length > 0) {
-      const result = await window.api.chat.preprocess({ imagePaths: params.userImagePaths })
-      userImages = result.images.length > 0 ? result.images : undefined
-    }
-
-    const generator = rendererSendMessageStream({
-      config: providerConfig,
-      modelId: params.modelId,
-      messages: params.messages as ChatStreamMessage[],
-      userImages,
-      assistantId: params.assistantId,
-      enableSearchTool: params.enableSearchTool,
-      searchServiceId: appConfig.searchConfig?.global?.defaultServiceId ?? undefined,
-      enableMemory: params.enableMemory,
-      mcpServerIds: assistantSnapshot?.mcpServerIds ?? [],
-      mcpServers: appConfig.mcpServers ?? [],
-      mcpToolCallMode: appConfig.mcpToolCallMode,
-      thinkingBudget: params.thinkingBudget,
-      maxToolLoopIterations: params.maxToolLoopIterations,
-      temperature: params.temperature,
-      topP: params.topP,
-      maxTokens: params.maxTokens,
-      customHeaders: params.customHeaders,
-      customBody: params.customBody,
-      signal: ac.signal
-    })
-
-    await consumeStream(generator)
-  }
-
-  // 滚动到底部
-  async function startNextMentionedModelIfAny() {
-    // 防止并发：只要正在生成，就不要触发队列
-    if (isGenerating) return
-
-    const queue = mentionSendQueueRef.current
-    if (!queue) return
-
-    // 会话切换时队列会被清理；这里再做一层保护
-    if (queue.convId !== activeConvId) {
-      mentionSendQueueRef.current = null
-      return
-    }
-
-    const nextModel = queue.models[0]
-    const restModels = queue.models.slice(1)
-    mentionSendQueueRef.current = restModels.length ? { ...queue, models: restModels } : null
-
-    if (!nextModel?.providerId || !nextModel.modelId) {
-      // 非法项直接跳过（理论上不会出现）
-      await startNextMentionedModelIfAny()
-      return
-    }
-
-    const providerId = nextModel.providerId
-    const modelId = nextModel.modelId
-    const assistant = queue.assistantSnapshot
-    const now = Date.now()
-    const assistantMsgId = safeUuid()
-    const currentMsgCount = (messagesByConv[queue.convId] ?? []).length
-
-    // UI：追加一个新的 assistant 占位消息（每个 @ 模型一条流）
-    setMessagesByConv((prev) => {
-      const list = prev[queue.convId] ?? []
-      return {
-        ...prev,
-        [queue.convId]: [...list, { id: assistantMsgId, role: 'assistant', content: '', ts: now, providerId, modelId }]
-      }
-    })
-
-    // 会话计数/排序：与 handleSend 保持一致
-    setConversations((prev) =>
-      prev
-        .map((c) => (c.id === queue.convId ? { ...c, updatedAt: Date.now(), assistantCount: (c.assistantCount ?? 0) + 1 } : c))
-        .sort((a, b) => {
-          if (a.pinned && !b.pinned) return -1
-          if (!a.pinned && b.pinned) return 1
-          return b.updatedAt - a.updatedAt
-        })
-    )
-
-    // DB：persist empty assistant message
-    void window.api.db.messages.create({
-      id: assistantMsgId,
-      conversationId: queue.convId,
-      role: 'assistant',
-      content: '',
-      sortOrder: currentMsgCount,
-      isStreaming: true,
-      providerId,
-      modelId
-    })
-
-    // 预先生成 streamId，避免 invoke 返回慢导致丢 chunk/error
-    const streamId = safeUuid()
-    streamingRef.current = { streamId, convId: queue.convId, msgId: assistantMsgId }
-    setIsGenerating(true)
-    setLoadingConversationIds((prev) => new Set(prev).add(queue.convId))
-
-    try {
-      const reqMessages: ChatMessageInput[] = buildChatRequestMessages({
-        assistant,
-        history: queue.history,
-        userInput: queue.userInput,
-        memories: assistantMemories,
-        recentChats
-      })
-
-      await runRendererStream({
-        providerId,
-        modelId,
-        messages: reqMessages,
-        assistantId: queue.assistantId,
-        enableSearchTool: queue.enableSearchTool,
-        enableMemory: queue.assistantSnapshot?.enableMemory,
-        thinkingBudget: queue.thinkingBudget,
-        maxToolLoopIterations: queue.maxToolLoopIterations,
-        userImagePaths: queue.userImagePaths,
-        temperature: assistant?.temperature,
-        topP: assistant?.topP,
-        maxTokens: assistant?.maxTokens,
-        customHeaders: queue.customHeaders,
-        customBody: queue.customBody
-      })
-    } catch (e) {
-      const errorText = `【错误】${e instanceof Error ? e.message : String(e)}`
-      setMessagesByConv((prev) => {
-        const list = prev[queue.convId] ?? []
-        const next = list.map((m) => (m.id === assistantMsgId ? { ...m, content: errorText } : m))
-        return { ...prev, [queue.convId]: next }
-      })
-      void window.api.db.messages.update(assistantMsgId, { content: errorText, isStreaming: false })
-
-      if (streamingRef.current?.streamId === streamId) streamingRef.current = null
-      setIsGenerating(false)
-      setLoadingConversationIds((prev) => {
-        const next = new Set(prev)
-        next.delete(queue.convId)
-        return next
-      })
-    }
-  }
-
-  // 多模型分发：当前流结束后自动发送队列里的下一个模型
   useEffect(() => {
-    if (isGenerating) return
-    if (!mentionSendQueueRef.current) return
-    void startNextMentionedModelIfAny()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isGenerating, activeConvId])
+    if (!activeConvId || !isActiveConversationReady) return
 
-  useEffect(() => {
     const targetMsgId = scrollTargetRef.current
     if (targetMsgId) {
       document.getElementById(`msg-${targetMsgId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       scrollTargetRef.current = null
-      return
-    }
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeMessages.length])
-
-  // 会话操作
-  function handleNewConversation() {
-    const id = safeUuid()
-    const assistant = getEffectiveAssistant(config, defaultAssistantId)
-    const preset = assistant?.presetMessages ?? []
-    const now = Date.now()
-    const presetMsgs: ChatMessage[] = preset.map((m, i) => ({
-      id: safeUuid(),
-      role: m.role,
-      content: m.content,
-      ts: now + i
-    }))
-    // 新对话归属当前工作区，如果没选择则归属默认工作区
-    const workspaceId = activeWorkspaceId ?? 'default'
-    const presetAssistantCount = presetMsgs.filter((m) => m.role === 'assistant').length
-    const conv: Conversation = {
-      id,
-      title: '新对话',
-      updatedAt: now,
-      assistantCount: presetAssistantCount,
-      assistantId: assistant?.id,
-      workspaceId,
-      truncateIndex: -1,
-      thinkingBudget: null
-    }
-    setConversations((prev) => [conv, ...prev])
-    setMessagesByConv((prev) => ({ ...prev, [id]: presetMsgs }))
-    setActiveConvId(id)
-
-    // DB: persist
-    void (async () => {
-      await window.api.db.conversations.create({ id, title: '新对话', assistantId: assistant?.id, workspaceId })
-      if (presetMsgs.length > 0) {
-        await window.api.db.messages.createBatch(
-          presetMsgs.map((m, i) => ({
-            id: m.id,
-            conversationId: id,
-            role: m.role,
-            content: m.content,
-            sortOrder: i
-          }))
-        )
-      }
-    })()
-  }
-
-  function handleRenameConversation(id: string, newTitle: string) {
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: newTitle } : c)))
-    void window.api.db.conversations.update(id, { title: newTitle })
-  }
-
-  function handleDeleteConversation(id: string) {
-    setConversations((prev) => prev.filter((c) => c.id !== id))
-    setMessagesByConv((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    if (activeConvId === id) {
-      const remaining = conversations.filter((c) => c.id !== id)
-      if (remaining.length > 0) {
-        setActiveConvId(remaining[0].id)
-      } else {
-        handleNewConversation()
-      }
-    }
-    void window.api.db.conversations.delete(id)
-  }
-
-  function handleTogglePinConversation(id: string) {
-    const conv = conversations.find((c) => c.id === id)
-    const newPinned = !conv?.pinned
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned: newPinned } : c)))
-    void window.api.db.conversations.update(id, { isPinned: newPinned })
-  }
-
-  function handleRegenerateConversationTitle(id: string) {
-    // 对齐 Flutter：优先使用“标题生成模型”，否则回落到“对话默认模型”
-    const providerId = config.titleModelProvider ?? config.currentModelProvider
-    const modelId = config.titleModelId ?? config.currentModelId
-    if (!providerId || !modelId) {
-      props.onOpenDefaultModelSettings()
+      prevActiveConvIdRef.current = activeConvId
       return
     }
 
-    setTitleGeneratingConversationIds((prev) => new Set(prev).add(id))
-    void (async () => {
-      try {
-        const updated = await window.api.db.conversations.regenerateTitle(id)
-        if (updated?.title) {
-          setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: updated.title } : c)))
-        }
-      } catch (e) {
-        console.error('[ChatPage] regenerate title failed', e)
-      } finally {
-        setTitleGeneratingConversationIds((prev) => {
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
-      }
-    })()
-  }
-
-  // 工作区操作
-  function handleCreateWorkspace(name: string) {
-    const id = safeUuid()
-    void (async () => {
-      const ws = await window.api.db.workspaces.create({ id, name })
-      setWorkspaces((prev) => [...prev, ws])
-      setActiveWorkspaceId(ws.id)
-    })()
-  }
-
-  function handleRenameWorkspace(id: string, name: string) {
-    void (async () => {
-      await window.api.db.workspaces.update(id, { name })
-      setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, name } : w)))
-    })()
-  }
-
-  function handleDeleteWorkspace(id: string) {
-    // 不能删除默认工作区
-    if (id === 'default') return
-    void (async () => {
-      await window.api.db.workspaces.delete(id)
-      setWorkspaces((prev) => prev.filter((w) => w.id !== id))
-      // 如果删除的是当前工作区，切换到全部
-      if (activeWorkspaceId === id) {
-        setActiveWorkspaceId(null)
-      }
-      // 将该工作区的对话移动到默认工作区
-      setConversations((prev) =>
-        prev.map((c) => (c.workspaceId === id ? { ...c, workspaceId: 'default' } : c))
-      )
-    })()
-  }
-
-  // 发送消息
-  function handleSend() {
-    if (isGenerating) return
-
-    const assistant = activeAssistant
-    const mentioned = mentionedModels.slice()
-    const primaryMention = mentioned[0] ?? null
-    const text = draft.trim()
-    const attachmentPayload = (() => {
-      const userImagePaths: string[] = []
-      const documents: Array<{ path: string; fileName: string; mime: string }> = []
-      for (const a of attachments) {
-        const p = String(a.path ?? '').trim()
-        if (!p) continue
-        if (a.type === 'image') userImagePaths.push(p)
-        else documents.push({ path: p, fileName: a.name, mime: a.mime ?? '' })
-      }
-      return { userImagePaths, documents }
-    })()
-    const hasAttachments = attachmentPayload.userImagePaths.length > 0 || attachmentPayload.documents.length > 0
-    if (!text && !hasAttachments) return
-
-    // 助手绑定模型优先；否则使用全局默认模型（若存在 @ 提及，则优先使用提及模型）
-    const providerId = primaryMention?.providerId ?? (assistant?.boundModelProvider ?? config.currentModelProvider)
-    const modelId = primaryMention?.modelId ?? (assistant?.boundModelId ?? config.currentModelId)
-    const now = Date.now()
-    const displayText = text || (attachments.length > 0 ? '（发送了附件）' : '')
-    const userInputForModel = text || (hasAttachments ? '请根据我上传的附件进行分析。' : displayText)
-    const historySnapshot = collapseVersionsForRequest(
-      sliceAfterTruncate(activeMessages, activeConversation?.truncateIndex),
-      selectedVersions
-    )
-    const thinkingBudget = activeConversation?.thinkingBudget ?? -1
-    const maxToolLoopIterations = assistant?.maxToolLoopIterations ?? 10
-    const enableSearchTool = config.searchConfig?.global?.enabled === true
-    const assistantIdForTools = activeAssistantId ?? null
-    const customHeaders = buildCustomHeaders(assistant)
-    const customBody = buildCustomBody(assistant)
-    const userMsg: ChatMessage = {
-      id: safeUuid(),
-      role: 'user',
-      content: displayText,
-      ts: now,
-      attachments: attachments.length > 0 ? attachments.map((a) => ({ type: a.type, url: a.url, name: a.name })) : undefined
-    }
-
-    setDraft('')
-    clearInputAttachments()
-
-    // 未配置可用模型时，直接提示用户去设置页配置。
-    if (!primaryMention && assistant?.boundModelProvider && !assistant.boundModelId) {
-      setMessagesByConv((prev) => {
-        const list = prev[activeConvId] ?? []
-        return {
-          ...prev,
-          [activeConvId]: [
-            ...list,
-            userMsg,
-            { id: safeUuid(), role: 'assistant', content: '【错误】该助手已选择供应商，但未绑定具体模型。请到“设置-助手”中配置。', ts: now + 1 }
-          ]
-        }
-      })
-      return
-    }
-    if (!providerId || !modelId) {
-      setMessagesByConv((prev) => {
-        const list = prev[activeConvId] ?? []
-        return {
-          ...prev,
-          [activeConvId]: [
-            ...list,
-            userMsg,
-            {
-              id: safeUuid(),
-              role: 'assistant',
-              content: '请先配置默认模型（右上角提示处或点击"去设置"）。',
-              ts: now + 1
-            }
-          ]
-        }
-      })
-      return
-    }
-
-    const assistantMsgId = safeUuid()
-    const currentMsgCount = (messagesByConv[activeConvId] ?? []).length
-    setMessagesByConv((prev) => {
-      const list = prev[activeConvId] ?? []
-      return {
-        ...prev,
-        [activeConvId]: [
-          ...list,
-          userMsg,
-          {
-            id: assistantMsgId,
-            role: 'assistant',
-            content: '',
-            ts: now + 1,
-            providerId,
-            modelId
-          }
-        ]
-      }
-    })
-
-    // 更新会话时间和消息数
-    setConversations((prev) =>
-      prev
-        .map((c) =>
-          c.id === activeConvId
-            ? { ...c, updatedAt: Date.now(), assistantCount: (c.assistantCount ?? 0) + 1 }
-            : c
-        )
-        .sort((a, b) => {
-          if (a.pinned && !b.pinned) return -1
-          if (!a.pinned && b.pinned) return 1
-          return b.updatedAt - a.updatedAt
-        })
-    )
-
-    // DB: persist user + empty assistant messages
-    void window.api.db.messages.createBatch([
-      { id: userMsg.id, conversationId: activeConvId, role: 'user', content: displayText, sortOrder: currentMsgCount },
-      { id: assistantMsgId, conversationId: activeConvId, role: 'assistant', content: '', sortOrder: currentMsgCount + 1, isStreaming: true, providerId, modelId }
-    ])
-
-    // 预先生成 streamId，避免 ipc invoke 返回滞后导致丢 chunk/error 事件，从而卡死 isGenerating
-    // @ 多模型：把剩余模型塞进队列，等待当前流结束后自动发送
-    mentionSendQueueRef.current =
-      mentionSendQueueRef.current =
-      mentioned.length > 1
-        ? {
-          convId: activeConvId,
-          assistantId: assistantIdForTools,
-          assistantSnapshot: assistant,
-          userInput: userInputForModel,
-          history: historySnapshot,
-          models: mentioned.slice(1),
-          thinkingBudget,
-          maxToolLoopIterations,
-          enableSearchTool,
-          customHeaders,
-          customBody,
-          userImagePaths: attachmentPayload.userImagePaths,
-          documents: attachmentPayload.documents
-        }
-        : null
-
-    const streamId = safeUuid()
-    streamingRef.current = { streamId, convId: activeConvId, msgId: assistantMsgId }
-    setIsGenerating(true)
-    setLoadingConversationIds((prev) => new Set(prev).add(activeConvId))
-
-    void (async () => {
-      try {
-        const historySnapshot = collapseVersionsForRequest(
-          sliceAfterTruncate(activeMessages, activeConversation?.truncateIndex),
-          selectedVersions
-        )
-        const userInput = text || (hasAttachments ? '请根据我上传的附件进行分析。' : displayText)
-
-        const reqMessages: ChatMessageInput[] = buildChatRequestMessages({
-          assistant,
-          history: historySnapshot,
-          userInput,
-          memories: assistantMemories,
-          recentChats
-        })
-
-        await runRendererStream({
-          providerId,
-          modelId,
-          messages: reqMessages,
-          assistantId: assistantIdForTools,
-          enableSearchTool,
-          enableMemory: assistant?.enableMemory,
-          thinkingBudget,
-          maxToolLoopIterations,
-          userImagePaths: attachmentPayload.userImagePaths,
-          temperature: assistant?.temperature,
-          topP: assistant?.topP,
-          maxTokens: assistant?.maxTokens,
-          customHeaders,
-          customBody
-        })
-      } catch (e) {
-        setMessagesByConv((prev) => {
-          const list = prev[activeConvId] ?? []
-          const next = list.map((m) =>
-            m.id === assistantMsgId ? { ...m, content: `【错误】${e instanceof Error ? e.message : String(e)}` } : m
-          )
-          return { ...prev, [activeConvId]: next }
-        })
-        // 清理本次 stream 状态
-        if (streamingRef.current?.streamId === streamId) streamingRef.current = null
-        setIsGenerating(false)
-        setLoadingConversationIds((prev) => {
-          const next = new Set(prev)
-          next.delete(activeConvId)
-          return next
-        })
-      }
-    })()
-  }
-
-  function handleStop() {
-    const st = streamingRef.current
-    if (!st) return
-    mentionSendQueueRef.current = null
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
-  }
+    const isConversationSwitched = prevActiveConvIdRef.current !== activeConvId
+    messagesEndRef.current?.scrollIntoView({ behavior: isConversationSwitched ? 'auto' : 'smooth' })
+    prevActiveConvIdRef.current = activeConvId
+  }, [activeConvId, activeMessages.length, isActiveConversationReady])
 
   async function toggleSearchEnabled() {
     const enabled = config.searchConfig?.global?.enabled === true
@@ -992,19 +314,6 @@ export function ChatPage(props: Props) {
     })
   }
 
-  async function setConversationThinkingBudget(v: EffortValue) {
-    if (!activeConvId) return
-    setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, thinkingBudget: v } : c)))
-    await window.api.db.conversations.update(activeConvId, { thinkingBudget: v })
-  }
-
-  async function clearConversationContext() {
-    if (!activeConvId) return
-    const truncateIndex = (messagesByConv[activeConvId] ?? []).length
-    setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, truncateIndex } : c)))
-    await window.api.db.conversations.update(activeConvId, { truncateIndex })
-  }
-
   // 消息操作
   function handleDeleteMessage(msg: ChatMessage) {
     setMessagesByConv((prev) => {
@@ -1012,6 +321,7 @@ export function ChatPage(props: Props) {
       return { ...prev, [activeConvId]: list.filter((m) => m.id !== msg.id) }
     })
     void window.api.db.messages.delete(msg.id)
+      .catch(err => console.error('[ChatPageNew] db message delete failed:', err))
   }
 
   // 编辑消息 - 更新消息内容并重新生成回答
@@ -1022,6 +332,7 @@ export function ChatPage(props: Props) {
       return { ...prev, [activeConvId]: list.map((m) => (m.id === msg.id ? { ...m, content: newContent } : m)) }
     })
     void window.api.db.messages.update(msg.id, { content: newContent })
+      .catch(err => console.error('[ChatPageNew] db message update (edit) failed:', err))
 
     // 如果是用户消息，重新生成助手回答
     if (msg.role === 'user') {
@@ -1045,6 +356,7 @@ export function ChatPage(props: Props) {
           }
         })
         void window.api.db.messages.update(nextAssistantMsg.id, { content: '', isStreaming: true })
+          .catch(err => console.error('[ChatPageNew] db message update (reset for regen) failed:', err))
 
         // 预先生成 streamId，避免丢 chunk/error 导致卡死 isGenerating
         const streamId = safeUuid()
@@ -1217,6 +529,7 @@ export function ChatPage(props: Props) {
           }
         })
         void window.api.db.messages.update(newMsgId, { content: errorText, isStreaming: false })
+          .catch(err => console.error('[ChatPageNew] db message update (error state) failed:', err))
 
         if (streamingRef.current?.streamId === streamId) streamingRef.current = null
         setIsGenerating(false)
@@ -1244,10 +557,163 @@ export function ChatPage(props: Props) {
     setSelectedVersions((prev) => ({ ...prev, [groupId]: newVersionIndex }))
   }
 
+  function startUserMessageResend(options: { targetUserMsgId: string; providerId: string; modelId: string }) {
+    const { targetUserMsgId, providerId, modelId } = options
+    const messages = messagesByConv[activeConvId] ?? []
+    const clickedUserIndex = messages.findIndex((m) => m.id === targetUserMsgId && m.role === 'user')
+    if (clickedUserIndex < 0) return
+
+    const clickedUserMsg = messages[clickedUserIndex]
+    const userGroupId = clickedUserMsg.groupId ?? clickedUserMsg.id
+    let firstUserIndex = messages.findIndex((m) => m.role === 'user' && (m.groupId ?? m.id) === userGroupId)
+    if (firstUserIndex < 0) firstUserIndex = clickedUserIndex
+
+    // 复用该 user 之后的第一条 assistant 分组，保持“重发”版本切换体验一致
+    let targetGroupId: string | undefined
+    for (let i = firstUserIndex + 1; i < messages.length; i++) {
+      if (messages[i].role === 'assistant') {
+        targetGroupId = messages[i].groupId || messages[i].id
+        break
+      }
+    }
+    const newVersionIndex = targetGroupId
+      ? messages.filter((m) => m.role === 'assistant' && (m.groupId === targetGroupId || m.id === targetGroupId)).length
+      : 0
+
+    const newMsgId = safeUuid()
+    const now = Date.now()
+
+    // 生成新版本后：视图停留在该消息处（不跳到底部）
+    scrollTargetRef.current = newMsgId
+
+    setMessagesByConv((prev) => {
+      const list = prev[activeConvId] ?? []
+      const patchedList = targetGroupId
+        ? list.map((m) => {
+            if (m.id === targetGroupId && !m.groupId && m.role === 'assistant') return { ...m, groupId: targetGroupId, version: 0 }
+            return m
+          })
+        : list
+
+      return {
+        ...prev,
+        [activeConvId]: [
+          ...patchedList,
+          {
+            id: newMsgId,
+            role: 'assistant',
+            content: '',
+            ts: now,
+            groupId: targetGroupId,
+            version: targetGroupId ? newVersionIndex : undefined,
+            providerId,
+            modelId
+          }
+        ]
+      }
+    })
+
+    if (targetGroupId) {
+      setSelectedVersions((prev) => ({ ...prev, [targetGroupId]: newVersionIndex }))
+    }
+
+    // DB：补齐首条版本 groupId/version=0（若缺失），并新增一条 messages 记录
+    void (async () => {
+      try {
+        if (targetGroupId) {
+          const rootMsg = messages.find((m) => m.id === targetGroupId)
+          if (rootMsg && rootMsg.role === 'assistant' && !rootMsg.groupId) {
+            await window.api.db.messages.update(rootMsg.id, { groupId: targetGroupId, version: 0 })
+          }
+        }
+
+        const nextOrder = await window.api.db.messages.nextSortOrder(activeConvId)
+        await window.api.db.messages.create({
+          id: newMsgId,
+          conversationId: activeConvId,
+          role: 'assistant',
+          content: '',
+          sortOrder: nextOrder,
+          groupId: targetGroupId,
+          version: targetGroupId ? newVersionIndex : undefined,
+          isStreaming: true,
+          providerId,
+          modelId
+        })
+      } catch (e) {
+        console.error('[ChatPage] persist resent assistant message failed', e)
+      }
+    })()
+
+    // 预先生成 streamId，避免丢 chunk/error 导致 isGenerating 卡死
+    const streamId = safeUuid()
+    streamingRef.current = { streamId, convId: activeConvId, msgId: newMsgId }
+    setIsGenerating(true)
+    setLoadingConversationIds((prev) => new Set(prev).add(activeConvId))
+
+    void (async () => {
+      try {
+        const historyForResend = messages.slice(0, firstUserIndex)
+        const reqMessages: ChatMessageInput[] = buildChatRequestMessages({
+          assistant: activeAssistant,
+          history: historyForResend,
+          userInput: clickedUserMsg.content,
+          memories: assistantMemories,
+          recentChats
+        })
+        const customHeaders = buildCustomHeaders(activeAssistant)
+        const customBody = buildCustomBody(activeAssistant)
+        await runRendererStream({
+          providerId,
+          modelId,
+          messages: reqMessages,
+          assistantId: activeAssistantId ?? null,
+          enableSearchTool: config.searchConfig?.global?.enabled === true,
+          enableMemory: activeAssistant?.enableMemory,
+          thinkingBudget: activeConversation?.thinkingBudget ?? -1,
+          maxToolLoopIterations: activeAssistant?.maxToolLoopIterations ?? 10,
+          temperature: activeAssistant?.temperature,
+          topP: activeAssistant?.topP,
+          maxTokens: activeAssistant?.maxTokens,
+          customHeaders,
+          customBody
+        })
+      } catch (e) {
+        const errorText = `【错误】${e instanceof Error ? e.message : String(e)}`
+        setMessagesByConv((prev) => {
+          const list = prev[activeConvId] ?? []
+          return {
+            ...prev,
+            [activeConvId]: list.map((m) => (m.id === newMsgId ? { ...m, content: errorText } : m))
+          }
+        })
+        void window.api.db.messages.update(newMsgId, { content: errorText, isStreaming: false })
+          .catch(err => console.error('[ChatPageNew] db message update (error state) failed:', err))
+
+        if (streamingRef.current?.streamId === streamId) streamingRef.current = null
+        setIsGenerating(false)
+        setLoadingConversationIds((prev) => {
+          const next = new Set(prev)
+          next.delete(activeConvId)
+          return next
+        })
+      }
+    })()
+  }
+
   // 重发用户消息
   function handleResendMessage(msg: ChatMessage) {
-    if (msg.role !== 'user') return
-    setDraft(msg.content)
+    if (msg.role !== 'user' || isGenerating) return
+    const assistant = activeAssistant
+    const providerId = assistant?.boundModelProvider ?? config.currentModelProvider
+    const modelId = assistant?.boundModelId ?? config.currentModelId
+    if (!providerId || !modelId) return
+
+    startUserMessageResend({
+      targetUserMsgId: msg.id,
+      providerId,
+      modelId
+    })
   }
 
   // @提及回答 - 打开模型选择器，使用不同模型重新生成回答
@@ -1260,129 +726,11 @@ export function ChatPage(props: Props) {
   }
 
   // 朗读消息 (TTS)
-  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null)
-
-  function handleSpeakMessage(msg: ChatMessage) {
-    // 使用浏览器内置 TTS
-    if ('speechSynthesis' in window) {
-      // 如果正在播放这条消息，停止
-      if (speakingMsgId === msg.id) {
-        window.speechSynthesis.cancel()
-        setSpeakingMsgId(null)
-        return
-      }
-      // 停止当前正在播放的
-      window.speechSynthesis.cancel()
-      const utterance = new SpeechSynthesisUtterance(msg.content)
-      utterance.lang = 'zh-CN'
-      utterance.onend = () => setSpeakingMsgId(null)
-      utterance.onerror = () => setSpeakingMsgId(null)
-      setSpeakingMsgId(msg.id)
-      window.speechSynthesis.speak(utterance)
-    }
-  }
+  const { speakingMsgId, handleSpeakMessage } = useMessageTTS()
 
   // 翻译消息
-  const [translatingMsgId, setTranslatingMsgId] = useState<string | null>(null)
-  const translationAbortRef = useRef<AbortController | null>(null)
-
-  async function handleTranslateMessage(msg: ChatMessage) {
-    if (translatingMsgId) return // 已在翻译中
-
-    // 如果已有翻译，切换显示/隐藏
-    if (msg.translation) {
-      setMessagesByConv((prev) => {
-        const list = prev[activeConvId] ?? []
-        return {
-          ...prev,
-          [activeConvId]: list.map((m) =>
-            m.id === msg.id ? { ...m, translation: undefined } : m
-          )
-        }
-      })
-      return
-    }
-
-    const assistant = activeAssistant
-    const appConfig = await window.api.config.get()
-    const providerId =
-      appConfig.translateModelProvider ??
-      assistant?.boundModelProvider ??
-      appConfig.currentModelProvider
-    const modelId =
-      appConfig.translateModelId ??
-      assistant?.boundModelId ??
-      appConfig.currentModelId
-
-    if (!providerId || !modelId) return
-
-    setTranslatingMsgId(msg.id)
-
-    try {
-      const sourceText = String(msg.content ?? '')
-      const targetLang = /[\u4e00-\u9fff]/.test(sourceText)
-        ? 'English'
-        : 'Simplified Chinese'
-      const promptTemplate = appConfig.translatePrompt ?? config.translatePrompt ?? DEFAULT_TRANSLATE_PROMPT
-      const translatePrompt = promptTemplate
-        .replaceAll('{source_text}', sourceText)
-        .replaceAll('{target_lang}', targetLang)
-
-      // 初始化翻译状态
-      setMessagesByConv((prev) => {
-        const list = prev[activeConvId] ?? []
-        return {
-          ...prev,
-          [activeConvId]: list.map((m) =>
-            m.id === msg.id ? { ...m, translation: '翻译中...' } : m
-          )
-        }
-      })
-
-      const providerConfig = appConfig.providerConfigs[providerId]
-      if (!providerConfig) throw new Error(`Provider ${providerId} not configured`)
-      const translationMaxTokens =
-        assistant?.maxTokens && assistant.maxTokens > 0
-          ? assistant.maxTokens
-          : 4096
-
-      const ac = new AbortController()
-      translationAbortRef.current = ac
-
-      const generator = rendererSendMessageStream({
-        config: providerConfig,
-        modelId,
-        messages: [{ role: 'user', content: translatePrompt }] as ChatStreamMessage[],
-        temperature: 0.3,
-        maxTokens: translationMaxTokens,
-        signal: ac.signal
-      })
-
-      let translationContent = ''
-      for await (const chunk of generator) {
-        if (chunk.content) {
-          translationContent += chunk.content
-          const content = translationContent
-          setMessagesByConv((prev) => {
-            const list = prev[activeConvId] ?? []
-            return {
-              ...prev,
-              [activeConvId]: list.map((m) =>
-                m.id === msg.id ? { ...m, translation: content } : m
-              )
-            }
-          })
-        }
-      }
-
-      void window.api.db.messages.update(msg.id, { translation: translationContent })
-    } catch (e) {
-      console.error('Translation failed:', e)
-    } finally {
-      translationAbortRef.current = null
-      setTranslatingMsgId(null)
-    }
-  }
+  const { translatingMsgId, handleTranslateMessage, setMessageTranslationExpanded } =
+    useMessageTranslation({ activeConvId, activeAssistant, config, setMessagesByConv })
 
   // 创建分支 - 从当前消息创建新会话
   function handleForkMessage(msg: ChatMessage) {
@@ -1432,46 +780,7 @@ export function ChatPage(props: Props) {
           version: m.version
         }))
       )
-    })()
-  }
-
-  // 附件操作
-  function clearInputAttachments() {
-    setAttachments((prev) => {
-      for (const a of prev) {
-        try { URL.revokeObjectURL(a.url) } catch { /* ignore */ }
-      }
-      return []
-    })
-  }
-
-  function handleAddAttachment(files: FileList) {
-    const newAttachments: Attachment[] = []
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      const isImage = file.type.startsWith('image/')
-      const filePath = String((file as unknown as { path?: string }).path ?? '').trim() || undefined
-      newAttachments.push({
-        id: safeUuid(),
-        type: isImage ? 'image' : 'file',
-        name: file.name,
-        url: URL.createObjectURL(file),
-        path: filePath,
-        mime: file.type || undefined,
-        file
-      })
-    }
-    setAttachments((prev) => [...prev, ...newAttachments])
-  }
-
-  function handleRemoveAttachment(id: string) {
-    setAttachments((prev) => {
-      const target = prev.find((a) => a.id === id)
-      if (target) {
-        try { URL.revokeObjectURL(target.url) } catch { /* ignore */ }
-      }
-      return prev.filter((a) => a.id !== id)
-    })
+    })().catch(err => console.error('[ChatPageNew] fork conversation db persist failed:', err))
   }
 
   // 模型选择
@@ -1630,7 +939,37 @@ export function ChatPage(props: Props) {
           ) : null}
 
           <div id="chatMessagesScroll" className="chatMessagesScroll scrollbarHover" style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'auto', padding: 16, scrollbarGutter: 'stable' }}>
-            {activeMessages.length === 0 ? (
+            {!isActiveConversationReady ? (
+              <div className="chatHistoryLoading" role="status" aria-live="polite" aria-label="正在加载会话消息">
+                <div className="chatHistoryLoadingRow">
+                  <div className="chatHistoryLoadingAvatar chatHistoryLoadingWave" />
+                  <div className="chatHistoryLoadingBubbleStack">
+                    <div className="chatHistoryLoadingBubble chatHistoryLoadingBubble--sm chatHistoryLoadingWave" />
+                    <div className="chatHistoryLoadingBubble chatHistoryLoadingBubble--lg chatHistoryLoadingWave" />
+                  </div>
+                </div>
+
+                <div className="chatHistoryLoadingRow chatHistoryLoadingRow--right">
+                  <div className="chatHistoryLoadingBubbleStack">
+                    <div className="chatHistoryLoadingBubble chatHistoryLoadingBubble--md chatHistoryLoadingWave" />
+                  </div>
+                </div>
+
+                <div className="chatHistoryLoadingRow">
+                  <div className="chatHistoryLoadingAvatar chatHistoryLoadingWave" />
+                  <div className="chatHistoryLoadingBubbleStack">
+                    <div className="chatHistoryLoadingBubble chatHistoryLoadingBubble--md chatHistoryLoadingWave" />
+                    <div className="chatHistoryLoadingBubble chatHistoryLoadingBubble--sm chatHistoryLoadingWave" />
+                  </div>
+                </div>
+
+                <div className="chatHistoryLoadingTyping" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+            ) : activeMessages.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 40, opacity: 0.5 }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
                 <div>开始新对话</div>
@@ -1655,6 +994,7 @@ export function ChatPage(props: Props) {
                   onMentionReAnswer={handleMentionReAnswer}
                   onSpeak={handleSpeakMessage}
                   onTranslate={handleTranslateMessage}
+                  onTranslationExpandChange={(msg, expanded) => setMessageTranslationExpanded(msg.id, expanded)}
                   onFork={handleForkMessage}
                   onVersionChange={handleVersionChange}
                   isTranslating={translatingMsgId === m.id}
@@ -1665,6 +1005,22 @@ export function ChatPage(props: Props) {
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* 消息锚点导航（Cherry Studio 风格） */}
+          <MessageAnchorLine
+            messages={displayMessages}
+            onScrollToMessage={(id) => {
+              const el = document.getElementById(`msg-${id}`)
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }}
+            onScrollToBottom={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            userName={config.user.name}
+            userAvatarType={config.user.avatarType}
+            userAvatarValue={config.user.avatarValue}
+            assistantName={activeAssistant?.name}
+            assistantAvatar={activeAssistant?.avatar}
+            useAssistantAvatar={activeAssistant?.useAssistantAvatar}
+          />
         </div>
 
         {/* 输入栏 */}
@@ -1733,21 +1089,6 @@ export function ChatPage(props: Props) {
           onManageAssistant={() => props.onOpenSettings?.('assistant')}
         />
 
-        {/* 消息锚点导航（Cherry Studio 风格） */}
-        <MessageAnchorLine
-          messages={displayMessages}
-          onScrollToMessage={(id) => {
-            const el = document.getElementById(`msg-${id}`)
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          }}
-          onScrollToBottom={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-          userName={config.user.name}
-          userAvatarType={config.user.avatarType}
-          userAvatarValue={config.user.avatarValue}
-          assistantName={activeAssistant?.name}
-          assistantAvatar={activeAssistant?.avatar}
-          useAssistantAvatar={activeAssistant?.useAssistantAvatar}
-        />
       </div>
 
       {/* 侧边栏（右侧位置） */}

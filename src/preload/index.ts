@@ -20,6 +20,20 @@ import type {
 import { OCR_CHANNELS, type OcrRunRequest, type OcrRunResult } from '../shared/ocr'
 import { SEARCH_CHANNELS, type SearchRequest, type SearchResponse, type SearchServiceConfigUnion } from '../shared/search'
 import type {
+  ImageStudioCancelResult,
+  ImageStudioDeleteRequest,
+  ImageStudioEvent,
+  ImageStudioHistoryDeleteResult,
+  ImageStudioHistoryGetResult,
+  ImageStudioHistoryListResult,
+  ImageStudioListRequest,
+  ImageStudioOutputDeleteRequest,
+  ImageStudioOutputDeleteResult,
+  ImageStudioRetryRequest,
+  ImageStudioSubmitRequest,
+  ImageStudioSubmitResult
+} from '../shared/imageStudio'
+import type {
   AgentEventPayload,
   AgentPermissionRespondParams,
   AgentRunAbortParams,
@@ -268,6 +282,27 @@ const api = {
       ipcRenderer.invoke(IpcChannel.BackupOpenDataDir) as Promise<{ success: boolean; error?: string }>,
     getDataPath: () =>
       ipcRenderer.invoke(IpcChannel.BackupGetDataPath) as Promise<string>
+  },
+  imageStudio: {
+    submit: (request: ImageStudioSubmitRequest) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioSubmit, request) as Promise<ImageStudioSubmitResult>,
+    cancel: (generationId: string) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioCancel, generationId) as Promise<ImageStudioCancelResult>,
+    historyList: (request: ImageStudioListRequest) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioHistoryList, request) as Promise<ImageStudioHistoryListResult>,
+    historyGet: (generationId: string) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioHistoryGet, generationId) as Promise<ImageStudioHistoryGetResult>,
+    historyDelete: (request: ImageStudioDeleteRequest) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioHistoryDelete, request) as Promise<ImageStudioHistoryDeleteResult>,
+    outputDelete: (request: ImageStudioOutputDeleteRequest) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioOutputDelete, request) as Promise<ImageStudioOutputDeleteResult>,
+    historyRetry: (request: ImageStudioRetryRequest) =>
+      ipcRenderer.invoke(IpcChannel.ImageStudioHistoryRetry, request) as Promise<ImageStudioSubmitResult>,
+    onEvent: (fn: (event: ImageStudioEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: ImageStudioEvent) => fn(payload)
+      ipcRenderer.on(IpcChannel.ImageStudioEvent, listener)
+      return () => ipcRenderer.removeListener(IpcChannel.ImageStudioEvent, listener)
+    }
   },
   storage: {
     getReport: () => ipcRenderer.invoke('storage:getReport') as Promise<StorageReport>,

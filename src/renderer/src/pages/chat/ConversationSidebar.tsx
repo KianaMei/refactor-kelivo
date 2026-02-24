@@ -100,8 +100,8 @@ function groupByDate(items: Conversation[]): DateGroup[] {
   const keys = Array.from(map.keys()).sort((a, b) => (a < b ? 1 : -1))
   return keys.map((key) => {
     const list = map.get(key) ?? []
-    list.sort((a, b) => b.updatedAt - a.updatedAt)
-    return { key, label: formatDateLabel(list[0]?.updatedAt ?? Date.now()), items: list }
+    const sorted = [...list].sort((a, b) => b.updatedAt - a.updatedAt)
+    return { key, label: formatDateLabel(sorted[0]?.updatedAt ?? Date.now()), items: sorted }
   })
 }
 

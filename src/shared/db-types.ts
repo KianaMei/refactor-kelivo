@@ -82,6 +82,7 @@ export interface DbMessage {
   reasoningSegments: unknown[] | null
   toolCalls: unknown | null
   translation: string | null
+  translationExpanded: boolean
   createdAt: number
 }
 
@@ -115,6 +116,7 @@ export interface MessageUpdateInput {
   reasoningSegments?: unknown[] | null
   toolCalls?: unknown | null
   translation?: string | null
+  translationExpanded?: boolean
 }
 
 export interface MessageSearchResult {

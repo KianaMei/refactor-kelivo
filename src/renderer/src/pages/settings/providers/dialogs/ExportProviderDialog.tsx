@@ -17,7 +17,6 @@ export function ExportProviderDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  console.log('[ExportProviderDialog] render with open:', open)
   useDialogClose(open, onClose)
 
   const sortedProviders = useMemo(() => {

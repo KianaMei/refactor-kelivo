@@ -9,20 +9,14 @@ import type {
   AgentRunStartParams,
   AgentRunStartResult
 } from '../../shared/agentRuntime'
+import type { AppConfig } from '../../shared/types'
 import { loadConfig, saveConfig } from '../configStore'
 import * as agentSessionRepo from '../db/repositories/agentSessionRepo'
 import * as agentMessageRepo from '../db/repositories/agentMessageRepo'
 import type { DbAgentSession } from '../../shared/db-types'
 
 import { AgentBridgeManager, type AgentBridgeEvent } from './agentBridgeManager'
-
-function safeUuid(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-  }
-}
+import { safeUuid } from '../../shared/utils'
 
 function broadcast(payload: AgentEventPayload): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -42,16 +36,17 @@ type ActiveRunState = {
 const bridge = new AgentBridgeManager()
 let activeRun: ActiveRunState | null = null
 
-function computeDepsRoot(cfg: any): string {
+function computeDepsRoot(cfg: AppConfig): string {
   const fromCfg = cfg?.agentRuntime?.depsInstallDir
   if (typeof fromCfg === 'string' && fromCfg.trim()) return fromCfg.trim()
   return join(app.getPath('userData'), 'dependencies')
 }
 
-function computeTotalTokens(usage: any): number | null {
+function computeTotalTokens(usage: unknown): number | null {
   if (!usage || typeof usage !== 'object') return null
-  const input = Number((usage as any).input_tokens ?? (usage as any).inputTokens ?? 0)
-  const output = Number((usage as any).output_tokens ?? (usage as any).outputTokens ?? 0)
+  const u = usage as Record<string, unknown>
+  const input = Number(u.input_tokens ?? u.inputTokens ?? 0)
+  const output = Number(u.output_tokens ?? u.outputTokens ?? 0)
   if (!Number.isFinite(input) || !Number.isFinite(output)) return null
   return Math.max(0, Math.round(input + output))
 }
@@ -124,10 +119,13 @@ async function handleBridgeEvent(evt: AgentBridgeEvent): Promise<void> {
       })
       await upsertSession(sessionId)
 
+      const broadcastStatusMap: Record<string, 'running' | 'done' | 'aborted' | 'error'> = {
+        running: 'running', done: 'done', aborted: 'aborted', error: 'error', idle: 'running'
+      }
       broadcast({
         kind: 'run.status',
         runId: activeRun.runId,
-        status: status === 'idle' ? 'running' : (status as any),
+        status: broadcastStatusMap[status] ?? 'running',
         ...(msg ? { message: msg } : {})
       })
       return

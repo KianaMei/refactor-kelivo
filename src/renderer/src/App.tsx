@@ -10,6 +10,7 @@ import { SettingsPage } from './pages/settings/SettingsPage'
 import { ApiTestPage } from './pages/ApiTestPage'
 import { StoragePage } from './pages/StoragePage'
 import { AgentPage } from './pages/AgentPage'
+import { ImageStudioPage } from './pages/ImageStudioPage'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ConfirmProvider } from './hooks/useConfirm'
 import { Toaster } from './components/ui/sonner'
@@ -184,6 +185,8 @@ export default function App() {
                     <TranslatePage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} />
                   ) : tab === 'apiTest' ? (
                     <ApiTestPage config={config} />
+                  ) : tab === 'imageStudio' ? (
+                    <ImageStudioPage config={config} onSave={persist} />
                   ) : tab === 'storage' ? (
                     <StoragePage />
                   ) : tab === 'agent' ? (

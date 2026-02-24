@@ -21,11 +21,17 @@ import { registerBackupIpc } from './backupIpc'
 import { registerMcpIpc } from './mcpIpc'
 import { registerStorageIpc } from './storageIpc'
 import { registerDepsIpc } from './deps/depsIpc'
+import { registerImageStudioIpc } from './imageStudioIpc'
 import { initDatabase, closeDatabase } from './db/database'
 import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
 import { getMemoryCount, bulkInsertMemories } from './db/repositories/memoryRepo'
 import { loadConfig, saveConfig } from './configStore'
 import { applyProxyConfig } from './proxyManager'
+import { setPostJsonStream } from '../shared/streamingHttpClient'
+import { postJsonStream as proxyPostJsonStream } from './api/streamingHttpClient'
+
+// Main 进程注入代理版 HTTP 客户端，shared adapters 自动走代理
+setPostJsonStream(proxyPostJsonStream)
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -41,6 +47,8 @@ function createMainWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // 生成任务等长流程不应因窗口被遮挡/不在前台而被 Chromium 节流，避免 UI/事件表现为“暂停”。
+      backgroundThrottling: false,
       webSecurity: false // 禁用 CORS，允许 Renderer 直接请求 AI API
     }
   })
@@ -191,6 +199,7 @@ app.whenReady().then(() => {
   registerMcpIpc()
   registerStorageIpc()
   registerDepsIpc()
+  registerImageStudioIpc()
 
   createMainWindow()
 

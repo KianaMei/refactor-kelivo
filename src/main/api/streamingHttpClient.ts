@@ -4,12 +4,16 @@
  */
 
 import type { ProviderConfigV2 } from '../../shared/types'
+import {
+  defaultPostJsonStream,
+  parseSSEStream,
+  type PostJsonStreamParams,
+  type StreamResponse
+} from '../../shared/streamingHttpClient'
 
 // re-export shared 层的纯函数和类型
-export { parseSSELine, readErrorBody, isAbortError, joinUrl } from '../../shared/streamingHttpClient'
+export { parseSSELine, readErrorBody, isAbortError, joinUrl, parseSSEStream } from '../../shared/streamingHttpClient'
 export type { StreamResponse } from '../../shared/streamingHttpClient'
-
-import { postJsonStream as sharedPostJsonStream } from '../../shared/streamingHttpClient'
 
 // 可选的代理 agent 模块（延迟加载）
 let HttpsProxyAgent: typeof import('https-proxy-agent').HttpsProxyAgent | null = null
@@ -41,24 +45,18 @@ function buildProxyUrl(config: ProviderConfigV2): string | null {
 /**
  * Main 侧 postJsonStream — 在 shared 版本基础上增加代理支持
  */
-export async function postJsonStream(params: {
-  url: string | URL
-  headers: Record<string, string>
-  body: Record<string, unknown>
-  config?: ProviderConfigV2
-  signal?: AbortSignal
-}) {
+export async function postJsonStream(params: PostJsonStreamParams): Promise<StreamResponse> {
   const { config } = params
 
-  // 无代理配置时直接走 shared 版本
+  // 无代理配置时走不可替换的原始 fetch 实现（避免递归）
   if (!config?.proxyEnabled || !config.proxyHost || !config.proxyPort || !HttpsProxyAgent) {
-    return sharedPostJsonStream(params)
+    return defaultPostJsonStream(params)
   }
 
   // 有代理配置时使用 Node.js 的 https-proxy-agent
   const proxyUrl = buildProxyUrl(config)
   if (!proxyUrl) {
-    return sharedPostJsonStream(params)
+    return defaultPostJsonStream(params)
   }
 
   const { url, headers, body, signal } = params
@@ -78,45 +76,7 @@ export async function postJsonStream(params: {
   return {
     statusCode: response.status,
     headers: response.headers,
-    lines: internalParseSSEStream(response.body),
+    lines: parseSSEStream(response.body),
     rawStream: response.body
-  }
-}
-
-/** 内联 SSE 解析（与 shared 版本相同，因 parseSSEStream 未导出） */
-async function* internalParseSSEStream(
-  stream: ReadableStream<Uint8Array> | null
-): AsyncGenerator<string, void, unknown> {
-  if (!stream) return
-
-  const reader = stream.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-
-      if (done) {
-        if (buffer.trim()) {
-          yield buffer.trim()
-        }
-        break
-      }
-
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed) {
-          yield trimmed
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock()
   }
 }

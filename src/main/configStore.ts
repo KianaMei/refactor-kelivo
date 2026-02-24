@@ -1,11 +1,28 @@
 import { app } from 'electron'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 
 import { createDefaultConfig, normalizeConfig, type AppConfig } from '../shared/types'
 
 function getConfigPath(): string {
   return join(app.getPath('userData'), 'config.json')
+}
+
+async function writeFileAtomic(targetPath: string, raw: string): Promise<void> {
+  const tmpPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`
+  try {
+    await writeFile(tmpPath, raw, 'utf-8')
+    // 用 rename 覆盖原文件，避免写入过程中被其它读操作读到“半截 JSON”。
+    await rename(tmpPath, targetPath)
+  } catch (err) {
+    // 兜底：极端情况下（Windows 文件锁等）rename 可能失败；回退为普通写入。
+    try {
+      await writeFile(targetPath, raw, 'utf-8')
+    } finally {
+      // 尽力清理临时文件（忽略失败）。
+      await rm(tmpPath, { force: true }).catch(() => undefined)
+    }
+  }
 }
 
 export async function loadConfig(): Promise<AppConfig> {
@@ -17,7 +34,7 @@ export async function loadConfig(): Promise<AppConfig> {
     // 自动修复/升级配置文件（避免 UI 因旧配置字段缺失而报错）
     const nextRaw = JSON.stringify(normalized, null, 2)
     if (raw.trim() !== nextRaw.trim()) {
-      await writeFile(p, nextRaw, 'utf-8')
+      await writeFileAtomic(p, nextRaw)
     }
     return normalized
   } catch (err: any) {
@@ -32,7 +49,7 @@ export async function saveConfig(cfg: AppConfig): Promise<void> {
   const normalized = normalizeConfig(cfg)
   const p = getConfigPath()
   const raw = JSON.stringify(normalized, null, 2)
-  await writeFile(p, raw, 'utf-8')
+  await writeFileAtomic(p, raw)
 }
 
 /**
@@ -43,6 +60,6 @@ export async function saveConfigAndReturn(cfg: AppConfig): Promise<AppConfig> {
   const normalized = normalizeConfig(cfg)
   const p = getConfigPath()
   const raw = JSON.stringify(normalized, null, 2)
-  await writeFile(p, raw, 'utf-8')
+  await writeFileAtomic(p, raw)
   return normalized
 }

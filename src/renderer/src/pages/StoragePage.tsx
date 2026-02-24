@@ -3,7 +3,8 @@
  * 对齐旧版 Kelivo 的 storage_space_page.dart
  * 包括：存储统计、分类查看、清理功能
  */
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, memo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   RefreshCw,
   Trash2,
@@ -15,12 +16,17 @@ import {
   Box,
   FileText,
   Boxes,
-  ChevronRight,
   HardDrive,
   AlertTriangle,
   Check,
   CheckSquare,
-  XCircle
+  XCircle,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  RotateCw
 } from 'lucide-react'
 import type { StorageReport, StorageCategoryKey, StorageItemDetail } from '../../../shared/types'
 
@@ -50,6 +56,297 @@ function formatTime(ms: number): string {
   return new Date(ms).toLocaleString()
 }
 
+// --- Virtualized Image Grid Components ---
+
+const GRID_GAP = 16
+const GRID_PADDING = 16
+
+function toFileUrl(p: string): string {
+  return `kelivo-file:///${p.replace(/\\/g, '/')}`
+}
+
+const ImageGridCard = memo(function ImageGridCard({
+  item,
+  isSelected,
+  onToggle,
+  onPreview,
+  size
+}: {
+  item: StorageItemDetail
+  isSelected: boolean
+  onToggle: (path: string) => void
+  onPreview: (path: string) => void
+  size: number
+}) {
+  const src = item.thumbnailPath ? toFileUrl(item.thumbnailPath) : toFileUrl(item.path)
+  return (
+    <div
+      style={{ width: size, height: size }}
+      className={`
+        group relative rounded-xl overflow-hidden border cursor-pointer
+        ${isSelected ? 'border-token-main-primary ring-2 ring-token-main-primary/20 bg-token-main-primary/5' : 'border-token-border-light hover:border-token-border-medium bg-token-surface-primary'}
+      `}
+      onClick={() => onPreview(item.path)}
+    >
+      {/* Checkbox (top-left) */}
+      <div
+        className="absolute top-2 left-2 z-20"
+        onClick={(e) => { e.stopPropagation(); onToggle(item.path) }}
+      >
+        <div className={`
+          w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all
+          ${isSelected
+            ? 'bg-token-main-primary border-token-main-primary text-white shadow-md'
+            : 'bg-black/30 border-white/60 text-transparent backdrop-blur-sm opacity-0 group-hover:opacity-100'
+          }
+        `}>
+          <Check className="w-4 h-4" strokeWidth={3} />
+        </div>
+      </div>
+
+      {/* Image */}
+      <img
+        src={src}
+        alt={item.name}
+        loading="lazy"
+        decoding="async"
+        className="w-full h-full object-cover"
+      />
+
+      {/* Info Badge (Type) */}
+      <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/50 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity z-20">
+        {item.kind === 'avatar' ? '头像' : item.kind === 'chat' ? '聊天' : item.kind === 'generated' ? '生成' : '其他'}
+      </div>
+    </div>
+  )
+})
+
+// --- Image Lightbox ---
+
+function ImageLightbox({
+  items,
+  currentPath,
+  onClose,
+  onNavigate
+}: {
+  items: StorageItemDetail[]
+  currentPath: string
+  onClose: () => void
+  onNavigate: (path: string) => void
+}) {
+  const [zoom, setZoom] = useState(1)
+  const [rotation, setRotation] = useState(0)
+
+  const currentIndex = useMemo(() => items.findIndex(i => i.path === currentPath), [items, currentPath])
+  const currentItem = currentIndex >= 0 ? items[currentIndex] : null
+
+  const hasPrev = currentIndex > 0
+  const hasNext = currentIndex < items.length - 1
+
+  useEffect(() => {
+    setZoom(1)
+    setRotation(0)
+  }, [currentPath])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowLeft' && hasPrev) onNavigate(items[currentIndex - 1].path)
+      else if (e.key === 'ArrowRight' && hasNext) onNavigate(items[currentIndex + 1].path)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [currentIndex, hasPrev, hasNext, items, onClose, onNavigate])
+
+  if (!currentItem) return null
+
+  const fullSrc = toFileUrl(currentItem.path)
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.85)' }}
+      onClick={onClose}
+    >
+      {/* Toolbar */}
+      <div
+        className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10"
+        style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-white text-sm font-medium truncate max-w-[50%]">
+          {currentItem.name}
+          <span className="ml-3 opacity-50 text-xs">{currentIndex + 1} / {items.length}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} title="缩小">
+            <ZoomOut size={18} />
+          </button>
+          <span className="text-white/60 text-xs w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <button className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" onClick={() => setZoom(z => Math.min(5, z + 0.25))} title="放大">
+            <ZoomIn size={18} />
+          </button>
+          <button className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" onClick={() => setRotation(r => r + 90)} title="旋转">
+            <RotateCw size={18} />
+          </button>
+          <div className="w-px h-5 bg-white/20 mx-1" />
+          <button className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" onClick={onClose} title="关闭">
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation arrows */}
+      {hasPrev && (
+        <button
+          className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-black/40 text-white/80 hover:bg-black/60 hover:text-white transition-colors backdrop-blur-sm"
+          onClick={(e) => { e.stopPropagation(); onNavigate(items[currentIndex - 1].path) }}
+        >
+          <ChevronLeft size={24} />
+        </button>
+      )}
+      {hasNext && (
+        <button
+          className="absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-black/40 text-white/80 hover:bg-black/60 hover:text-white transition-colors backdrop-blur-sm"
+          onClick={(e) => { e.stopPropagation(); onNavigate(items[currentIndex + 1].path) }}
+        >
+          <ChevronRight size={24} />
+        </button>
+      )}
+
+      {/* Image */}
+      <img
+        src={fullSrc}
+        alt={currentItem.name}
+        className="max-w-[90vw] max-h-[85vh] object-contain select-none"
+        style={{
+          transform: `scale(${zoom}) rotate(${rotation}deg)`,
+          transition: 'transform 0.2s ease'
+        }}
+        onClick={(e) => e.stopPropagation()}
+        draggable={false}
+      />
+
+      {/* Bottom info */}
+      <div
+        className="absolute bottom-0 left-0 right-0 flex items-center justify-center px-4 py-3"
+        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="text-white/50 text-xs">{formatBytes(currentItem.size)}</span>
+        <span className="mx-2 text-white/30">·</span>
+        <span className="text-white/50 text-xs">{currentItem.kind === 'avatar' ? '头像' : currentItem.kind === 'chat' ? '聊天图片' : currentItem.kind === 'generated' ? '生成图片' : '其他'}</span>
+      </div>
+    </div>
+  )
+}
+
+function VirtualImageGrid({
+  items,
+  selection,
+  onToggleSelect,
+  onPreview
+}: {
+  items: StorageItemDetail[]
+  selection: Set<string>
+  onToggleSelect: (path: string) => void
+  onPreview: (path: string) => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [colCount, setColCount] = useState(6)
+
+  // Observe container width to compute column count
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const update = () => {
+      const w = el.clientWidth - GRID_PADDING * 2
+      const minCol = 140
+      const cols = Math.max(2, Math.floor((w + GRID_GAP) / (minCol + GRID_GAP)))
+      setColCount(cols)
+    }
+    update()
+
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const rowCount = Math.ceil(items.length / colCount)
+  const cellSize = useMemo(() => {
+    const el = containerRef.current
+    if (!el) return 150
+    const w = el.clientWidth - GRID_PADDING * 2
+    return Math.floor((w - GRID_GAP * (colCount - 1)) / colCount)
+  }, [colCount])
+
+  const rowHeight = cellSize + GRID_GAP
+
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 3
+  })
+
+  return (
+    <div ref={containerRef} className="flex-1 overflow-hidden">
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto custom-scrollbar"
+        style={{ padding: GRID_PADDING }}
+      >
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            width: '100%',
+            position: 'relative'
+          }}
+        >
+          {virtualizer.getVirtualItems().map((vRow) => {
+            const rowStart = vRow.index * colCount
+            return (
+              <div
+                key={vRow.key}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: vRow.size,
+                  transform: `translateY(${vRow.start}px)`,
+                  display: 'flex',
+                  gap: GRID_GAP
+                }}
+              >
+                {Array.from({ length: colCount }).map((_, colIdx) => {
+                  const itemIdx = rowStart + colIdx
+                  if (itemIdx >= items.length) return null
+                  const item = items[itemIdx]
+                  return (
+                    <ImageGridCard
+                      key={item.path}
+                      item={item}
+                      isSelected={selection.has(item.path)}
+                      onToggle={onToggleSelect}
+                      onPreview={onPreview}
+                      size={cellSize}
+                    />
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- Main Component ---
+
 interface Props {
   onOpenFolder?: (path: string) => void
 }
@@ -72,13 +369,25 @@ export function StoragePage(props: Props) {
   const [selection, setSelection] = useState<Set<string>>(new Set())
 
   // Tab state for Images category
-  const [activeTab, setActiveTab] = useState<'all' | 'avatar' | 'chat' | 'other'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'avatar' | 'chat' | 'generated' | 'other'>('all')
+
+  // Lightbox state
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null)
 
   const filteredItems = useMemo(() => {
     if (!selectedCategory || selectedCategory !== 'images') return detailItems
     if (activeTab === 'all') return detailItems
     return detailItems.filter((i) => i.kind === activeTab)
   }, [detailItems, selectedCategory, activeTab])
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: detailItems.length, avatar: 0, chat: 0, generated: 0, other: 0 }
+    for (const item of detailItems) {
+      const k = item.kind ?? 'other'
+      counts[k] = (counts[k] ?? 0) + 1
+    }
+    return counts
+  }, [detailItems])
 
   // 模拟加载存储报告
   useEffect(() => {
@@ -188,18 +497,18 @@ export function StoragePage(props: Props) {
   }
 
   const renderContent = () => {
-    // 1. Grid View for Images
+    // 1. Grid View for Images (virtualized)
     if (selectedCategory === 'images') {
       return (
         <div className="flex flex-col h-full overflow-hidden">
           {/* Tabs */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-token-border-light bg-token-surface-primary/50 backdrop-blur-sm sticky top-0 z-10">
-            {(['all', 'avatar', 'chat', 'other'] as const).map((tab) => (
+            {(['all', 'avatar', 'chat', 'generated', 'other'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`
-                  px-3 py-1.5 text-xs font-medium rounded-full transition-all
+                  px-3 py-1.5 text-xs font-medium rounded-full transition-colors
                   ${activeTab === tab
                     ? 'bg-token-main-primary text-white shadow-sm'
                     : 'text-token-text-secondary hover:bg-token-surface-hover hover:text-token-text-primary'
@@ -209,63 +518,27 @@ export function StoragePage(props: Props) {
                 {tab === 'all' && '全部'}
                 {tab === 'avatar' && '头像'}
                 {tab === 'chat' && '聊天图片'}
+                {tab === 'generated' && '生成图片'}
                 {tab === 'other' && '其他'}
                 <span className="ml-1.5 opacity-60 text-[10px]">
-                  {tab === 'all' ? detailItems.length : detailItems.filter(i => i.kind === tab).length}
+                  {tabCounts[tab] ?? 0}
                 </span>
               </button>
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-            {filteredItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-token-text-tertiary">
-                <div className="text-sm">该分类下暂无图片</div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                {filteredItems.map((item) => {
-                  const isSelected = selection.has(item.path)
-                  return (
-                    <div
-                      key={item.path}
-                      className={`
-                      group relative aspect-square rounded-xl overflow-hidden border cursor-pointer transition-all duration-200
-                      ${isSelected ? 'border-token-main-primary ring-2 ring-token-main-primary/20 bg-token-main-primary/5' : 'border-token-border-light hover:border-token-border-medium bg-token-surface-primary'}
-                    `}
-                      onClick={() => toggleSelect(item.path)}
-                    >
-                      {/* Selection Overlay */}
-                      <div className={`absolute inset-0 bg-black/40 z-10 transition-opacity duration-200 flex items-center justify-center ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                        {isSelected ? (
-                          <div className="w-8 h-8 rounded-full bg-token-main-primary text-white flex items-center justify-center shadow-lg transform scale-100 transition-transform">
-                            <Check className="w-5 h-5" />
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm border border-white/40 flex items-center justify-center hover:bg-white/30 transition-colors">
-                            <div className="w-4 h-4 rounded-full border-2 border-white/80" />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Image */}
-                      <img
-                        src={`kelivo-file:///${item.path.replace(/\\/g, '/')}`}
-                        alt={item.name}
-                        loading="lazy"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
-
-                      {/* Info Badge (Type) */}
-                      <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/50 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                        {item.kind === 'avatar' ? '头像' : item.kind === 'chat' ? '聊天' : '其他'}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          {filteredItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center flex-1 text-token-text-tertiary">
+              <div className="text-sm">该分类下暂无图片</div>
+            </div>
+          ) : (
+            <VirtualImageGrid
+              items={filteredItems}
+              selection={selection}
+              onToggleSelect={toggleSelect}
+              onPreview={(path) => setLightboxPath(path)}
+            />
+          )}
         </div>
       )
     }
@@ -519,6 +792,16 @@ export function StoragePage(props: Props) {
           {renderContent()}
         </div>
       </div>
+
+      {/* Image Lightbox */}
+      {lightboxPath && (
+        <ImageLightbox
+          items={filteredItems}
+          currentPath={lightboxPath}
+          onClose={() => setLightboxPath(null)}
+          onNavigate={(path) => setLightboxPath(path)}
+        />
+      )}
 
       {/* 确认清理对话框 */}
       {confirmClear.open && (

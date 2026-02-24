@@ -83,7 +83,7 @@ export function AgentMessages(props: AgentMessagesProps) {
     setExpandedToolIds(new Set())
     requestAnimationFrame(() => scrollToBottom('auto'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSessionId])
+  }, [currentSessionId, messages.length])
 
   // 新消息/流式更新：仅在接近底部时自动滚动，否则提示“新消息”
   useEffect(() => {

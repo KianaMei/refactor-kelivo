@@ -33,14 +33,7 @@ import { AgentAlertDialog } from './agent/components/AgentAlertDialog'
 import { AgentHome } from './agent/components/AgentHome'
 import { AgentMessages } from './agent/components/AgentMessages'
 import { AgentComposer } from './agent/components/AgentComposer'
-
-function safeUuid(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`
-  }
-}
+import { safeUuid } from '../../../shared/utils'
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -114,6 +107,7 @@ export function AgentPage(props: Props) {
     setApiProviderId(config.agentRuntime.lastApiProviderIdBySdk[sdkProvider])
     setModelId(config.agentRuntime.lastModelIdBySdk[sdkProvider])
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // config 不加入依赖：仅在 sdkProvider 切换时加载该 SDK 对应的上次使用记录，避免 config 变更时误重置
   }, [sdkProvider])
 
   // 加载 sessions

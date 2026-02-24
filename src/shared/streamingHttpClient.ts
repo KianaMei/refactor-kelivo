@@ -3,6 +3,8 @@
  * 基于标准 fetch API 的 SSE 流式请求处理，零 Node.js 依赖
  */
 
+import type { ProviderConfigV2 } from './types'
+
 /** SSE 流式响应 */
 export interface StreamResponse {
   statusCode: number
@@ -11,16 +13,22 @@ export interface StreamResponse {
   rawStream: ReadableStream<Uint8Array> | null
 }
 
-/**
- * 发送流式 JSON 请求 (POST)
- * 返回 SSE 行迭代器
- */
-export async function postJsonStream(params: {
+/** postJsonStream 参数 */
+export interface PostJsonStreamParams {
   url: string | URL
   headers: Record<string, string>
   body: Record<string, unknown>
+  config?: ProviderConfigV2
   signal?: AbortSignal
-}): Promise<StreamResponse> {
+}
+
+type PostJsonStreamFn = (params: PostJsonStreamParams) => Promise<StreamResponse>
+
+/**
+ * 默认的 fetch 实现（不可被 setter 替换）
+ * Main 进程的代理 fallback 必须调用此函数，避免递归
+ */
+export async function defaultPostJsonStream(params: PostJsonStreamParams): Promise<StreamResponse> {
   const { url, headers, body, signal } = params
 
   const response = await fetch(url.toString(), {
@@ -41,10 +49,25 @@ export async function postJsonStream(params: {
   }
 }
 
+let _postJsonStreamImpl: PostJsonStreamFn = defaultPostJsonStream
+
+/** 替换 postJsonStream 实现（Main 进程注入代理版本） */
+export function setPostJsonStream(fn: PostJsonStreamFn): void {
+  _postJsonStreamImpl = fn
+}
+
+/**
+ * 发送流式 JSON 请求 (POST)
+ * 返回 SSE 行迭代器。可通过 setPostJsonStream 替换实现。
+ */
+export async function postJsonStream(params: PostJsonStreamParams): Promise<StreamResponse> {
+  return _postJsonStreamImpl(params)
+}
+
 /**
  * 解析 SSE 流为行迭代器
  */
-async function* parseSSEStream(
+export async function* parseSSEStream(
   stream: ReadableStream<Uint8Array> | null
 ): AsyncGenerator<string, void, unknown> {
   if (!stream) return

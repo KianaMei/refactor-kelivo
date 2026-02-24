@@ -246,7 +246,10 @@ export function BrandAvatar({
             const parent = e.currentTarget.parentElement
             if (parent) {
               e.currentTarget.style.display = 'none'
-              parent.innerHTML = `<span style="color:var(--primary);font-size:2.5em;font-weight:700">${initial}</span>`
+              const span = document.createElement('span')
+              span.style.cssText = 'color:var(--primary);font-size:2.5em;font-weight:700'
+              span.textContent = initial
+              parent.appendChild(span)
             }
           }}
         />
