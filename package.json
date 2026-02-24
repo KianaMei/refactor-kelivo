@@ -5,7 +5,7 @@
   "description": "Kelivo（新一代）：Electron + React + TypeScript",
   "main": "./out/main/index.js",
   "author": "",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "engines": {
     "node": ">=22.0.0"
   },

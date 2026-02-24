@@ -2,7 +2,15 @@
 
 多模型 AI 聊天客户端，Electron + React + TypeScript 构建。
 
+本项目是 [Kelivo (Flutter)](https://github.com/Chevey339/kelivo) 的桌面端重构版本，使用 Electron + React + TypeScript 从零重写，专注桌面体验。
+
 支持 OpenAI / Claude / Gemini 等主流 API，本地 SQLite 存储，MCP 工具集成，Agent 模式。
+
+## 与原版的关系
+
+本项目基于 [Kelivo](https://github.com/Chevey339/kelivo)（AGPL-3.0）的产品设计和功能理念进行重构，代码使用 Electron + React + TypeScript 全部重写，不包含原版 Flutter 代码。UI 设计部分参考了 [RikkaHub](https://github.com/rikkahub/rikkahub) 的 ChainOfThought 思考链组件模式。
+
+本项目同样以 AGPL-3.0 协议发布。
 
 ## 功能
 
@@ -55,3 +63,12 @@ yarn build:win    # Windows x64
 
 - Node.js >= 22
 - yarn
+
+## 许可证
+
+本项目以 [AGPL-3.0](LICENSE) 协议发布。
+
+## 致谢
+
+- [Kelivo (Flutter)](https://github.com/Chevey339/kelivo) — 原版项目，产品设计和功能理念来源
+- [RikkaHub](https://github.com/rikkahub/rikkahub) — ChainOfThought 思考链 UI 设计参考
