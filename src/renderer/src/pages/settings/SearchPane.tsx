@@ -400,6 +400,11 @@ function ServiceDetailWithKeys({ service, onUpdate }: {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const brand = SERVICE_BRANDS[service.type]
+  const sc = service.serviceConfig ?? {}
+
+  const updateServiceConfig = (key: string, value: unknown) => {
+    onUpdate({ serviceConfig: { ...sc, [key]: value } })
+  }
 
   const getApiUrl = () => {
     const urls: Record<string, string> = {
@@ -498,6 +503,38 @@ function ServiceDetailWithKeys({ service, onUpdate }: {
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>自定义地址</label>
           <input className="input" style={{ width: '100%', fontSize: 13 }} placeholder="留空使用官方地址" value={service.baseUrl || ''} onChange={e => onUpdate({ baseUrl: e.target.value || undefined })} />
+        </div>
+      )}
+
+      {/* Tavily 搜索深度 */}
+      {service.type === 'tavily' && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>搜索深度</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([['advanced', '深度搜索'], ['basic', '快速搜索']] as const).map(([val, label]) => {
+              const isActive = (sc.depth ?? 'advanced') === val
+              return (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => updateServiceConfig('depth', val)}
+                  style={{
+                    flex: 1, padding: '6px 0', fontSize: 13,
+                    fontWeight: isActive ? 600 : 400, borderRadius: 6,
+                    border: isActive ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                    background: isActive ? 'var(--primary-alpha)' : 'transparent',
+                    color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
+                    cursor: 'pointer', transition: 'all 100ms ease'
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+            {(sc.depth ?? 'advanced') === 'advanced' ? '更深入的搜索结果，消耗更多 credits' : '更快速，消耗更少 credits'}
+          </div>
         </div>
       )}
 

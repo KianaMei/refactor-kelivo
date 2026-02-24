@@ -13,8 +13,8 @@ import {
 
 /** Tavily 配置 */
 export interface TavilyConfig {
-  /** API Key */
   apiKey: string
+  depth?: 'basic' | 'advanced'
 }
 
 const BASE_URL = 'https://api.tavily.com'
@@ -27,10 +27,12 @@ export class TavilySearchService extends SearchService {
   readonly type = 'tavily'
 
   private apiKey: string
+  private depth: string
 
   constructor(config: TavilyConfig) {
     super()
     this.apiKey = config.apiKey
+    this.depth = config.depth || 'advanced'
   }
 
   isAvailable(): boolean {
@@ -49,6 +51,7 @@ export class TavilySearchService extends SearchService {
         api_key: this.apiKey,
         query,
         max_results: opts.resultSize,
+        search_depth: this.depth,
         include_answer: true,
         include_raw_content: false
       }),
