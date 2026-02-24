@@ -2,11 +2,26 @@ node_modules/
 out/
 dist/
 release/
+build/
 logs/
 *.tsbuildinfo
 
 .env
 .env.*
+.env.local
 
 .DS_Store
 Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+.idea/
+.vscode/
+*.code-workspace
+
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
