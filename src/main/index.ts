@@ -17,6 +17,7 @@ import { registerAgentMessageIpc } from './agentMessageIpc'
 import { registerAgentIpc } from './agent/agentIpc'
 import { registerOcrIpc } from './ocrIpc'
 import { registerSearchIpc } from './searchIpc'
+import { searchManager, createSearchService } from './services/search'
 import { registerBackupIpc } from './backupIpc'
 import { registerMcpIpc } from './mcpIpc'
 import { registerStorageIpc } from './storageIpc'
@@ -205,7 +206,27 @@ app.whenReady().then(() => {
 
   // 根据 Provider 配置设置全局代理
   loadConfig()
-    .then((cfg) => applyProxyConfig(session.defaultSession, cfg))
+    .then((cfg) => {
+      applyProxyConfig(session.defaultSession, cfg)
+      // 从保存的配置恢复已启用的搜索服务
+      const { services, global: globalCfg } = cfg.searchConfig
+      for (const svc of services) {
+        if (!svc.enabled) continue
+        try {
+          const apiKey = svc.apiKeys.find(k => k.isEnabled && k.key)?.key
+          const regConfig = {
+            type: svc.type,
+            ...(apiKey ? { apiKey } : {}),
+            ...(svc.baseUrl ? { baseUrl: svc.baseUrl } : {}),
+            ...(svc.serviceConfig ?? {})
+          }
+          const instance = createSearchService(regConfig as any)
+          searchManager.register(svc.id, instance, globalCfg.defaultServiceId === svc.id)
+        } catch (e) {
+          console.warn(`[Search] Failed to restore service ${svc.id}:`, e)
+        }
+      }
+    })
     .catch((err) => console.warn('[ProxyManager] Failed to apply proxy config:', err))
 
   app.on('activate', () => {
