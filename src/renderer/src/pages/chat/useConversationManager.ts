@@ -45,6 +45,8 @@ function dbMsgToChatMessage(m: DbMessage): ChatMessage {
     translation: m.translation ?? undefined,
     translationExpanded: m.translationExpanded,
     usage: m.tokenUsage ?? undefined,
+    finishedAt: m.finishedAt ?? undefined,
+    firstTokenAt: m.firstTokenAt ?? undefined,
     toolCalls,
     blocks,
     providerId: m.providerId ?? undefined,

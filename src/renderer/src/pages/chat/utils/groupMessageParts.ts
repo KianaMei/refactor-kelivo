@@ -8,6 +8,13 @@
 import type { MessagePartBlock, ThinkingStep, ReasoningData } from '../types/messageParts'
 import type { ChatMessage } from '../MessageBubble'
 
+const GEMINI_THOUGHT_SIG_COMMENT = /\n?<!--\s*gemini_thought_signatures:[\s\S]*?-->/g
+
+function stripGeminiSig(raw: string): string {
+  if (!raw) return raw
+  return raw.replace(GEMINI_THOUGHT_SIG_COMMENT, '').replace(/\s+$/, '')
+}
+
 export function groupMessageParts(
   message: ChatMessage,
   effectiveReasoning: string,
@@ -48,7 +55,11 @@ export function groupMessageParts(
           result.push({ type: 'thinking', steps: pendingThinkingSteps })
           pendingThinkingSteps = []
         }
-        result.push({ type: 'content', text: block.content })
+        // Strip Gemini thought signatures from block content
+        const cleanContent = stripGeminiSig(block.content)
+        if (cleanContent.trim()) {
+          result.push({ type: 'content', text: cleanContent })
+        }
       }
     }
 

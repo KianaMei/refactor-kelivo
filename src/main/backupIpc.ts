@@ -17,9 +17,9 @@ export function registerBackupIpc(): void {
   // 导出本地备份
   ipcMain.handle(
     IpcChannel.BackupExportLocal,
-    async (_event, options: { includeChats: boolean; includeFiles: boolean }) => {
+    async (_event, options: { includeChats: boolean; includeAttachments: boolean; includeGeneratedImages: boolean }) => {
       try {
-        const buffer = await exportLocalBackup(options.includeChats, options.includeFiles)
+        const buffer = await exportLocalBackup(options.includeChats, options.includeAttachments, options.includeGeneratedImages)
         return { success: true, data: buffer }
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -32,14 +32,15 @@ export function registerBackupIpc(): void {
     IpcChannel.BackupImportLocal,
     async (
       _event,
-      options: { buffer: Buffer; mode: RestoreMode; includeChats: boolean; includeFiles: boolean }
+      options: { buffer: Buffer; mode: RestoreMode; includeChats: boolean; includeAttachments: boolean; includeGeneratedImages: boolean }
     ) => {
       try {
         const result = await importLocalBackup(
           options.buffer,
           options.mode,
           options.includeChats,
-          options.includeFiles
+          options.includeAttachments,
+          options.includeGeneratedImages
         )
         return result
       } catch (err) {

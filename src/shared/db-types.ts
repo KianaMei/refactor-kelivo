@@ -83,6 +83,8 @@ export interface DbMessage {
   toolCalls: unknown | null
   translation: string | null
   translationExpanded: boolean
+  finishedAt: number | null
+  firstTokenAt: number | null
   createdAt: number
 }
 
@@ -117,6 +119,8 @@ export interface MessageUpdateInput {
   toolCalls?: unknown | null
   translation?: string | null
   translationExpanded?: boolean
+  finishedAt?: number | null
+  firstTokenAt?: number | null
 }
 
 export interface MessageSearchResult {

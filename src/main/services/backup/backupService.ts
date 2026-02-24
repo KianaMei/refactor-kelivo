@@ -144,7 +144,11 @@ export async function testWebdav(cfg: WebDavConfig): Promise<void> {
 
 // ================== 本地备份导出 ==================
 
-export async function exportLocalBackup(includeChats: boolean, includeFiles: boolean): Promise<Buffer> {
+export async function exportLocalBackup(
+  includeChats: boolean,
+  includeAttachments: boolean,
+  includeGeneratedImages: boolean
+): Promise<Buffer> {
   const zip = new AdmZip()
 
   // 添加配置文件
@@ -161,8 +165,8 @@ export async function exportLocalBackup(includeChats: boolean, includeFiles: boo
     }
   }
 
-  // 添加文件目录
-  if (includeFiles) {
+  // 添加附件目录（头像、上传文件）
+  if (includeAttachments) {
     const avatarsDir = getAvatarsDir()
     if (existsSync(avatarsDir)) {
       zip.addLocalFolder(avatarsDir, 'avatars')
@@ -172,7 +176,10 @@ export async function exportLocalBackup(includeChats: boolean, includeFiles: boo
     if (existsSync(uploadDir)) {
       zip.addLocalFolder(uploadDir, 'upload')
     }
+  }
 
+  // 添加生成的图片目录
+  if (includeGeneratedImages) {
     const imagesDir = getImagesDir()
     if (existsSync(imagesDir)) {
       zip.addLocalFolder(imagesDir, 'images')
@@ -188,7 +195,8 @@ export async function importLocalBackup(
   zipBuffer: Buffer,
   mode: RestoreMode,
   includeChats: boolean,
-  includeFiles: boolean
+  includeAttachments: boolean,
+  includeGeneratedImages: boolean
 ): Promise<{ success: boolean; message: string }> {
   const tmpDir = app.getPath('temp')
   const extractDir = join(tmpDir, `kelivo_restore_${Date.now()}`)
@@ -226,10 +234,14 @@ export async function importLocalBackup(
       }
     }
 
-    // 恢复文件
-    if (includeFiles) {
+    // 恢复附件
+    if (includeAttachments) {
       await restoreDirectory(join(extractDir, 'avatars'), getAvatarsDir(), mode)
       await restoreDirectory(join(extractDir, 'upload'), getUploadDir(), mode)
+    }
+
+    // 恢复生成的图片
+    if (includeGeneratedImages) {
       await restoreDirectory(join(extractDir, 'images'), getImagesDir(), mode)
     }
 
@@ -352,7 +364,7 @@ export async function backupToWebDav(
   onProgress?.({ stage: 'prepare', percent: 5, message: '准备备份内容...' })
 
   // 准备备份文件
-  const zipBuffer = await exportLocalBackup(cfg.includeChats, cfg.includeFiles)
+  const zipBuffer = await exportLocalBackup(cfg.includeChats, cfg.includeAttachments, cfg.includeGeneratedImages)
   console.log(`[WebDAV Backup] Backup file prepared: ${zipBuffer.length} bytes`)
   onProgress?.({ stage: 'prepare', percent: 40, message: '备份文件已生成' })
 
@@ -525,7 +537,7 @@ export async function restoreFromWebDav(
 
   console.log(`[WebDAV Restore] Downloaded: ${buffer.length} bytes`)
 
-  return importLocalBackup(buffer, mode, cfg.includeChats, cfg.includeFiles)
+  return importLocalBackup(buffer, mode, cfg.includeChats, cfg.includeAttachments, cfg.includeGeneratedImages)
 }
 
 // ================== WebDAV 删除 ==================

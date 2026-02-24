@@ -2942,13 +2942,17 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-3);
   margin-bottom: 4px;
   padding-left: 2px;
 }
 .msgTimestampTime {
   opacity: 0.8;
+}
+.msgTimestampModel {
+  opacity: 0.5;
+  font-size: 12px;
 }
 
 /* 消息气泡无头像时的补偿 */
@@ -3969,6 +3973,54 @@ code, pre, .mdCodeBlock {
 .agentMessages:hover::-webkit-scrollbar-thumb,
 .mentionPicker:hover::-webkit-scrollbar-thumb {
   background: rgba(140, 140, 140, 0.35);
+}
+
+/* ========== Token 统计栏 ========== */
+.tokenStatsBar {
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(150, 150, 150, 0.8));
+  padding: 0 4px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: auto;
+  position: relative;
+}
+.tokenStatsTooltip {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  right: 0;
+  background: var(--bg-1, #fff);
+  border: 1px solid var(--border-1, rgba(0, 0, 0, 0.1));
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  color: var(--text-1, #333);
+}
+.tokenStatsTooltipContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.6;
+}
+.tokenStatsTooltipCopy {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.5;
+  padding: 0;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.tokenStatsTooltipCopy:hover {
+  opacity: 1;
 }
 
 /* ========== 消息操作按钮 ========== */

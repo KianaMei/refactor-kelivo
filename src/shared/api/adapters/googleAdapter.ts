@@ -625,36 +625,42 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       throw new Error(`HTTP ${resp.statusCode}: ${errorBody}`)
     }
 
-    // Process stream - delegate to processGeminiStream
-    const result = await processGeminiStream({
+    // Process stream with state object for real-time streaming
+    const streamState: GeminiStreamState = {
+      usage: emptyUsage(),
+      citations: [],
+      toolCalls: [],
+      modelParts: [],
+      imageThoughtSigs: [],
+      toolIdx: 0
+    }
+
+    // Yield chunks in real-time as they arrive
+    yield* processGeminiStream({
       lines: resp.lines,
       persistGeminiThoughtSigs,
       config,
-      signal
+      signal,
+      state: streamState
     })
 
-    // Merge usage
-    usage = mergeUsage(usage, result.usage)
+    // After stream completes, merge accumulated state
+    usage = mergeUsage(usage, streamState.usage)
     totalTokens = usage.totalTokens
 
-    // Yield content chunks
-    for (const chunk of result.chunks) {
-      yield { ...chunk, isDone: false, totalTokens, usage }
-    }
-
     // Collect citations
-    builtinCitations.push(...result.citations)
+    builtinCitations.push(...streamState.citations)
 
     // Collect thought signatures
-    if (result.textThoughtSigKey && responseTextThoughtSigKey === undefined) {
-      responseTextThoughtSigKey = result.textThoughtSigKey
-      responseTextThoughtSigVal = result.textThoughtSigVal
+    if (streamState.textThoughtSigKey && responseTextThoughtSigKey === undefined) {
+      responseTextThoughtSigKey = streamState.textThoughtSigKey
+      responseTextThoughtSigVal = streamState.textThoughtSigVal
     }
-    responseImageThoughtSigs.push(...result.imageThoughtSigs)
+    responseImageThoughtSigs.push(...streamState.imageThoughtSigs)
 
     // Handle tool calls
-    if (result.toolCalls.length > 0 && onToolCall) {
-      const callInfos = result.toolCalls.map(tc => ({
+    if (streamState.toolCalls.length > 0 && onToolCall) {
+      const callInfos = streamState.toolCalls.map(tc => ({
         id: tc.id,
         name: tc.name,
         arguments: tc.args
@@ -664,7 +670,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       const toolResultParts: Array<Record<string, unknown>> = []
       const toolResultInfos: Array<{ id: string; name: string; arguments: Record<string, unknown>; content: string }> = []
 
-      for (const tc of result.toolCalls) {
+      for (const tc of streamState.toolCalls) {
         const res = await onToolCall(tc.name, tc.args)
         toolResultParts.push({
           functionResponse: {
@@ -678,8 +684,8 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       yield { content: '', isDone: false, totalTokens, usage, toolResults: toolResultInfos }
 
       // Add model response + tool results to conversation
-      if (result.modelParts.length > 0) {
-        convo.push({ role: 'model', parts: result.modelParts })
+      if (streamState.modelParts.length > 0) {
+        convo.push({ role: 'model', parts: streamState.modelParts })
       }
       convo.push({ role: 'user', parts: toolResultParts })
       continue
@@ -712,13 +718,14 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     }
   }
 
+  // sigComment contains thought_signature metadata needed for multi-turn conversations
+  // It MUST be included in content for persistence, but frontend should filter it from display
   yield { content: sigComment, isDone: true, totalTokens, usage }
 }
 
 // ========== Stream Processing ==========
 
-interface GeminiStreamResult {
-  chunks: Array<{ content: string; reasoning?: string }>
+interface GeminiStreamState {
   usage: TokenUsage
   citations: Array<{ id: string; index: number; title: string; url: string }>
   toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; partObj: Record<string, unknown> }>
@@ -726,26 +733,17 @@ interface GeminiStreamResult {
   textThoughtSigKey?: string
   textThoughtSigVal?: unknown
   imageThoughtSigs: Array<{ k: string; v: unknown }>
+  toolIdx: number
 }
 
-async function processGeminiStream(params: {
+async function* processGeminiStream(params: {
   lines: AsyncGenerator<string, void, unknown>
   persistGeminiThoughtSigs: boolean
   config: ProviderConfigV2
   signal?: AbortSignal
-}): Promise<GeminiStreamResult> {
-  const { lines, persistGeminiThoughtSigs, config, signal } = params
-
-  const chunks: Array<{ content: string; reasoning?: string }> = []
-  let usage: TokenUsage = emptyUsage()
-  const citations: Array<{ id: string; index: number; title: string; url: string }> = []
-  const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; partObj: Record<string, unknown> }> = []
-  const modelParts: Array<Record<string, unknown>> = []
-  let textThoughtSigKey: string | undefined
-  let textThoughtSigVal: unknown
-  const imageThoughtSigs: Array<{ k: string; v: unknown }> = []
-
-  let toolIdx = 0
+  state: GeminiStreamState
+}): AsyncGenerator<ChatStreamChunk> {
+  const { lines, persistGeminiThoughtSigs, config, signal, state } = params
 
   for await (const line of lines) {
     if (!line.startsWith('data:')) continue
@@ -772,10 +770,10 @@ async function processGeminiStream(params: {
           if (typeof part.text === 'string' && part.text.length > 0) {
             const isThought = part.thought === true
             if (isThought) {
-              chunks.push({ content: '', reasoning: part.text as string })
+              yield { content: '', reasoning: part.text as string, isDone: false, totalTokens: state.usage.totalTokens, usage: state.usage }
             } else {
-              chunks.push({ content: part.text as string })
-              modelParts.push({ text: part.text })
+              yield { content: part.text as string, isDone: false, totalTokens: state.usage.totalTokens, usage: state.usage }
+              state.modelParts.push({ text: part.text })
             }
 
             // Collect thought signature from text part
@@ -788,9 +786,9 @@ async function processGeminiStream(params: {
               sigKey = 'thought_signature'
               sigVal = part.thought_signature
             }
-            if (sigKey && textThoughtSigKey === undefined) {
-              textThoughtSigKey = sigKey
-              textThoughtSigVal = sigVal
+            if (sigKey && state.textThoughtSigKey === undefined) {
+              state.textThoughtSigKey = sigKey
+              state.textThoughtSigVal = sigVal
             }
           }
 
@@ -799,9 +797,9 @@ async function processGeminiStream(params: {
           if (fc) {
             const name = (fc.name as string) || ''
             const args = (fc.args as Record<string, unknown>) || {}
-            const id = `tool_${toolIdx++}`
-            toolCalls.push({ id, name, args, partObj: { ...part } })
-            modelParts.push({ ...part })
+            const id = `tool_${state.toolIdx++}`
+            state.toolCalls.push({ id, name, args, partObj: { ...part } })
+            state.modelParts.push({ ...part })
 
             // Collect thought signature from functionCall part
             let sigKey: string | undefined
@@ -814,7 +812,7 @@ async function processGeminiStream(params: {
               sigVal = part.thought_signature
             }
             if (sigKey && sigVal !== undefined) {
-              imageThoughtSigs.push({ k: sigKey, v: sigVal })
+              state.imageThoughtSigs.push({ k: sigKey, v: sigVal })
             }
           }
 
@@ -825,7 +823,7 @@ async function processGeminiStream(params: {
             const data = inlineData.data as string | undefined
             if (data) {
               const dataUrl = `data:${mime};base64,${data}`
-              chunks.push({ content: `\n![image](${dataUrl})\n` })
+              yield { content: `\n![image](${dataUrl})\n`, isDone: false, totalTokens: state.usage.totalTokens, usage: state.usage }
             }
 
             // Collect thought signature
@@ -839,7 +837,7 @@ async function processGeminiStream(params: {
               sigVal = part.thought_signature
             }
             if (sigKey && sigVal !== undefined) {
-              imageThoughtSigs.push({ k: sigKey, v: sigVal })
+              state.imageThoughtSigs.push({ k: sigKey, v: sigVal })
             }
           }
 
@@ -852,9 +850,9 @@ async function processGeminiStream(params: {
               try {
                 const b64 = await downloadRemoteAsBase64(fileUri, config, signal)
                 const dataUrl = `data:${mime};base64,${b64}`
-                chunks.push({ content: `\n![image](${dataUrl})\n` })
+                yield { content: `\n![image](${dataUrl})\n`, isDone: false, totalTokens: state.usage.totalTokens, usage: state.usage }
               } catch {
-                chunks.push({ content: `\n(image: ${fileUri})\n` })
+                yield { content: `\n(image: ${fileUri})\n`, isDone: false, totalTokens: state.usage.totalTokens, usage: state.usage }
               }
             }
           }
@@ -865,7 +863,7 @@ async function processGeminiStream(params: {
       const gm = c0.groundingMetadata as Record<string, unknown> | undefined
       if (gm) {
         const cits = parseCitations(gm)
-        citations.push(...cits)
+        state.citations.push(...cits)
       }
     }
 
@@ -876,23 +874,12 @@ async function processGeminiStream(params: {
       const completion = (um.candidatesTokenCount as number) ?? 0
       const cached = (um.cachedContentTokenCount as number) ?? 0
       const thinking = (um.thoughtsTokenCount as number) ?? 0
-      usage = mergeUsage(usage, {
+      state.usage = mergeUsage(state.usage, {
         promptTokens: prompt,
         completionTokens: completion + thinking,
         cachedTokens: cached,
         totalTokens: prompt + completion + thinking
       })
     }
-  }
-
-  return {
-    chunks,
-    usage,
-    citations,
-    toolCalls,
-    modelParts,
-    textThoughtSigKey,
-    textThoughtSigVal,
-    imageThoughtSigs
   }
 }

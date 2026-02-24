@@ -257,9 +257,9 @@ const api = {
       ipcRenderer.invoke('mcp:callTool', request) as Promise<McpCallToolResponse>
   },
   backup: {
-    exportLocal: (options: { includeChats: boolean; includeFiles: boolean }) =>
+    exportLocal: (options: { includeChats: boolean; includeAttachments: boolean; includeGeneratedImages: boolean }) =>
       ipcRenderer.invoke(IpcChannel.BackupExportLocal, options) as Promise<{ success: boolean; data?: Buffer; error?: string }>,
-    importLocal: (options: { buffer: Buffer; mode: RestoreMode; includeChats: boolean; includeFiles: boolean }) =>
+    importLocal: (options: { buffer: Buffer; mode: RestoreMode; includeChats: boolean; includeAttachments: boolean; includeGeneratedImages: boolean }) =>
       ipcRenderer.invoke(IpcChannel.BackupImportLocal, options) as Promise<{ success: boolean; message?: string; error?: string }>,
     webdavTest: (cfg: WebDavConfig) =>
       ipcRenderer.invoke(IpcChannel.BackupWebdavTest, cfg) as Promise<{ success: boolean; error?: string }>,

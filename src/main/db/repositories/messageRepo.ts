@@ -29,6 +29,8 @@ interface MessageRow {
   tool_calls: string | null
   translation: string | null
   translation_expanded: number | null
+  finished_at: number | null
+  first_token_at: number | null
   created_at: number
 }
 
@@ -54,6 +56,8 @@ function rowToMessage(row: MessageRow): DbMessage {
     toolCalls: row.tool_calls ? JSON.parse(row.tool_calls) : null,
     translation: row.translation,
     translationExpanded: row.translation_expanded !== 0,
+    finishedAt: row.finished_at,
+    firstTokenAt: row.first_token_at,
     createdAt: row.created_at
   }
 }
@@ -153,6 +157,8 @@ export function updateMessage(id: string, input: MessageUpdateInput): DbMessage 
   }
   if (input.translation !== undefined) { sets.push('translation = ?'); args.push(input.translation) }
   if (input.translationExpanded !== undefined) { sets.push('translation_expanded = ?'); args.push(input.translationExpanded ? 1 : 0) }
+  if (input.finishedAt !== undefined) { sets.push('finished_at = ?'); args.push(input.finishedAt) }
+  if (input.firstTokenAt !== undefined) { sets.push('first_token_at = ?'); args.push(input.firstTokenAt) }
 
   if (sets.length === 0) return getMessage(id)
 

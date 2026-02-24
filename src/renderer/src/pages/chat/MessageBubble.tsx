@@ -35,6 +35,7 @@ import { SelectCopyDialog, ShareDialog, EditBottomSheet, WebViewDialog } from '.
 import { StreamingDots, PureLoadingAnimation } from '../../components/LoadingIndicators'
 import { ThinkingBlock } from './components/ThinkingBlock'
 import { groupMessageParts } from './utils/groupMessageParts'
+import { TokenStatsBar } from './components/TokenStatsBar'
 
 const GEMINI_THOUGHT_SIG_COMMENT = /\n?<!--\s*gemini_thought_signatures:[\s\S]*?-->/g
 
@@ -90,6 +91,9 @@ export interface ChatMessage {
     completionTokens: number
     totalTokens: number
   }
+  // 性能时间戳
+  finishedAt?: number
+  firstTokenAt?: number
   // 交替渲染块（工具卡片在实际调用位置显示）
   blocks?: Array<
     | { type: 'text'; content: string }
@@ -150,6 +154,7 @@ export function MessageBubble(props: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [menuDeleteConfirm, setMenuDeleteConfirm] = useState(false)
   const [avatarLightbox, setAvatarLightbox] = useState(false)
+  const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -326,7 +331,7 @@ export function MessageBubble(props: Props) {
   // 格式化时间戳
   const formatTime = (ts: number) => {
     const d = new Date(ts)
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
   // 计算气泡背景样式 - 根据 kelivo 的实现
@@ -433,7 +438,13 @@ export function MessageBubble(props: Props) {
             {message.attachments.map((att, i) => (
               <div key={i} className="msgAttachment">
                 {att.type === 'image' ? (
-                  <img src={att.url} alt={att.name} className="msgAttachmentImage" />
+                  <img
+                    src={att.url}
+                    alt={att.name}
+                    className="msgAttachmentImage"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setImageLightboxSrc(att.url)}
+                  />
                 ) : (
                   <div className="msgAttachmentFile">
                     <Download size={14} />
@@ -450,6 +461,9 @@ export function MessageBubble(props: Props) {
           <div className="msgTimestamp">
             <span>{isUser ? '你' : assistantLabel}</span>
             <span className="msgTimestampTime">{formatTime(message.ts)}</span>
+            {!isUser && message.modelId && props.providerName && (
+              <span className="msgTimestampModel">{message.modelId} | {props.providerName}</span>
+            )}
           </div>
         )}
 
@@ -733,21 +747,16 @@ export function MessageBubble(props: Props) {
               </div>
             )}
 
-            {/* 模型信息展示 - 放在版本切换右侧 */}
-            {!isUser && message.modelId && props.providerName && (
-              <div className="msgModelInfo" style={{
-                marginLeft: 12,
-                fontSize: 12,
-                opacity: 0.5,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}>
-                <span>{message.modelId}</span>
-                <span>|</span>
-                <span>{props.providerName}</span>
-              </div>
+            {/* Token 统计 - 内联在操作栏 */}
+            {showTokenStats && !isLoading && message.usage && (
+              <TokenStatsBar
+                usage={message.usage}
+                createdAt={message.ts}
+                finishedAt={message.finishedAt}
+                firstTokenAt={message.firstTokenAt}
+              />
             )}
+
           </div>
         )}
       </div>
@@ -813,6 +822,37 @@ export function MessageBubble(props: Props) {
           }}
         >
           {devTip}
+        </div>,
+        document.body
+      )}
+
+      {/* 图片大图浮层 */}
+      {imageLightboxSrc && createPortal(
+        <div className="avatarLightboxOverlay" onClick={() => setImageLightboxSrc(null)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <img
+            src={imageLightboxSrc}
+            alt="放大图片"
+            style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={(e) => {
+              e.stopPropagation()
+              const a = document.createElement('action')
+              const aElem = document.createElement('a')
+              aElem.href = imageLightboxSrc
+              aElem.download = `image-${Date.now()}.png`
+              document.body.appendChild(aElem)
+              aElem.click()
+              document.body.removeChild(aElem)
+            }}
+          >
+            <Download size={16} />
+            保存图片
+          </button>
         </div>,
         document.body
       )}

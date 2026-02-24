@@ -49,7 +49,7 @@ interface ModelMeta {
   abilities: ('tool' | 'reasoning')[]
 }
 
-function inferModelMeta(modelId: string): ModelMeta {
+function inferModelMeta(modelId: string, provider?: ProviderConfigV2): ModelMeta {
   const id = modelId.toLowerCase()
 
   // 默认值
@@ -58,6 +58,15 @@ function inferModelMeta(modelId: string): ModelMeta {
     inputModality: ['text'],
     outputModality: ['text'],
     abilities: []
+  }
+
+  const ov = provider?.modelOverrides?.[modelId] as any
+  if (ov) {
+    if (ov.type) meta.type = ov.type
+    if (Array.isArray(ov.input)) meta.inputModality = ov.input
+    if (Array.isArray(ov.output)) meta.outputModality = ov.output
+    if (Array.isArray(ov.abilities)) meta.abilities = ov.abilities
+    return meta
   }
 
   // 嵌入模型
@@ -281,7 +290,8 @@ export function ModelSelectPopover(props: Props) {
   function renderModelItem(modelId: string, providerId: string = selectedProviderId) {
     const isSelected = providerId === currentProviderId && modelId === currentModelId
     const isPinned = pinnedModels.has(`${providerId}::${modelId}`)
-    const meta = inferModelMeta(modelId)
+    const provider = providers.find((p) => p.id === providerId)
+    const meta = inferModelMeta(modelId, provider)
 
     return (
       <button

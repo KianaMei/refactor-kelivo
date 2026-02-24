@@ -16,6 +16,8 @@ export interface StreamDoneInfo {
   reasoning?: string
   toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown>; status: string; result?: string }>
   blocks?: MessageBlock[]
+  finishedAt?: number
+  firstTokenAt?: number
 }
 
 export function useChatStreamEvents(args: {
@@ -27,6 +29,7 @@ export function useChatStreamEvents(args: {
 }) {
   const { streamingRef, setMessagesByConv, setIsGenerating, setLoadingConversationIds, onStreamDone } = args
   const accRef = useRef<{ content: string; reasoning: string }>({ content: '', reasoning: '' })
+  const firstTokenAtRef = useRef<number | null>(null)
   const toolCallsAccRef = useRef<Array<{ id: string; name: string; arguments?: Record<string, unknown>; status: string; result?: string }>>([])
   const reasoningStartAtRef = useRef<number | null>(null)
   // blocks 交替渲染：追踪分割点
@@ -104,6 +107,7 @@ export function useChatStreamEvents(args: {
           if (!streamingRef.current) break
 
           if (chunk.content) {
+            firstTokenAtRef.current ??= Date.now()
             accRef.current.content += chunk.content
             pendingDeltaRef.current += chunk.content
             scheduleFlush()
@@ -215,7 +219,7 @@ export function useChatStreamEvents(args: {
           const list = prev[st.convId] ?? []
           const next = list.map((m) =>
             m.id === st.msgId
-              ? { ...m, content: finalContent, reasoning: finalReasoning, reasoningDuration, blocks: finalBlocks }
+              ? { ...m, content: finalContent, reasoning: finalReasoning, reasoningDuration, blocks: finalBlocks, finishedAt: Date.now(), firstTokenAt: firstTokenAtRef.current ?? undefined, usage: lastUsage ?? m.usage }
               : m
           )
           return { ...prev, [st.convId]: next }
@@ -228,7 +232,9 @@ export function useChatStreamEvents(args: {
           usage: lastUsage,
           reasoning: finalReasoning,
           toolCalls: finalToolCalls,
-          blocks: finalBlocks
+          blocks: finalBlocks,
+          finishedAt: Date.now(),
+          firstTokenAt: firstTokenAtRef.current ?? undefined
         })
       } catch (e) {
         if (flushTimerRef.current !== null) {
@@ -247,7 +253,7 @@ export function useChatStreamEvents(args: {
           toolCallsAccRef.current = []
           lastSplitIndexRef.current = 0
           blocksAccRef.current = []
-          onStreamDone?.({ msgId: st.msgId, convId: st.convId, content: partialContent, toolCalls: partialToolCalls })
+          onStreamDone?.({ msgId: st.msgId, convId: st.convId, content: partialContent, toolCalls: partialToolCalls, finishedAt: Date.now(), firstTokenAt: firstTokenAtRef.current ?? undefined })
         } else {
           // 真正的错误
           const errorMsg = e instanceof Error ? e.message : String(e)
@@ -266,9 +272,10 @@ export function useChatStreamEvents(args: {
             return { ...prev, [st.convId]: next }
           })
 
-          onStreamDone?.({ msgId: st.msgId, convId: st.convId, content: errorContent })
+          onStreamDone?.({ msgId: st.msgId, convId: st.convId, content: errorContent, finishedAt: Date.now(), firstTokenAt: firstTokenAtRef.current ?? undefined })
         }
       } finally {
+        firstTokenAtRef.current = null
         streamingRef.current = null
         setIsGenerating(false)
         setLoadingConversationIds((prev) => {

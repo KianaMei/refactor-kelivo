@@ -171,30 +171,39 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
       throw new Error(`HTTP ${response.statusCode}: ${errorBody}`)
     }
 
-    const result = await processClaudeStream({
+    // Process stream with state object for real-time streaming
+    const streamState: ClaudeStreamState = {
+      usage,
+      toolCalls: [],
+      textContent: '',
+      currentToolId: '',
+      currentToolName: '',
+      currentToolInput: ''
+    }
+
+    // Yield chunks in real-time as they arrive
+    yield* processClaudeStream({
       lines: response.lines,
       usage,
       onToolCall,
-      isReasoning
+      isReasoning,
+      state: streamState
     })
 
-    usage = result.usage
+    // After stream completes, get accumulated state
+    usage = streamState.usage
 
-    for (const chunk of result.chunks) {
-      yield chunk
-    }
-
-    if (result.toolCalls.length > 0 && onToolCall) {
+    if (streamState.toolCalls.length > 0 && onToolCall) {
       yield {
         content: '',
         isDone: false,
         totalTokens: usage?.totalTokens ?? 0,
         usage,
-        toolCalls: result.toolCalls
+        toolCalls: streamState.toolCalls
       }
 
       const toolResults: ToolResultInfo[] = []
-      for (const tc of result.toolCalls) {
+      for (const tc of streamState.toolCalls) {
         const res = await onToolCall(tc.name, tc.arguments)
         toolResults.push({
           id: tc.id,
@@ -213,10 +222,10 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
       }
 
       const assistantContent: Array<Record<string, unknown>> = []
-      if (result.textContent) {
-        assistantContent.push({ type: 'text', text: result.textContent })
+      if (streamState.textContent) {
+        assistantContent.push({ type: 'text', text: streamState.textContent })
       }
-      for (const tc of result.toolCalls) {
+      for (const tc of streamState.toolCalls) {
         assistantContent.push({
           type: 'tool_use',
           id: tc.id,
@@ -249,29 +258,23 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
 
 // ========== Stream Processing ==========
 
-interface ProcessStreamResult {
-  chunks: ChatStreamChunk[]
+interface ClaudeStreamState {
   usage?: TokenUsage
   toolCalls: ToolCallInfo[]
   textContent: string
+  currentToolId: string
+  currentToolName: string
+  currentToolInput: string
 }
 
-async function processClaudeStream(params: {
+async function* processClaudeStream(params: {
   lines: AsyncGenerator<string, void, unknown>
   usage?: TokenUsage
   onToolCall?: OnToolCallFn
   isReasoning: boolean
-}): Promise<ProcessStreamResult> {
-  const { lines, usage: initialUsage, isReasoning } = params
-
-  const chunks: ChatStreamChunk[] = []
-  let usage = initialUsage
-  const toolCalls: ToolCallInfo[] = []
-  let textContent = ''
-
-  let currentToolId = ''
-  let currentToolName = ''
-  let currentToolInput = ''
+  state: ClaudeStreamState
+}): AsyncGenerator<ChatStreamChunk> {
+  const { lines, isReasoning, state } = params
 
   for await (const line of lines) {
     if (line.startsWith('event:')) continue
@@ -288,7 +291,7 @@ async function processClaudeStream(params: {
           const msg = json.message as Record<string, unknown> | undefined
           if (msg?.usage) {
             const u = msg.usage as Record<string, unknown>
-            usage = mergeUsage(usage, {
+            state.usage = mergeUsage(state.usage, {
               promptTokens: (u.input_tokens as number) ?? 0,
               completionTokens: 0,
               totalTokens: (u.input_tokens as number) ?? 0
@@ -300,9 +303,9 @@ async function processClaudeStream(params: {
         case 'content_block_start': {
           const block = json.content_block as Record<string, unknown> | undefined
           if (block?.type === 'tool_use') {
-            currentToolId = (block.id as string) ?? ''
-            currentToolName = (block.name as string) ?? ''
-            currentToolInput = ''
+            state.currentToolId = (block.id as string) ?? ''
+            state.currentToolName = (block.name as string) ?? ''
+            state.currentToolInput = ''
           }
           break
         }
@@ -316,48 +319,48 @@ async function processClaudeStream(params: {
           if (deltaType === 'text_delta') {
             const text = (delta.text as string) ?? ''
             if (text) {
-              textContent += text
-              chunks.push({
+              state.textContent += text
+              yield {
                 content: text,
                 isDone: false,
-                totalTokens: usage?.totalTokens ?? 0,
-                usage
-              })
+                totalTokens: state.usage?.totalTokens ?? 0,
+                usage: state.usage
+              }
             }
           } else if (deltaType === 'thinking_delta' && isReasoning) {
             const thinking = (delta.thinking as string) ?? ''
             if (thinking) {
-              chunks.push({
+              yield {
                 content: '',
                 reasoning: thinking,
                 isDone: false,
-                totalTokens: usage?.totalTokens ?? 0,
-                usage
-              })
+                totalTokens: state.usage?.totalTokens ?? 0,
+                usage: state.usage
+              }
             }
           } else if (deltaType === 'input_json_delta') {
             const partial = (delta.partial_json as string) ?? ''
-            currentToolInput += partial
+            state.currentToolInput += partial
           }
           break
         }
 
         case 'content_block_stop': {
-          if (currentToolId && currentToolName) {
+          if (state.currentToolId && state.currentToolName) {
             let args: Record<string, unknown> = {}
             try {
-              args = JSON.parse(currentToolInput || '{}')
+              args = JSON.parse(state.currentToolInput || '{}')
             } catch {
               // ignore
             }
-            toolCalls.push({
-              id: currentToolId,
-              name: currentToolName,
+            state.toolCalls.push({
+              id: state.currentToolId,
+              name: state.currentToolName,
               arguments: args
             })
-            currentToolId = ''
-            currentToolName = ''
-            currentToolInput = ''
+            state.currentToolId = ''
+            state.currentToolName = ''
+            state.currentToolInput = ''
           }
           break
         }
@@ -365,7 +368,7 @@ async function processClaudeStream(params: {
         case 'message_delta': {
           const u = json.usage as Record<string, unknown> | undefined
           if (u) {
-            usage = mergeUsage(usage, {
+            state.usage = mergeUsage(state.usage, {
               promptTokens: 0,
               completionTokens: (u.output_tokens as number) ?? 0,
               totalTokens: (u.output_tokens as number) ?? 0
@@ -390,8 +393,6 @@ async function processClaudeStream(params: {
       console.warn('[ClaudeAdapter] JSON parse error:', e)
     }
   }
-
-  return { chunks, usage, toolCalls, textContent }
 }
 
 // ========== Helpers ==========

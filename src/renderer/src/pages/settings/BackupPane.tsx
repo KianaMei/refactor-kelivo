@@ -341,7 +341,8 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
           buffer: restoreDialog.localBuffer,
           mode: restoreDialog.mode,
           includeChats: currentConfig?.includeChats ?? true,
-          includeFiles: currentConfig?.includeFiles ?? true
+          includeAttachments: currentConfig?.includeAttachments ?? true,
+          includeGeneratedImages: currentConfig?.includeGeneratedImages ?? false
         })
 
         if (result.success) {
@@ -435,7 +436,8 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
     try {
       const result = await window.api.backup.exportLocal({
         includeChats: currentConfig?.includeChats ?? true,
-        includeFiles: currentConfig?.includeFiles ?? true
+        includeAttachments: currentConfig?.includeAttachments ?? true,
+        includeGeneratedImages: currentConfig?.includeGeneratedImages ?? false
       })
 
       if (result.success && result.data) {
@@ -647,12 +649,25 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
               <div style={s.webdavEditSwitchCard}>
                 <div>
                   <div style={s.webdavEditSwitchTitle}>包含附件</div>
-                  <div style={s.webdavEditSwitchDesc}>备份头像、上传与图片目录。</div>
+                  <div style={s.webdavEditSwitchDesc}>备份头像与上传目录。</div>
                 </div>
                 <button
                   type="button"
-                  className={`toggle ${editingConfig.includeFiles ? 'toggleOn' : ''}`}
-                  onClick={() => setEditingConfig({ ...editingConfig, includeFiles: !editingConfig.includeFiles })}
+                  className={`toggle ${editingConfig.includeAttachments ? 'toggleOn' : ''}`}
+                  onClick={() => setEditingConfig({ ...editingConfig, includeAttachments: !editingConfig.includeAttachments })}
+                >
+                  <div className="toggleThumb" />
+                </button>
+              </div>
+              <div style={s.webdavEditSwitchCard}>
+                <div>
+                  <div style={s.webdavEditSwitchTitle}>包含生成图片</div>
+                  <div style={s.webdavEditSwitchDesc}>备份图片工作室生成目录。</div>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle ${editingConfig.includeGeneratedImages ? 'toggleOn' : ''}`}
+                  onClick={() => setEditingConfig({ ...editingConfig, includeGeneratedImages: !editingConfig.includeGeneratedImages })}
                 >
                   <div className="toggleThumb" />
                 </button>

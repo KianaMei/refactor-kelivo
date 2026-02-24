@@ -66,7 +66,7 @@ export function useChatStream(deps: Deps) {
     mentionSendQueueRef.current = null
   }, [activeConvId])
 
-  const handleStreamDone = (info: { msgId: string; convId: string; content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number }; reasoning?: string; toolCalls?: unknown[]; blocks?: unknown[] }) => {
+  const handleStreamDone = (info: { msgId: string; convId: string; content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number }; reasoning?: string; toolCalls?: unknown[]; blocks?: unknown[]; finishedAt?: number; firstTokenAt?: number }) => {
     const toolCallsData = info.toolCalls || info.blocks
       ? { toolCalls: info.toolCalls ?? [], blocks: info.blocks ?? [] }
       : null
@@ -76,7 +76,9 @@ export function useChatStream(deps: Deps) {
       tokenUsage: info.usage ?? null,
       totalTokens: info.usage?.totalTokens ?? null,
       reasoningText: info.reasoning ?? null,
-      toolCalls: toolCallsData
+      toolCalls: toolCallsData,
+      finishedAt: info.finishedAt ?? null,
+      firstTokenAt: info.firstTokenAt ?? null
     }).catch(err => console.error('[useChatStream] db message update (stream done) failed:', err))
     void window.api.db.conversations.update(info.convId, {})
       .catch(err => console.error('[useChatStream] db conversation update (stream done) failed:', err))

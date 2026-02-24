@@ -1604,7 +1604,8 @@ function normalizeBackupConfig(input: unknown): BackupConfig {
           password: typeof x['password'] === 'string' ? x['password'] : '',
           path: typeof x['path'] === 'string' ? x['path'] : 'kelivo_backups',
           includeChats: typeof x['includeChats'] === 'boolean' ? x['includeChats'] : true,
-          includeFiles: typeof x['includeFiles'] === 'boolean' ? x['includeFiles'] : true,
+          includeAttachments: typeof x['includeAttachments'] === 'boolean' ? x['includeAttachments'] : (typeof x['includeFiles'] === 'boolean' ? x['includeFiles'] : true),
+          includeGeneratedImages: typeof x['includeGeneratedImages'] === 'boolean' ? x['includeGeneratedImages'] : false,
           createdAt: typeof x['createdAt'] === 'string' ? x['createdAt'] : new Date().toISOString(),
           updatedAt: typeof x['updatedAt'] === 'string' ? x['updatedAt'] : new Date().toISOString()
         }
@@ -1666,7 +1667,8 @@ export interface WebDavConfig {
   password: string
   path: string
   includeChats: boolean
-  includeFiles: boolean
+  includeAttachments: boolean
+  includeGeneratedImages: boolean
   createdAt: string
   updatedAt: string
 }
@@ -1693,7 +1695,8 @@ export function createDefaultWebDavConfig(id: string, name?: string): WebDavConf
     password: '',
     path: 'kelivo_backups',
     includeChats: true,
-    includeFiles: true,
+    includeAttachments: true,
+    includeGeneratedImages: false,
     createdAt: now,
     updatedAt: now
   }

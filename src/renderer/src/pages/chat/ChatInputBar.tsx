@@ -14,8 +14,9 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Paperclip, Image, AtSign, Square, X,
   Globe, Lightbulb, Hammer, Eraser, ChevronLeft, ChevronRight,
-  FileText, RefreshCw, ArrowUp, Zap, Maximize2, Minimize2
+  FileText, RefreshCw, ArrowUp, Zap, Maximize2, Minimize2, Download
 } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import type { ProviderConfigV2, QuickPhrase, SearchConfig } from '../../../../shared/types'
 import { DesktopPopover } from '../../components/DesktopPopover'
 import { ReasoningBudgetPopover, type EffortValue } from '../../components/ReasoningBudgetPopover'
@@ -158,6 +159,7 @@ export function ChatInputBar(props: Props) {
   const [extrasExpanded, setExtrasExpanded] = useState(false)
   const [manualExpand, setManualExpand] = useState(false)
   const [canManualExpand, setCanManualExpand] = useState(false)
+  const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
 
   // 快捷短语菜单
   const quickPhraseBtnRef = useRef<HTMLButtonElement>(null)
@@ -217,6 +219,23 @@ export function ChatInputBar(props: Props) {
     e.target.value = ''
   }
 
+  function handlePaste(e: React.ClipboardEvent) {
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      onAddAttachment?.(e.clipboardData.files)
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onAddAttachment?.(e.dataTransfer.files)
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault()
+  }
+
   function handleToggleManualExpand() {
     setManualExpand((v) => !v)
     requestAnimationFrame(() => {
@@ -225,7 +244,53 @@ export function ChatInputBar(props: Props) {
   }
 
   return (
-    <div className="chatInputContainer frosted">
+    <div className="chatInputContainer frosted" style={{ position: 'relative', overflow: 'visible' }}>
+      {/* 附件预览（悬浮在输入框无背景层上方） */}
+      {attachments.length > 0 && (
+        <div className="chatInputAttachments" style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 14px)',
+          left: 0,
+          marginBottom: 0,
+          background: 'transparent',
+          zIndex: 20
+        }}>
+          {attachments.map((att) => (
+            <div key={att.id} className="attachmentPreview frosted" style={{
+              borderRadius: '12px',
+              padding: '6px',
+              border: '1px solid color-mix(in srgb, var(--border) 40%, transparent)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)'
+            }}>
+              {att.type === 'image' ? (
+                <img
+                  src={att.url}
+                  alt={att.name}
+                  className="attachmentPreviewImage"
+                  style={{ cursor: 'pointer', borderRadius: '8px', display: 'block', objectFit: 'cover' }}
+                  onClick={() => setImageLightboxSrc(att.url)}
+                />
+              ) : (
+                <div className="attachmentPreviewFile" style={{ border: 'none', background: 'transparent' }}>
+                  <Paperclip size={16} />
+                  <span>{att.name}</span>
+                </div>
+              )}
+              <button
+                type="button"
+                className="attachmentPreviewRemove"
+                onClick={() => onRemoveAttachment?.(att.id)}
+                style={{
+                  top: '-4px', right: '-4px', width: '20px', height: '20px',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {/* @ 提及标签 */}
       {mentionedModels.length > 0 && (
         <div className="chatInputMentions">
@@ -241,27 +306,6 @@ export function ChatInputBar(props: Props) {
         </div>
       )}
 
-      {/* 附件预览 */}
-      {attachments.length > 0 && (
-        <div className="chatInputAttachments">
-          {attachments.map((att) => (
-            <div key={att.id} className="attachmentPreview">
-              {att.type === 'image' ? (
-                <img src={att.url} alt={att.name} className="attachmentPreviewImage" />
-              ) : (
-                <div className="attachmentPreviewFile">
-                  <Paperclip size={16} />
-                  <span>{att.name}</span>
-                </div>
-              )}
-              <button type="button" className="attachmentPreviewRemove" onClick={() => onRemoveAttachment?.(att.id)}>
-                <X size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* 文本输入 */}
 
       <div className="chatInputTextareaWrap">
@@ -271,6 +315,9 @@ export function ChatInputBar(props: Props) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
           placeholder={placeholder}
           disabled={disabled}
           rows={3}
@@ -478,6 +525,38 @@ export function ChatInputBar(props: Props) {
           onManage={props.onManageQuickPhrases}
         />
       </DesktopPopover>
+
+      {/* 图片大图浮层 */}
+      {imageLightboxSrc && createPortal(
+        <div className="avatarLightboxOverlay" onClick={() => setImageLightboxSrc(null)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <img
+            src={imageLightboxSrc}
+            alt="放大图片"
+            style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={(e) => {
+              e.stopPropagation()
+              const a = document.createElement('action')
+              const aElem = document.createElement('a')
+              aElem.href = imageLightboxSrc
+              aElem.download = `image-${Date.now()}.png`
+              document.body.appendChild(aElem)
+              aElem.click()
+              document.body.removeChild(aElem)
+            }}
+          >
+            <Download size={16} />
+            保存图片
+          </button>
+        </div>,
+        document.body
+      )}
+
     </div>
   )
 }
