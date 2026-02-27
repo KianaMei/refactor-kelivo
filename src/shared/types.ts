@@ -30,7 +30,7 @@ export interface UserConfig {
   avatarValue: string // emoji字符、URL或本地文件路径
 }
 
-export type ProviderKind = 'openai' | 'claude' | 'google'
+export type ProviderKind = 'openai' | 'openai_response' | 'claude' | 'google'
 
 export type LoadBalanceStrategy = 'roundRobin' | 'priority' | 'leastUsed' | 'random'
 
@@ -118,6 +118,7 @@ export interface AssistantRegexRule {
   replacement: string
   scopes: AssistantRegexScope[]
   visualOnly: boolean
+  replaceOnly: boolean
   enabled: boolean
 }
 
@@ -311,6 +312,17 @@ export function createDefaultSearchConfig(): SearchConfig {
   }
 }
 
+// ============ API 测试服务配置 ============
+export interface ApiTestConfig {
+  id: string
+  name: string
+  provider: 'openai' | 'anthropic' | 'google'
+  apiKey: string
+  baseUrl: string
+  models: string[]
+  selectedModel: string | null
+}
+
 // ============ 显示设置 ============
 export interface DisplaySettings {
   // 语言
@@ -329,6 +341,7 @@ export interface DisplaySettings {
   globalFontScale: number // 0.8-1.5
   chatFontSize: number // 12-24
   // 消息显示
+  hideAllAvatars: boolean
   showUserAvatar: boolean
   showUserNameTimestamp: boolean
   showUserMessageActions: boolean
@@ -438,6 +451,9 @@ export interface AppConfigV2 {
   // 备份配置
   backupConfig: BackupConfig
   imageStudio: ImageStudioConfig
+  // Api Test
+  apiTestConfigs: ApiTestConfig[]
+  apiTestActiveConfigId: string
   // 显示设置
   display: DisplaySettings
   ui: UiStateV2
@@ -477,6 +493,7 @@ export function classifyProviderKind(idOrName: string): ProviderKind {
   const s = idOrName.toLowerCase()
   if (s.includes('claude') || s.includes('anthropic')) return 'claude'
   if (s.includes('google') || s.includes('gemini')) return 'google'
+  if (s.includes('response')) return 'openai_response'
   return 'openai'
 }
 
@@ -514,7 +531,8 @@ export function inferDefaultBaseUrl(idOrName: string, kind: ProviderKind): strin
 export function createDefaultProviderConfig(id: string, name?: string): ProviderConfigV2 {
   const lower = (name ?? id).toLowerCase()
   const kind = classifyProviderKind(lower)
-  const baseUrl = inferDefaultBaseUrl(lower, kind)
+  const normalizedKind = kind === 'openai_response' ? 'openai' : kind
+  const baseUrl = inferDefaultBaseUrl(lower, normalizedKind)
 
   return {
     id,
@@ -523,8 +541,8 @@ export function createDefaultProviderConfig(id: string, name?: string): Provider
     apiKey: '',
     baseUrl,
     providerType: kind,
-    chatPath: kind === 'openai' ? '/chat/completions' : undefined,
-    useResponseApi: false,
+    chatPath: normalizedKind === 'openai' ? '/chat/completions' : undefined,
+    useResponseApi: kind === 'openai_response',
     vertexAI: false,
     location: '',
     projectId: '',
@@ -719,6 +737,18 @@ export function createDefaultConfig(): AppConfigV2 {
     searchConfig: createDefaultSearchConfig(),
     backupConfig: createDefaultBackupConfig(),
     imageStudio: createDefaultImageStudioConfig(),
+    apiTestConfigs: [
+      {
+        id: 'default',
+        name: '默认配置',
+        provider: 'openai',
+        apiKey: '',
+        baseUrl: 'https://api.openai.com/v1',
+        models: [],
+        selectedModel: null
+      }
+    ],
+    apiTestActiveConfigId: 'default',
     display: createDefaultDisplaySettings(),
     ui: {
       desktop: {
@@ -748,6 +778,7 @@ export function createDefaultDisplaySettings(): DisplaySettings {
     codeFontFamily: '',
     globalFontScale: 1.0,
     chatFontSize: 14,
+    hideAllAvatars: false,
     showUserAvatar: true,
     showUserNameTimestamp: false,
     showUserMessageActions: true,
@@ -1097,6 +1128,8 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
     searchConfig,
     backupConfig,
     imageStudio,
+    apiTestConfigs: Array.isArray(cfg['apiTestConfigs']) ? (cfg['apiTestConfigs'] as ApiTestConfig[]) : def.apiTestConfigs,
+    apiTestActiveConfigId: typeof cfg['apiTestActiveConfigId'] === 'string' ? (cfg['apiTestActiveConfigId'] as string) : def.apiTestActiveConfigId,
     display,
     ui
   }
@@ -1270,12 +1303,12 @@ function normalizeAssistantConfig(id: string, input: unknown): AssistantConfig |
     ? (input['presetMessages']
       .filter((x) => isRecord(x))
       .map((x) => {
-        const roleRaw = (x as any)['role']
+        const roleRaw = x['role']
         const role: AssistantPresetRole = roleRaw === 'assistant' ? 'assistant' : 'user'
         return {
-          id: safeId((x as any)['id'], 'preset'),
+          id: safeId(x['id'], 'preset'),
           role,
-          content: str((x as any)['content'], '')
+          content: str(x['content'], '')
         }
       })
       .filter((x) => x.content.trim()))
@@ -1285,20 +1318,25 @@ function normalizeAssistantConfig(id: string, input: unknown): AssistantConfig |
     ? (input['regexRules']
       .filter((x) => isRecord(x))
       .map((x) => {
-        const scopesRaw = (x as any)['scopes']
+        const scopesRaw = x['scopes']
         const scopes: AssistantRegexScope[] = Array.isArray(scopesRaw)
-          ? (scopesRaw.filter((s) => s === 'user' || s === 'assistant') as AssistantRegexScope[])
+          ? scopesRaw.filter((s): s is AssistantRegexScope => s === 'user' || s === 'assistant')
           : typeof scopesRaw === 'string' && (scopesRaw === 'user' || scopesRaw === 'assistant')
             ? ([scopesRaw] as AssistantRegexScope[])
             : ([] as AssistantRegexScope[])
+
+        const visualOnly = typeof x['visualOnly'] === 'boolean' ? x['visualOnly'] : false
+        const replaceOnlyRaw = typeof x['replaceOnly'] === 'boolean' ? x['replaceOnly'] : false
+
         return {
-          id: safeId((x as any)['id'], 'regex'),
-          name: str((x as any)['name'], ''),
-          pattern: str((x as any)['pattern'], ''),
-          replacement: str((x as any)['replacement'], ''),
+          id: safeId(x['id'], 'regex'),
+          name: str(x['name'], ''),
+          pattern: str(x['pattern'], ''),
+          replacement: str(x['replacement'], ''),
           scopes,
-          visualOnly: typeof (x as any)['visualOnly'] === 'boolean' ? (x as any)['visualOnly'] : false,
-          enabled: typeof (x as any)['enabled'] === 'boolean' ? (x as any)['enabled'] : true,
+          visualOnly,
+          replaceOnly: visualOnly && replaceOnlyRaw ? false : replaceOnlyRaw,
+          enabled: typeof x['enabled'] === 'boolean' ? x['enabled'] : true,
         }
       })
       .filter((x) => x.pattern.trim()))
@@ -1421,6 +1459,7 @@ function normalizeDisplaySettings(input: unknown, fallback: DisplaySettings): Di
     codeFontFamily: str(input['codeFontFamily'], fallback.codeFontFamily),
     globalFontScale: num(input['globalFontScale'], fallback.globalFontScale, 0.8, 1.5),
     chatFontSize: num(input['chatFontSize'], fallback.chatFontSize, 12, 24),
+    hideAllAvatars: bool(input['hideAllAvatars'], fallback.hideAllAvatars),
     showUserAvatar: bool(input['showUserAvatar'], fallback.showUserAvatar),
     showUserNameTimestamp: bool(input['showUserNameTimestamp'], fallback.showUserNameTimestamp),
     showUserMessageActions: bool(input['showUserMessageActions'], fallback.showUserMessageActions),
@@ -1474,7 +1513,7 @@ function normalizeProviderConfig(key: string, input: unknown): ProviderConfigV2 
   const baseUrl = typeof input['baseUrl'] === 'string' && input['baseUrl'].trim() ? (input['baseUrl'] as string) : def.baseUrl
   const providerType: ProviderKind | undefined = (() => {
     const t = input['providerType']
-    if (t === 'openai' || t === 'claude' || t === 'google') return t
+    if (t === 'openai' || t === 'openai_response' || t === 'claude' || t === 'google') return t
     // 兼容旧数据：尝试从 baseUrl 推断
     return classifyProviderKindByUrl(baseUrl)
   })()
@@ -1488,7 +1527,11 @@ function normalizeProviderConfig(key: string, input: unknown): ProviderConfigV2 
     baseUrl,
     providerType,
     chatPath: typeof input['chatPath'] === 'string' ? (input['chatPath'] as string) : def.chatPath,
-    useResponseApi: typeof input['useResponseApi'] === 'boolean' ? (input['useResponseApi'] as boolean) : def.useResponseApi,
+    useResponseApi: typeof input['useResponseApi'] === 'boolean'
+      ? (input['useResponseApi'] as boolean)
+      : providerType === 'openai_response'
+        ? true
+        : def.useResponseApi,
     vertexAI: typeof input['vertexAI'] === 'boolean' ? (input['vertexAI'] as boolean) : def.vertexAI,
     location: typeof input['location'] === 'string' ? (input['location'] as string) : def.location,
     projectId: typeof input['projectId'] === 'string' ? (input['projectId'] as string) : def.projectId,

@@ -4,7 +4,8 @@ import { CustomSelect } from '../../../../components/ui/CustomSelect'
 import { useDialogClose } from '../../../../hooks/useDialogClose'
 
 const PROVIDER_TYPES = [
-  { value: 'openai', label: 'OpenAI Compatible' },
+  { value: 'openai', label: 'OpenAI Chat' },
+  { value: 'openai_response', label: 'OpenAI Response' },
   { value: 'google', label: 'Google AI' },
   { value: 'claude', label: 'Anthropic Claude' }
 ]
@@ -23,7 +24,6 @@ export function ProviderSettingsDialog({
   // 设置状态
   const [providerType, setProviderType] = useState(provider.providerType || 'openai')
   const [multiKeyEnabled, setMultiKeyEnabled] = useState(provider.multiKeyEnabled || false)
-  const [useResponseApi, setUseResponseApi] = useState(provider.useResponseApi || false)
   const [vertexAI, setVertexAI] = useState(provider.vertexAI || false)
   const [proxyEnabled, setProxyEnabled] = useState(provider.proxyEnabled || false)
   const [proxyHost, setProxyHost] = useState(provider.proxyHost || '')
@@ -74,9 +74,9 @@ export function ProviderSettingsDialog({
             <CustomSelect
               value={providerType}
               onChange={(val) => {
-                const v = val as 'openai' | 'google' | 'claude'
+                const v = val as 'openai' | 'openai_response' | 'google' | 'claude'
                 setProviderType(v)
-                void saveField({ providerType: v })
+                void saveField({ providerType: v, useResponseApi: v === 'openai_response' })
               }}
               options={PROVIDER_TYPES}
               className="input-detail"
@@ -100,25 +100,6 @@ export function ProviderSettingsDialog({
               </label>
             </div>
           </SettingRow>
-
-          {/* Response API (仅 OpenAI) */}
-          {providerType === 'openai' && (
-            <SettingRow label="使用 Response API">
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <label className="switch">
-                  <input
-                    type="checkbox"
-                    checked={useResponseApi}
-                    onChange={(e) => {
-                      setUseResponseApi(e.target.checked)
-                      void saveField({ useResponseApi: e.target.checked })
-                    }}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
-            </SettingRow>
-          )}
 
           {/* Vertex AI (仅 Google) */}
           {providerType === 'google' && (
@@ -220,4 +201,3 @@ export function ProviderSettingsDialog({
     </div>
   )
 }
-

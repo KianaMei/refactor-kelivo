@@ -10,11 +10,16 @@ import {
   SearchOptions,
   mergeSearchOptions
 } from '../searchService'
+import type { SearchApiKeyConfig, SearchLoadBalanceStrategy } from '../../../../shared/types'
+import { selectSearchApiKey } from '../searchKeyHelper'
 
 /** Brave 配置 */
 export interface BraveConfig {
   /** API Key */
   apiKey: string
+  id?: string
+  apiKeys?: SearchApiKeyConfig[]
+  strategy?: SearchLoadBalanceStrategy
 }
 
 const BASE_URL = 'https://api.search.brave.com/res/v1'
@@ -27,18 +32,26 @@ export class BraveSearchService extends SearchService {
   readonly type = 'brave'
 
   private apiKey: string
+  private serviceId: string
+  private apiKeys: SearchApiKeyConfig[] | undefined
+  private strategy: SearchLoadBalanceStrategy | undefined
 
   constructor(config: BraveConfig) {
     super()
-    this.apiKey = config.apiKey
+    this.serviceId = config.id ?? ''
+    this.apiKey = config.apiKey ?? ''
+    this.apiKeys = config.apiKeys
+    this.strategy = config.strategy
   }
 
   isAvailable(): boolean {
-    return !!this.apiKey
+    const hasMultiKey = this.apiKeys?.some(k => k.isEnabled && k.key.trim())
+    return !!(hasMultiKey || this.apiKey)
   }
 
   async search(query: string, options?: SearchOptions): Promise<SearchResult> {
     const opts = mergeSearchOptions(options)
+    const key = selectSearchApiKey(this.serviceId, this.apiKey, this.apiKeys, this.strategy)
 
     const params = new URLSearchParams({
       q: query,
@@ -49,7 +62,7 @@ export class BraveSearchService extends SearchService {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'X-Subscription-Token': this.apiKey
+        'X-Subscription-Token': key
       },
       signal: AbortSignal.timeout(opts.timeout)
     })

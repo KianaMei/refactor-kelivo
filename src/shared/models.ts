@@ -2,6 +2,12 @@ export interface ModelsListParams {
   providerId: string
 }
 
+export interface ModelsTestFetchParams {
+  providerType: string
+  baseUrl: string
+  apiKey: string
+}
+
 // 模型类型
 export type ModelType = 'chat' | 'embedding'
 

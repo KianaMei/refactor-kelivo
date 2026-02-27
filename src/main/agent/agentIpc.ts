@@ -51,6 +51,10 @@ function computeTotalTokens(usage: unknown): number | null {
   return Math.max(0, Math.round(input + output))
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null
+}
+
 async function upsertSession(sessionId: string): Promise<void> {
   const session = agentSessionRepo.getAgentSession(sessionId)
   if (!session) return
@@ -401,13 +405,16 @@ export function registerAgentIpc(): void {
       approvalPolicy: input.codexApprovalPolicy,
       resumeId
     }).then(async (result) => {
-      const totalTokens = computeTotalTokens(result?.usage)
-      const lastError = result?.success === false ? String(result?.error ?? 'Agent run failed') : null
+      const r = isRecord(result) ? result : {}
+      const totalTokens = computeTotalTokens(r.usage)
+      const success = r.success === true
+      const aborted = r.aborted === true
+      const lastError = r.success === false ? String(r.error ?? 'Agent run failed') : null
 
       agentSessionRepo.updateAgentSession(sessionId, {
-        sdkSessionId: typeof result?.resumeId === 'string' ? result.resumeId : undefined,
+        sdkSessionId: typeof r.resumeId === 'string' ? r.resumeId : undefined,
         totalTokens: totalTokens ?? undefined,
-        status: result?.success ? 'done' : (result?.aborted ? 'aborted' : 'error'),
+        status: success ? 'done' : (aborted ? 'aborted' : 'error'),
         lastError
       })
       await upsertSession(sessionId)

@@ -6,6 +6,10 @@ import type {
   ConversationListParams,
   ConversationListResult
 } from '../../../shared/db-types'
+import {
+  normalizeResponsesReasoningSummary,
+  normalizeResponsesTextVerbosity
+} from '../../../shared/responsesOptions'
 
 // ── Row ↔ TS conversion ────────────────────────────────────
 
@@ -19,6 +23,8 @@ interface ConversationRow {
   truncate_index: number
   version_selections: string | null
   thinking_budget: number | null
+  responses_reasoning_summary: string | null
+  responses_text_verbosity: string | null
   summary: string | null
   last_summarized_message_count: number
   created_at: number
@@ -36,6 +42,8 @@ function rowToConversation(row: ConversationRow): DbConversation {
     truncateIndex: row.truncate_index,
     versionSelections: row.version_selections ? JSON.parse(row.version_selections) : null,
     thinkingBudget: row.thinking_budget,
+    responsesReasoningSummary: normalizeResponsesReasoningSummary(row.responses_reasoning_summary),
+    responsesTextVerbosity: normalizeResponsesTextVerbosity(row.responses_text_verbosity),
     summary: row.summary,
     lastSummarizedMessageCount: row.last_summarized_message_count,
     createdAt: row.created_at,
@@ -124,6 +132,14 @@ export function updateConversation(id: string, input: ConversationUpdateInput): 
     args.push(input.versionSelections ? JSON.stringify(input.versionSelections) : null)
   }
   if (input.thinkingBudget !== undefined) { sets.push('thinking_budget = ?'); args.push(input.thinkingBudget) }
+  if (input.responsesReasoningSummary !== undefined) {
+    sets.push('responses_reasoning_summary = ?')
+    args.push(input.responsesReasoningSummary)
+  }
+  if (input.responsesTextVerbosity !== undefined) {
+    sets.push('responses_text_verbosity = ?')
+    args.push(input.responsesTextVerbosity)
+  }
   if (input.summary !== undefined) { sets.push('summary = ?'); args.push(input.summary) }
   if (input.lastSummarizedMessageCount !== undefined) {
     sets.push('last_summarized_message_count = ?')

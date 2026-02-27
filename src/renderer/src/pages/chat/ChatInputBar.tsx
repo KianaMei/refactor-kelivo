@@ -14,10 +14,11 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Paperclip, Image, AtSign, Square, X,
   Globe, Lightbulb, Hammer, Eraser, ChevronLeft, ChevronRight,
-  FileText, RefreshCw, ArrowUp, Zap, Maximize2, Minimize2, Download
+  FileText, RefreshCw, ArrowUp, Zap, Maximize2, Minimize2, Download, Eye, EyeOff
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import type { ProviderConfigV2, QuickPhrase, SearchConfig } from '../../../../shared/types'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
 import { DesktopPopover } from '../../components/DesktopPopover'
 import { ReasoningBudgetPopover, type EffortValue } from '../../components/ReasoningBudgetPopover'
 import { MaxTokensPopover } from '../../components/MaxTokensPopover'
@@ -27,6 +28,7 @@ import { ModelSelectPopover } from '../../components/ModelSelectPopover'
 import { SearchSelectPopover } from '../../components/SearchSelectPopover'
 import { ToolLoopPopover } from '../../components/ToolLoopPopover'
 import { getBrandIcon } from '../../utils/brandAssets'
+import { MarkdownView } from '../../components/MarkdownView'
 import { BrandAvatar } from '../settings/providers/components/BrandAvatar'
 
 export interface Attachment {
@@ -46,13 +48,14 @@ export interface MentionedModel {
   modelId: string
 }
 
-const REASONING_LEVEL_META: Record<EffortValue, { key: 'auto' | 'off' | 'minimal' | 'low' | 'medium' | 'high'; tip: string }> = {
+const REASONING_LEVEL_META: Record<EffortValue, { key: 'auto' | 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; tip: string }> = {
   [-1]: { key: 'auto', tip: '自动（模型自行决定）' },
   0: { key: 'off', tip: '关闭推理' },
   [-10]: { key: 'minimal', tip: '最少推理' },
   [-20]: { key: 'low', tip: '低强度推理' },
   [-30]: { key: 'medium', tip: '中强度推理' },
-  [-40]: { key: 'high', tip: '高强度推理' }
+  [-40]: { key: 'high', tip: '高强度推理' },
+  [-50]: { key: 'xhigh', tip: '超高强度推理（xhigh）' }
 }
 
 const INPUT_COLLAPSED_LINES = 3
@@ -65,6 +68,7 @@ interface Props {
   onChange: (value: string) => void
   onSend: () => void
   onStop?: () => void
+  onRegenerate?: () => void
   isGenerating?: boolean
   disabled?: boolean
   placeholder?: string
@@ -87,6 +91,12 @@ interface Props {
   currentProviderName?: string
   reasoningEffort?: EffortValue
   onReasoningEffortChange?: (v: EffortValue) => void
+  allowXHighReasoning?: boolean
+  showResponsesOptions?: boolean
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  onResponsesReasoningSummaryChange?: (v: ResponsesReasoningSummary) => void
+  responsesTextVerbosity?: ResponsesTextVerbosity
+  onResponsesTextVerbosityChange?: (v: ResponsesTextVerbosity) => void
   maxTokens?: number
   maxTokensLimit?: number
   onMaxTokensChange?: (v: number) => void
@@ -100,8 +110,10 @@ interface Props {
   mcpToolCallMode?: 'native' | 'prompt'
   onMcpToolCallModeChange?: (mode: 'native' | 'prompt') => void
   onClearContext?: () => void
+  isContextCleared?: boolean
   toolLoopIterations?: number
   onToolLoopIterationsChange?: (v: number) => void
+  enableUserMarkdown?: boolean
 }
 
 export function ChatInputBar(props: Props) {
@@ -110,6 +122,7 @@ export function ChatInputBar(props: Props) {
     onChange,
     onSend,
     onStop,
+    onRegenerate,
     isGenerating = false,
     disabled = false,
     placeholder = '输入消息...',
@@ -125,6 +138,12 @@ export function ChatInputBar(props: Props) {
     currentProviderName,
     reasoningEffort = -1,
     onReasoningEffortChange,
+    allowXHighReasoning = false,
+    showResponsesOptions = false,
+    responsesReasoningSummary = 'detailed',
+    onResponsesReasoningSummaryChange,
+    responsesTextVerbosity = 'high',
+    onResponsesTextVerbosityChange,
     maxTokens = 0,
     maxTokensLimit = 128000,
     onMaxTokensChange,
@@ -135,8 +154,10 @@ export function ChatInputBar(props: Props) {
     mcpToolCallMode = 'native',
     onMcpToolCallModeChange,
     onClearContext,
+    isContextCleared = false,
     toolLoopIterations = 10,
-    onToolLoopIterationsChange
+    onToolLoopIterationsChange,
+    enableUserMarkdown = false
   } = props
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -160,6 +181,7 @@ export function ChatInputBar(props: Props) {
   const [manualExpand, setManualExpand] = useState(false)
   const [canManualExpand, setCanManualExpand] = useState(false)
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null)
+  const [previewMode, setPreviewMode] = useState(false)
 
   // 快捷短语菜单
   const quickPhraseBtnRef = useRef<HTMLButtonElement>(null)
@@ -167,7 +189,7 @@ export function ChatInputBar(props: Props) {
 
   const mcpToolCount = mcpServers.filter((s) => s.enabled).reduce((a, s) => a + s.toolCount, 0)
   const reasoningActive = reasoningEffort !== -1 && reasoningEffort !== 0
-  const reasoningMeta = REASONING_LEVEL_META[reasoningEffort]
+  const reasoningMeta = REASONING_LEVEL_META[reasoningEffort] ?? REASONING_LEVEL_META[-1]
   const mentionActive = mentionedModels.length > 0
   const canMention = !disabled && availableProviders.length > 0 && !!onAddMention
 
@@ -309,20 +331,30 @@ export function ChatInputBar(props: Props) {
       {/* 文本输入 */}
 
       <div className="chatInputTextareaWrap">
-        <textarea
-          ref={textareaRef}
-          className="chatInputTextarea"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={3}
-        />
-        {(canManualExpand || manualExpand) && (
+        {enableUserMarkdown && previewMode && value.trim() ? (
+          <div
+            className="chatInputPreview"
+            onClick={() => setPreviewMode(false)}
+            title="点击返回编辑"
+          >
+            <MarkdownView content={value} />
+          </div>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            className="chatInputTextarea"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={3}
+          />
+        )}
+        {(canManualExpand || manualExpand) && !previewMode && (
           <button
             type="button"
             className={`chatInputExpandBtn ${manualExpand ? 'expanded' : ''}`}
@@ -339,6 +371,16 @@ export function ChatInputBar(props: Props) {
       {/* 底部工具按钮行 - 对齐 Flutter _CompactIconButton 布局 */}
       <div className="chatInputToolbar">
         <div className="chatInputToolGroup">
+          {enableUserMarkdown && value.trim() && (
+            <button
+              type="button"
+              className={`btn-compact ${previewMode ? 'btn-compact-active' : ''}`}
+              onClick={() => setPreviewMode(!previewMode)}
+              title={previewMode ? '返回编辑' : '预览 Markdown'}
+            >
+              {previewMode ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          )}
           <button
             type="button"
             className="btn-compact"
@@ -382,7 +424,9 @@ export function ChatInputBar(props: Props) {
             className={`btn-compact reasoning-btn reasoning-${reasoningMeta.key} ${reasoningActive ? 'btn-active' : ''}`}
             onClick={() => setReasoningOpen(!reasoningOpen)}
             disabled={disabled}
-            title={`推理预算：${reasoningMeta.key}（${reasoningMeta.tip}）`}
+            title={showResponsesOptions
+              ? `推理预算：${reasoningMeta.key}（${reasoningMeta.tip}）\nsummary: ${responsesReasoningSummary} / verbosity: ${responsesTextVerbosity}`
+              : `推理预算：${reasoningMeta.key}（${reasoningMeta.tip}）`}
           >
             <Lightbulb size={20} />
             <span className="reasoning-level-dot" />
@@ -392,7 +436,7 @@ export function ChatInputBar(props: Props) {
             <Hammer size={20} />
             {mcpToolCount > 0 && <span style={{ fontSize: 12, fontWeight: 500 }}>{mcpToolCount}</span>}
           </button>
-          <button type="button" className="btn-compact" onClick={onClearContext} disabled={disabled} title="清除上下文">
+          <button type="button" className={`btn-compact ${isContextCleared ? 'btn-active' : ''}`} onClick={onClearContext} disabled={disabled} title={isContextCleared ? '取消清除上下文' : '清除上下文'}>
             <Eraser size={20} />
           </button>
           <button ref={quickPhraseBtnRef} type="button" className="btn-compact" onClick={() => setQuickPhraseOpen(!quickPhraseOpen)} disabled={disabled} title="快捷短语">
@@ -431,6 +475,11 @@ export function ChatInputBar(props: Props) {
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileChange} />
 
         <div className="chatInputToolGroup">
+          {onRegenerate && !isGenerating && (
+            <button type="button" className="btn chatInputSend" style={{ background: 'var(--surface)' }} onClick={onRegenerate} disabled={disabled} title="重新生成">
+              <RefreshCw size={16} />
+            </button>
+          )}
           {isGenerating ? (
             <button type="button" className="btn btn-primary chatInputSend" onClick={onStop} title="停止生成">
               <Square size={16} />
@@ -445,7 +494,16 @@ export function ChatInputBar(props: Props) {
 
       {/* Popovers */}
       <DesktopPopover anchorRef={reasoningBtnRef} open={reasoningOpen} onClose={() => setReasoningOpen(false)} minWidth={380}>
-        <ReasoningBudgetPopover value={reasoningEffort} onChange={(v) => { onReasoningEffortChange?.(v); setReasoningOpen(false) }} />
+        <ReasoningBudgetPopover
+          value={reasoningEffort}
+          onChange={(v) => onReasoningEffortChange?.(v)}
+          allowXHigh={allowXHighReasoning}
+          showResponsesOptions={showResponsesOptions}
+          responsesReasoningSummary={responsesReasoningSummary}
+          onResponsesReasoningSummaryChange={onResponsesReasoningSummaryChange}
+          responsesTextVerbosity={responsesTextVerbosity}
+          onResponsesTextVerbosityChange={onResponsesTextVerbosityChange}
+        />
       </DesktopPopover>
 
       <DesktopPopover anchorRef={maxTokensBtnRef} open={maxTokensOpen} onClose={() => setMaxTokensOpen(false)} minWidth={320}>

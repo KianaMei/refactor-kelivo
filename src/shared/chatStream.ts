@@ -3,6 +3,8 @@
  * 定义 AI 聊天流式响应的核心数据结构
  */
 
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from './responsesOptions'
+
 /** Token 使用统计 */
 export interface TokenUsage {
   promptTokens: number
@@ -103,6 +105,10 @@ export interface ChatStreamParams {
   userImagePaths?: string[]
   /** 思考预算 (token 数或 effort level) */
   thinkingBudget?: number
+  /** Responses API: reasoning.summary */
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  /** Responses API: text.verbosity */
+  responsesTextVerbosity?: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number

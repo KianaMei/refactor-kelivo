@@ -25,6 +25,28 @@ import type {
     AgentMessageCreateInput,
     AgentMessageUpdateInput
 } from '../shared/db-types'
+import type {
+    ImageStudioSubmitRequest,
+    ImageStudioSubmitResult,
+    ImageStudioCancelResult,
+    ImageStudioListRequest,
+    ImageStudioHistoryListResult,
+    ImageStudioHistoryGetResult,
+    ImageStudioDeleteRequest,
+    ImageStudioHistoryDeleteResult,
+    ImageStudioOutputDeleteRequest,
+    ImageStudioOutputDeleteResult,
+    ImageStudioRetryRequest,
+    ImageStudioEvent
+} from '../shared/imageStudio'
+import type {
+    PromptLibraryCreateInput,
+    PromptLibraryUpdateInput,
+    PromptLibraryListRequest,
+    PromptLibraryListResult,
+    PromptLibrarySingleResult,
+    PromptLibraryDeleteResult
+} from '../shared/promptLibrary'
 
 interface PreprocessImageParams {
     imagePaths: string[]
@@ -53,6 +75,7 @@ declare global {
             }
             models: {
                 list: (providerId: string) => Promise<ModelsListResult>
+                testFetch: (params: { providerType: string; baseUrl: string; apiKey: string }) => Promise<ModelsListResult>
             }
             avatar: {
                 save: (providerId: string, base64DataUrl: string) => Promise<string>
@@ -156,6 +179,24 @@ declare global {
                 clearData: () => Promise<{ success: boolean; error?: string }>
                 openDataDir: () => Promise<{ success: boolean; error?: string }>
                 getDataPath: () => Promise<string>
+            }
+            imageStudio: {
+                submit: (request: ImageStudioSubmitRequest) => Promise<ImageStudioSubmitResult>
+                cancel: (generationId: string) => Promise<ImageStudioCancelResult>
+                historyList: (request: ImageStudioListRequest) => Promise<ImageStudioHistoryListResult>
+                historyGet: (generationId: string) => Promise<ImageStudioHistoryGetResult>
+                historyDelete: (request: ImageStudioDeleteRequest) => Promise<ImageStudioHistoryDeleteResult>
+                outputDelete: (request: ImageStudioOutputDeleteRequest) => Promise<ImageStudioOutputDeleteResult>
+                historyRetry: (request: ImageStudioRetryRequest) => Promise<ImageStudioSubmitResult>
+                onEvent: (fn: (event: ImageStudioEvent) => void) => () => void
+            }
+            promptLibrary: {
+                list: (request: PromptLibraryListRequest) => Promise<PromptLibraryListResult>
+                create: (input: PromptLibraryCreateInput) => Promise<PromptLibrarySingleResult>
+                update: (id: string, input: PromptLibraryUpdateInput) => Promise<PromptLibrarySingleResult>
+                get: (id: string) => Promise<PromptLibrarySingleResult>
+                delete: (id: string) => Promise<PromptLibraryDeleteResult>
+                clear: () => Promise<PromptLibraryDeleteResult>
             }
         }
     }

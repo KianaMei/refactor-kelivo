@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
-import { createDefaultProviderConfig, type AppConfig, type ProviderConfigV2 } from '../../../../../shared/types'
+import { createDefaultProviderConfig, type AppConfig, type ProviderConfigV2, type ProviderKind } from '../../../../../shared/types'
 import type { ImportedProvider } from '../../../../../shared/providerCodec'
 import { ProviderCard } from './ProviderCard'
 import { ConfirmDialog } from './dialogs/ConfirmDialog'
@@ -7,6 +7,14 @@ import { useConfirm } from '../../../hooks/useConfirm'
 import { ImportProviderDialog } from './dialogs/ImportProviderDialog'
 import { ProviderDetailPane } from './ProviderDetailPane'
 import { ExportProviderDialog } from './dialogs/ExportProviderDialog'
+import { CustomSelect } from '../../../components/ui/CustomSelect'
+
+const PROVIDER_TYPES = [
+  { value: 'openai', label: 'OpenAI Chat' },
+  { value: 'openai_response', label: 'OpenAI Response' },
+  { value: 'google', label: 'Google AI' },
+  { value: 'claude', label: 'Anthropic Claude' }
+]
 
 function isHttpUrl(v: string): boolean {
   try {
@@ -69,6 +77,7 @@ export function ProvidersPane(props: {
   const [formName, setFormName] = useState('')
   const [formBaseUrl, setFormBaseUrl] = useState('')
   const [formApiKey, setFormApiKey] = useState('')
+  const [formProviderType, setFormProviderType] = useState<ProviderKind>('openai')
   const [formError, setFormError] = useState<string | null>(null)
 
   // 删除确认弹窗
@@ -207,6 +216,7 @@ export function ProvidersPane(props: {
     setFormName('')
     setFormBaseUrl('')
     setFormApiKey('')
+    setFormProviderType('openai')
     setFormError(null)
     setEditModalOpen(true)
   }
@@ -231,6 +241,8 @@ export function ProvidersPane(props: {
         name,
         baseUrl,
         apiKey,
+        providerType: formProviderType,
+        useResponseApi: formProviderType === 'openai_response' ? true : (existing?.useResponseApi ?? base.useResponseApi),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now
       }
@@ -755,6 +767,17 @@ export function ProvidersPane(props: {
 
             <div className="modal-body">
               {formError && <div className="form-error">{formError}</div>}
+
+              <div className="form-group">
+                <label>供应商类型</label>
+                <CustomSelect
+                  value={formProviderType}
+                  onChange={(val) => setFormProviderType(val as ProviderKind)}
+                  options={PROVIDER_TYPES}
+                  className="input"
+                  width="100%"
+                />
+              </div>
 
               <div className="form-group">
                 <label>名称</label>

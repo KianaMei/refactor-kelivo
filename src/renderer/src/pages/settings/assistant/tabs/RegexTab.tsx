@@ -35,6 +35,7 @@ export function RegexTab(props: {
     replacement: string
     scopes: Set<AssistantRegexScope>
     visualOnly: boolean
+    replaceOnly: boolean
   }>({
     open: false,
     id: null,
@@ -42,7 +43,8 @@ export function RegexTab(props: {
     pattern: '',
     replacement: '',
     scopes: new Set<AssistantRegexScope>(['assistant']),
-    visualOnly: false
+    visualOnly: false,
+    replaceOnly: false
   })
 
   const regexErr = useMemo(() => validateRegex(editing.pattern), [editing.pattern])
@@ -56,7 +58,8 @@ export function RegexTab(props: {
       pattern: '',
       replacement: '',
       scopes: new Set<AssistantRegexScope>(['assistant']),
-      visualOnly: false
+      visualOnly: false,
+      replaceOnly: false
     })
   }
 
@@ -68,7 +71,8 @@ export function RegexTab(props: {
       pattern: r.pattern,
       replacement: r.replacement,
       scopes: new Set(r.scopes ?? []),
-      visualOnly: r.visualOnly
+      visualOnly: r.visualOnly,
+      replaceOnly: !!r.replaceOnly
     })
   }
 
@@ -82,6 +86,7 @@ export function RegexTab(props: {
       replacement: editing.replacement,
       scopes: Array.from(editing.scopes),
       visualOnly: editing.visualOnly,
+      replaceOnly: editing.visualOnly ? false : editing.replaceOnly,
       enabled: editing.id ? (rules.find((x) => x.id === editing.id)?.enabled ?? true) : true
     }
     if (editing.id) {
@@ -130,7 +135,7 @@ export function RegexTab(props: {
         </div>
 
         <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
-          用正则表达式批量改写消息内容。勾选“仅视觉”时，只影响显示，不影响请求内容。
+          用正则表达式批量改写消息内容。可选“仅视觉”（仅展示层生效）或“仅请求”（仅发送给模型时生效）。
         </div>
 
         {rules.length === 0 ? (
@@ -143,6 +148,9 @@ export function RegexTab(props: {
                   <div style={{ fontWeight: 800 }}>{r.name || '未命名规则'}</div>
                   {r.visualOnly ? (
                     <span className="primary-capsule" style={{ opacity: 0.9 }}>仅视觉</span>
+                  ) : null}
+                  {r.replaceOnly ? (
+                    <span className="primary-capsule" style={{ opacity: 0.9 }}>仅请求</span>
                   ) : null}
                   <span style={{ fontSize: 12, opacity: 0.7 }}>
                     {r.scopes?.length ? r.scopes.join(',') : '未选择范围'}
@@ -247,10 +255,23 @@ export function RegexTab(props: {
                   type="button"
                   className={`btn ${editing.visualOnly ? 'btn-primary' : ''}`}
                   style={{ width: '100%', justifyContent: 'center', gap: 6 }}
-                  onClick={() => setEditing((s) => ({ ...s, visualOnly: !s.visualOnly }))}
+                  onClick={() => setEditing((s) => ({ ...s, visualOnly: !s.visualOnly, replaceOnly: s.visualOnly ? s.replaceOnly : false }))}
                 >
                   {editing.visualOnly ? <Eye size={16} /> : <EyeOff size={16} />}
                   {editing.visualOnly ? '开启' : '关闭'}
+                </button>
+              </div>
+
+              <div style={{ width: 180 }}>
+                <label className="input-label">仅请求</label>
+                <button
+                  type="button"
+                  className={`btn ${editing.replaceOnly ? 'btn-primary' : ''}`}
+                  style={{ width: '100%', justifyContent: 'center', gap: 6 }}
+                  onClick={() => setEditing((s) => ({ ...s, replaceOnly: !s.replaceOnly, visualOnly: s.replaceOnly ? s.visualOnly : false }))}
+                >
+                  <ArrowLeftRight size={16} />
+                  {editing.replaceOnly ? '开启' : '关闭'}
                 </button>
               </div>
             </div>

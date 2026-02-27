@@ -22,7 +22,9 @@ import {
   joinUrl
 } from '../../../streamingHttpClient'
 import type { UserImage } from '../../chatApiService'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../responsesOptions'
 import * as helper from '../../../chatApiHelper'
+import { buildResponsesInputPayload } from './openaiMessageFormat'
 
 /** 发送流式请求的参数 */
 export interface SendStreamParams {
@@ -31,6 +33,8 @@ export interface SendStreamParams {
   messages: ChatMessage[]
   userImages?: UserImage[]
   thinkingBudget?: number
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  responsesTextVerbosity?: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number
@@ -52,6 +56,8 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     messages,
     userImages,
     thinkingBudget,
+    responsesReasoningSummary = 'detailed',
+    responsesTextVerbosity = 'high',
     temperature,
     topP,
     maxTokens,
@@ -69,9 +75,10 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
 
   const isReasoning = checkModelIsReasoning(modelId)
   const rawEffort = helper.effortForBudget(thinkingBudget)
-  const effort = rawEffort === 'minimal' ? 'low' : rawEffort
+  const xhighSupported = helper.supportsResponsesXHighEffort(upstreamModelId) || helper.supportsResponsesXHighEffort(modelId)
+  const effort = rawEffort === 'minimal' ? 'low' : (rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort)
 
-  const { input, instructions } = buildInputMessages(messages, userImages)
+  const { input, instructions } = buildResponsesInputPayload(messages, userImages)
   const toolList = buildToolList(tools, config, modelId)
 
   const body: Record<string, unknown> = {
@@ -86,13 +93,8 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
       tools: toolList,
       tool_choice: 'auto'
     }),
-    ...(isReasoning && effort !== 'off' && {
-      reasoning: {
-        summary: 'detailed',
-        ...(effort !== 'auto' && { effort })
-      }
-    }),
-    text: { verbosity: 'high' }
+    ...buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary }),
+    ...buildResponsesTextConfig(responsesTextVerbosity)
   }
 
   try {
@@ -145,6 +147,8 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     toolList,
     systemInstructions: instructions,
     thinkingBudget,
+    responsesReasoningSummary,
+    responsesTextVerbosity,
     temperature,
     topP,
     maxTokens,
@@ -169,6 +173,8 @@ interface ProcessStreamParams {
   toolList: Array<Record<string, unknown>>
   systemInstructions: string
   thinkingBudget?: number
+  responsesReasoningSummary: ResponsesReasoningSummary
+  responsesTextVerbosity: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number
@@ -191,6 +197,8 @@ async function* processStream(params: ProcessStreamParams): AsyncGenerator<ChatS
     toolList,
     systemInstructions,
     thinkingBudget,
+    responsesReasoningSummary,
+    responsesTextVerbosity,
     temperature,
     topP,
     maxTokens,
@@ -311,6 +319,8 @@ async function* processStream(params: ProcessStreamParams): AsyncGenerator<ChatS
               toolList,
               systemInstructions,
               thinkingBudget,
+              responsesReasoningSummary,
+              responsesTextVerbosity,
               temperature,
               topP,
               maxTokens,
@@ -350,6 +360,8 @@ interface ExecuteToolsParams {
   toolList: Array<Record<string, unknown>>
   systemInstructions: string
   thinkingBudget?: number
+  responsesReasoningSummary: ResponsesReasoningSummary
+  responsesTextVerbosity: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number
@@ -374,6 +386,8 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     toolList,
     systemInstructions,
     thinkingBudget,
+    responsesReasoningSummary,
+    responsesTextVerbosity,
     temperature,
     topP,
     maxTokens,
@@ -387,6 +401,11 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
   const upstreamModelId = helper.apiModelId(config, modelId)
   let usage = initialUsage
   let totalTokens = usage?.totalTokens ?? 0
+
+  const isReasoning = checkModelIsReasoning(modelId)
+  const rawEffort = helper.effortForBudget(thinkingBudget)
+  const xhighSupported = helper.supportsResponsesXHighEffort(upstreamModelId) || helper.supportsResponsesXHighEffort(modelId)
+  const effort = rawEffort === 'minimal' ? 'low' : (rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort)
 
   const callInfos: ToolCallInfo[] = []
   const msgs: Array<{ id: string; name: string; args: Record<string, unknown>; callId: string }> = []
@@ -420,11 +439,8 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     yield { content: '', isDone: false, totalTokens, usage, toolResults: resultsInfo }
   }
 
-  const conversation: Array<Record<string, unknown>> = []
-  for (const m of messages) {
-    if (m.role === 'system') continue
-    conversation.push({ role: m.role, content: m.content })
-  }
+  const { input: normalizedConversation } = buildResponsesInputPayload(messages)
+  const conversation: Array<Record<string, unknown>> = [...normalizedConversation]
   for (const m of msgs) {
     conversation.push({
       type: 'function_call',
@@ -441,7 +457,8 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
       input: conversation,
       stream: true,
       ...(systemInstructions && { instructions: systemInstructions }),
-      reasoning: { effort: 'high', summary: 'detailed' },
+      ...buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary }),
+      ...buildResponsesTextConfig(responsesTextVerbosity),
       ...(temperature !== undefined && { temperature }),
       ...(topP !== undefined && { top_p: topP }),
       ...(maxTokens !== undefined && maxTokens > 0 && { max_output_tokens: maxTokens }),
@@ -585,50 +602,6 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
 
 // ========== Helpers ==========
 
-function buildInputMessages(
-  messages: ChatMessage[],
-  userImages?: UserImage[]
-): { input: Array<Record<string, unknown>>; instructions: string } {
-  const input: Array<Record<string, unknown>> = []
-  let instructions = ''
-
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i]
-    const isLast = i === messages.length - 1
-    const raw = typeof m.content === 'string' ? m.content : ''
-    const role = m.role
-
-    if (role === 'system') {
-      if (raw) {
-        instructions = instructions ? `${instructions}\n\n${raw}` : raw
-      }
-      continue
-    }
-
-    const hasMarkdownImages = raw.includes('![') && raw.includes('](')
-    const hasCustomImages = raw.includes('[image:')
-    const hasAttachedImages = isLast && userImages && userImages.length > 0 && role === 'user'
-
-    if (hasMarkdownImages || hasCustomImages || hasAttachedImages) {
-      const parts: Array<Record<string, unknown>> = []
-      if (raw) {
-        parts.push({ type: 'input_text', text: raw })
-      }
-      if (hasAttachedImages) {
-        for (const img of userImages!) {
-          const dataUrl = `data:${img.mime};base64,${img.base64}`
-          parts.push({ type: 'input_image', image_url: dataUrl })
-        }
-      }
-      input.push({ role, content: parts })
-    } else {
-      input.push({ role, content: raw })
-    }
-  }
-
-  return { input, instructions }
-}
-
 function buildToolList(
   tools: ToolDefinition[] | undefined,
   config: ProviderConfigV2,
@@ -675,6 +648,31 @@ function buildToolList(
   }
 
   return toolList
+}
+
+function buildResponsesReasoningConfig(params: {
+  isReasoning: boolean
+  effort: string
+  summary: ResponsesReasoningSummary
+}): Record<string, unknown> {
+  const { isReasoning, effort, summary } = params
+  if (!isReasoning || effort === 'off') return {}
+
+  const reasoning: Record<string, unknown> = {}
+  if (summary !== 'off') {
+    reasoning.summary = summary
+  }
+  if (effort !== 'auto') {
+    reasoning.effort = effort
+  }
+
+  if (Object.keys(reasoning).length === 0) return {}
+
+  return { reasoning }
+}
+
+function buildResponsesTextConfig(verbosity: ResponsesTextVerbosity): Record<string, unknown> {
+  return { text: { verbosity } }
 }
 
 function extractWebSearchCitations(json: Record<string, unknown>): ToolResultInfo[] {
@@ -735,5 +733,7 @@ function checkModelIsReasoning(modelId: string): boolean {
   const m = modelId.toLowerCase()
   if (/^o[134]/.test(m)) return true
   if (m.startsWith('o3') || m.startsWith('o4')) return true
+  // GPT-5 系列在 Responses API 下也可能返回 reasoning summary
+  if (m.startsWith('gpt-5')) return true
   return false
 }

@@ -174,6 +174,9 @@ export function MessageBubble(props: Props) {
   const showStickerToolUI = displaySettings?.showStickerToolUI !== false
   const bgStyle = displaySettings?.chatMessageBackgroundStyle ?? 'default'
   const bubbleOpacity = displaySettings?.chatBubbleOpacity ?? 100
+  const enableMath = displaySettings?.enableMathRendering !== false
+  const enableDollarLatex = displaySettings?.enableDollarLatex !== false
+  const enableUserMarkdown = displaySettings?.enableUserMarkdown !== false
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -458,7 +461,7 @@ export function MessageBubble(props: Props) {
 
         {/* 时间戳 */}
         {showTimestamp && (
-          <div className="msgTimestamp">
+          <div className={`msgTimestamp ${isUser ? 'msgTimestampUser' : ''}`}>
             <span>{isUser ? '你' : assistantLabel}</span>
             <span className="msgTimestampTime">{formatTime(message.ts)}</span>
             {!isUser && message.modelId && props.providerName && (
@@ -481,7 +484,7 @@ export function MessageBubble(props: Props) {
             ) : (
               <div key={`content-${idx}`} className="chatBubble" style={{ position: 'relative' }}>
                 <MessageOutline content={part.text} messageId={`${message.id}-p${idx}`} />
-                <MarkdownView content={part.text} messageId={`${message.id}-p${idx}`} />
+                <MarkdownView content={part.text} messageId={`${message.id}-p${idx}`} enableMath={enableMath} enableDollarLatex={enableDollarLatex} />
                 {isLoading && idx === messageParts.length - 1 && message.content && (
                   <StreamingDots />
                 )}
@@ -492,7 +495,11 @@ export function MessageBubble(props: Props) {
           /* 用户消息 或 无 thinking 块的助手消息：使用独立气泡 */
           <div className={`chatBubble ${isUser ? 'chatBubbleUser' : ''}`} style={{ ...getBubbleStyle(), position: 'relative' }}>
             {!isUser && <MessageOutline content={displayContent} messageId={message.id} />}
-            <MarkdownView content={displayContent} messageId={message.id} />
+            {isUser && !enableUserMarkdown ? (
+              <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{displayContent}</span>
+            ) : (
+              <MarkdownView content={displayContent} messageId={message.id} enableMath={enableMath} enableDollarLatex={enableDollarLatex} />
+            )}
             {isLoading && message.content && (
               <StreamingDots />
             )}

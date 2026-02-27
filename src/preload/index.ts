@@ -34,6 +34,14 @@ import type {
   ImageStudioSubmitResult
 } from '../shared/imageStudio'
 import type {
+  PromptLibraryCreateInput,
+  PromptLibraryUpdateInput,
+  PromptLibraryListRequest,
+  PromptLibraryListResult,
+  PromptLibrarySingleResult,
+  PromptLibraryDeleteResult
+} from '../shared/promptLibrary'
+import type {
   AgentEventPayload,
   AgentPermissionRespondParams,
   AgentRunAbortParams,
@@ -80,7 +88,9 @@ const api = {
   },
   models: {
     list: (providerId: string) =>
-      ipcRenderer.invoke(IpcChannel.ModelsList, { providerId }) as Promise<ModelsListResult>
+      ipcRenderer.invoke(IpcChannel.ModelsList, { providerId }) as Promise<ModelsListResult>,
+    testFetch: (params: { providerType: string; baseUrl: string; apiKey: string }) =>
+      ipcRenderer.invoke(IpcChannel.ModelsTestFetch, params) as Promise<ModelsListResult>
   },
   avatar: {
     save: (providerId: string, base64DataUrl: string) =>
@@ -313,6 +323,20 @@ const api = {
       ipcRenderer.invoke('storage:getCategoryItems', categoryKey) as Promise<StorageItemDetail[]>,
     deleteItems: (paths: string[]) =>
       ipcRenderer.invoke('storage:deleteItems', paths) as Promise<void>
+  },
+  promptLibrary: {
+    list: (request: PromptLibraryListRequest) =>
+      ipcRenderer.invoke(IpcChannel.PromptLibraryList, request) as Promise<PromptLibraryListResult>,
+    create: (input: PromptLibraryCreateInput) =>
+      ipcRenderer.invoke(IpcChannel.PromptLibraryCreate, input) as Promise<PromptLibrarySingleResult>,
+    update: (id: string, input: PromptLibraryUpdateInput) =>
+      ipcRenderer.invoke(IpcChannel.PromptLibraryUpdate, id, input) as Promise<PromptLibrarySingleResult>,
+    get: (id: string) =>
+      ipcRenderer.invoke(IpcChannel.PromptLibraryGet, id) as Promise<PromptLibrarySingleResult>,
+    delete: (id: string) =>
+      ipcRenderer.invoke(IpcChannel.PromptLibraryDelete, id) as Promise<PromptLibraryDeleteResult>,
+    clear: () =>
+      ipcRenderer.invoke(IpcChannel.PromptLibraryClear) as Promise<PromptLibraryDeleteResult>
   }
 }
 

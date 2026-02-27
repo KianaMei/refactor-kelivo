@@ -9,6 +9,7 @@ import { buildChatRequestMessages, buildCustomBody, buildCustomHeaders } from '.
 import { rendererSendMessageStream } from '../../lib/chatService'
 import { useChatStreamEvents } from './useChatStreamEvents'
 import { safeUuid } from '../../../../shared/utils'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
 
 interface MentionSendQueue {
   convId: string
@@ -18,6 +19,8 @@ interface MentionSendQueue {
   history: ChatMessage[]
   models: MentionedModel[]
   thinkingBudget: number
+  responsesReasoningSummary: ResponsesReasoningSummary
+  responsesTextVerbosity: ResponsesTextVerbosity
   maxToolLoopIterations: number
   enableSearchTool: boolean
   customHeaders?: Record<string, string>
@@ -100,6 +103,8 @@ export function useChatStream(deps: Deps) {
     enableSearchTool?: boolean
     enableMemory?: boolean
     thinkingBudget?: number
+    responsesReasoningSummary?: ResponsesReasoningSummary
+    responsesTextVerbosity?: ResponsesTextVerbosity
     maxToolLoopIterations?: number
     userImagePaths?: string[]
     temperature?: number
@@ -138,6 +143,8 @@ export function useChatStream(deps: Deps) {
       mcpServers: appConfig.mcpServers ?? [],
       mcpToolCallMode: appConfig.mcpToolCallMode,
       thinkingBudget: params.thinkingBudget,
+      responsesReasoningSummary: params.responsesReasoningSummary,
+      responsesTextVerbosity: params.responsesTextVerbosity,
       maxToolLoopIterations: params.maxToolLoopIterations,
       temperature: params.temperature,
       topP: params.topP,
@@ -272,6 +279,8 @@ export function useChatStream(deps: Deps) {
         enableSearchTool: queue.enableSearchTool,
         enableMemory: queue.assistantSnapshot?.enableMemory,
         thinkingBudget: queue.thinkingBudget,
+        responsesReasoningSummary: queue.responsesReasoningSummary,
+        responsesTextVerbosity: queue.responsesTextVerbosity,
         maxToolLoopIterations: queue.maxToolLoopIterations,
         userImagePaths: queue.userImagePaths,
         temperature: assistant?.temperature,
@@ -331,6 +340,8 @@ export function useChatStream(deps: Deps) {
       selectedVersions
     )
     const thinkingBudget = activeConversation?.thinkingBudget ?? -1
+    const responsesReasoningSummary = activeConversation?.responsesReasoningSummary ?? 'detailed'
+    const responsesTextVerbosity = activeConversation?.responsesTextVerbosity ?? 'high'
     const maxToolLoopIterations = assistant?.maxToolLoopIterations ?? 10
     const enableSearchTool = config.searchConfig?.global?.enabled === true
     const assistantIdForTools = activeAssistantId ?? null
@@ -419,6 +430,8 @@ export function useChatStream(deps: Deps) {
           history: historySnapshot,
           models: mentioned.slice(1),
           thinkingBudget,
+          responsesReasoningSummary,
+          responsesTextVerbosity,
           maxToolLoopIterations,
           enableSearchTool,
           customHeaders,
@@ -457,6 +470,8 @@ export function useChatStream(deps: Deps) {
           enableSearchTool,
           enableMemory: assistant?.enableMemory,
           thinkingBudget,
+          responsesReasoningSummary,
+          responsesTextVerbosity,
           maxToolLoopIterations,
           userImagePaths: attachmentPayload.userImagePaths,
           temperature: assistant?.temperature,

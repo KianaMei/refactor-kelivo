@@ -22,13 +22,15 @@ export function MultiKeyManagerDialog({
   const [saving, setSaving] = useState(false)
   const keyDeleteConfirm = useDeleteConfirm()
 
+  const [revealedKeyIds, setRevealedKeyIds] = useState<Set<string>>(new Set())
+
   // 编辑 Key 对话框状态
   const [editKeyOpen, setEditKeyOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<ApiKeyConfig | null>(null)
   const [editKeyName, setEditKeyName] = useState('')
   const [editKeyValue, setEditKeyValue] = useState('')
   const [editKeyPriority, setEditKeyPriority] = useState(5)
-  const [showEditKeyValue, setShowEditKeyValue] = useState(false)
+  const [showEditKeyValue, setShowEditKeyValue] = useState(true)
 
   // 批量添加 Key 对话框
   const [addKeysOpen, setAddKeysOpen] = useState(false)
@@ -52,6 +54,8 @@ export function MultiKeyManagerDialog({
     setKeys(provider.apiKeys || [])
     setStrategy(provider.keyManagement?.strategy || 'roundRobin')
     setFilter('all')
+    // 默认展示（你要管理多个 key，藏起来反而没意义）
+    setRevealedKeyIds(new Set((provider.apiKeys || []).map((k) => k.id)))
   }, [open, provider])
 
   // 过滤 Key 列表
@@ -60,6 +64,15 @@ export function MultiKeyManagerDialog({
     if (filter === 'active') return keys.filter(k => k.isEnabled)
     return keys.filter(k => !k.isEnabled)
   }, [keys, filter])
+
+  const toggleRevealKey = useCallback((keyId: string) => {
+    setRevealedKeyIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(keyId)) next.delete(keyId)
+      else next.add(keyId)
+      return next
+    })
+  }, [])
 
   // 保存更改
   const saveChanges = useCallback(async (newKeys: ApiKeyConfig[], newStrategy?: LoadBalanceStrategy) => {
@@ -79,6 +92,8 @@ export function MultiKeyManagerDialog({
       })
       setKeys(newKeys)
       if (newStrategy) setStrategy(newStrategy)
+      // 保存后保持默认“展示”所有 key
+      setRevealedKeyIds(new Set(newKeys.map((k) => k.id)))
     } finally {
       setSaving(false)
     }
@@ -90,7 +105,7 @@ export function MultiKeyManagerDialog({
     setEditKeyName('')
     setEditKeyValue('')
     setEditKeyPriority(5)
-    setShowEditKeyValue(false)
+    setShowEditKeyValue(true)
     setEditKeyOpen(true)
   }
 
@@ -100,7 +115,7 @@ export function MultiKeyManagerDialog({
     setEditKeyName(key.name || '')
     setEditKeyValue(key.key)
     setEditKeyPriority(key.priority)
-    setShowEditKeyValue(false)
+    setShowEditKeyValue(true)
     setEditKeyOpen(true)
   }
 
@@ -272,7 +287,13 @@ export function MultiKeyManagerDialog({
               {keys.length === 0 ? '暂无 API Key，点击"添加 Key"创建' : '没有符合筛选条件的 Key'}
             </div>
           ) : (
-            filteredKeys.map((key, index) => (
+            filteredKeys.map((key, index) => {
+              const revealed = revealedKeyIds.has(key.id)
+              const keyText = revealed
+                ? key.key
+                : `${key.key.slice(0, 8)}...${key.key.slice(-4)}`
+
+              return (
               <div
                 key={key.id}
                 className="model-row"
@@ -312,10 +333,11 @@ export function MultiKeyManagerDialog({
                       color: 'var(--text-2)',
                       fontFamily: 'monospace',
                       overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
+                      textOverflow: revealed ? 'clip' : 'ellipsis',
+                      whiteSpace: revealed ? 'normal' : 'nowrap',
+                      wordBreak: revealed ? 'break-all' : undefined
                     }}>
-                      {key.key.slice(0, 8)}...{key.key.slice(-4)}
+                      {keyText}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
@@ -343,6 +365,32 @@ export function MultiKeyManagerDialog({
 
                 {/* 操作按钮 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {/* 显示/隐藏 Key */}
+                  <button
+                    type="button"
+                    className="toolbar-icon-btn"
+                    title={revealed ? '隐藏 Key' : '显示 Key'}
+                    aria-label={revealed ? '隐藏 Key' : '显示 Key'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleRevealKey(key.id)
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      {revealed ? (
+                        <>
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                          <line x1="1" y1="1" x2="23" y2="23" />
+                        </>
+                      ) : (
+                        <>
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </>
+                      )}
+                    </svg>
+                  </button>
+
                   {/* 启用/禁用开关 */}
                   <label className="ios-switch ios-switch-sm" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -406,7 +454,8 @@ export function MultiKeyManagerDialog({
                   )}
                 </div>
               </div>
-            ))
+              )
+            })
           )}
         </div>
 

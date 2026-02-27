@@ -3,8 +3,12 @@
  * 纯逻辑函数，零 Node.js 依赖，可在 Main / Renderer 两侧使用
  */
 
-import type { ProviderConfigV2, ProviderKind } from './types'
+import type { ProviderConfigV2, ProviderKind, ApiKeyConfig } from './types'
 import type { ToolResultInfo } from './chatStream'
+
+// 多key运行时状态（随app重启重置，绝不写回config）
+const _roundRobinCounters = new Map<string, number>() // key: cfg.id
+const _leastUsedCounters = new Map<string, number>()  // key: ApiKeyConfig.id
 
 // ========== Reasoning Effort Level Constants ==========
 export const EFFORT_AUTO = -1
@@ -13,8 +17,9 @@ export const EFFORT_MINIMAL = -10
 export const EFFORT_LOW = -20
 export const EFFORT_MEDIUM = -30
 export const EFFORT_HIGH = -40
+export const EFFORT_XHIGH = -50
 
-export const EFFORT_LEVELS = [EFFORT_AUTO, EFFORT_OFF, EFFORT_MINIMAL, EFFORT_LOW, EFFORT_MEDIUM, EFFORT_HIGH]
+export const EFFORT_LEVELS = [EFFORT_AUTO, EFFORT_OFF, EFFORT_MINIMAL, EFFORT_LOW, EFFORT_MEDIUM, EFFORT_HIGH, EFFORT_XHIGH]
 
 // ========== Model ID Resolution ==========
 
@@ -33,13 +38,57 @@ export function apiModelId(cfg: ProviderConfigV2, modelId: string): string {
 
 // ========== API Key Management ==========
 
+function _getEnabledKeys(cfg: ProviderConfigV2): ApiKeyConfig[] | null {
+  if (!cfg.multiKeyEnabled || !cfg.apiKeys || cfg.apiKeys.length === 0) return null
+  const enabled = cfg.apiKeys.filter(k => k.isEnabled && k.key.trim() !== '')
+  return enabled.length > 0 ? enabled : null
+}
+
+function _selectByPriority(keys: ApiKeyConfig[]): ApiKeyConfig {
+  return [...keys].sort((a, b) =>
+    a.priority !== b.priority ? a.priority - b.priority : a.sortIndex - b.sortIndex
+  )[0]
+}
+
+function _selectByRoundRobin(providerId: string, keys: ApiKeyConfig[]): ApiKeyConfig {
+  const sorted = [...keys].sort((a, b) => a.sortIndex - b.sortIndex)
+  const idx = _roundRobinCounters.get(providerId) ?? 0
+  _roundRobinCounters.set(providerId, idx + 1)
+  return sorted[idx % sorted.length]
+}
+
+function _selectByLeastUsed(keys: ApiKeyConfig[]): ApiKeyConfig {
+  const selected = [...keys].sort((a, b) => {
+    const diff = (_leastUsedCounters.get(a.id) ?? 0) - (_leastUsedCounters.get(b.id) ?? 0)
+    return diff !== 0 ? diff : a.sortIndex - b.sortIndex
+  })[0]
+  _leastUsedCounters.set(selected.id, (_leastUsedCounters.get(selected.id) ?? 0) + 1)
+  return selected
+}
+
+function _selectByRandom(keys: ApiKeyConfig[]): ApiKeyConfig {
+  return keys[Math.floor(Math.random() * keys.length)]
+}
+
+function _selectKey(cfg: ProviderConfigV2, keys: ApiKeyConfig[]): string {
+  switch (cfg.keyManagement?.strategy ?? 'roundRobin') {
+    case 'priority':  return _selectByPriority(keys).key.trim()
+    case 'leastUsed': return _selectByLeastUsed(keys).key.trim()
+    case 'random':    return _selectByRandom(keys).key.trim()
+    default:          return _selectByRoundRobin(cfg.id, keys).key.trim()
+  }
+}
+
 export function effectiveApiKey(cfg: ProviderConfigV2): string {
+  const keys = _getEnabledKeys(cfg)
+  if (keys) return _selectKey(cfg, keys)
+  // 多 Key 模式下不回退到单 key（避免“看起来开了多 key，实际还在用 apiKey”的特殊情况）
+  if (cfg.multiKeyEnabled) return ''
   return cfg.apiKey
 }
 
 export function apiKeyForRequest(cfg: ProviderConfigV2, _modelId: string): string {
-  const orig = effectiveApiKey(cfg).trim()
-  return orig
+  return effectiveApiKey(cfg).trim()
 }
 
 // ========== Model Overrides ==========
@@ -127,6 +176,8 @@ export function effortLevelName(value: number): string {
       return 'medium'
     case EFFORT_HIGH:
       return 'high'
+    case EFFORT_XHIGH:
+      return 'xhigh'
     default:
       return 'auto'
   }
@@ -163,6 +214,8 @@ export function effortToBudget(storedValue: number | undefined, modelId: string)
       return Math.round(max * 0.33)
     case EFFORT_HIGH:
       return max
+    case EFFORT_XHIGH:
+      return max
     default:
       return -1
   }
@@ -175,9 +228,20 @@ export function effortForBudget(budget: number | undefined): string {
   if (budget === EFFORT_LOW) return 'low'
   if (budget === EFFORT_MEDIUM) return 'medium'
   if (budget === EFFORT_HIGH) return 'high'
+  if (budget === EFFORT_XHIGH) return 'xhigh'
   if (budget < 4096) return 'low'
   if (budget < 16384) return 'medium'
   return 'high'
+}
+
+export function supportsResponsesXHighEffort(modelId: string): boolean {
+  const m = (modelId || '').toLowerCase().trim()
+  if (!m) return false
+  if (m.startsWith('gpt-5.1-codex-max')) return true
+  if (m.startsWith('gpt-5.2-codex')) return true
+  if (m.startsWith('gpt-5.2')) return true
+  if (m.startsWith('gpt-5.3-codex')) return true
+  return false
 }
 
 // ========== Grok Detection ==========
@@ -445,6 +509,9 @@ export function classifyProviderKind(
   providerId: string,
   explicitType?: ProviderKind | string
 ): ProviderKind {
+  if (explicitType === 'openai_response') {
+    return 'openai'
+  }
   if (explicitType === 'claude' || explicitType === 'google' || explicitType === 'openai') {
     return explicitType
   }

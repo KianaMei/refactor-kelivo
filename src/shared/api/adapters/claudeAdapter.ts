@@ -113,9 +113,10 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     allTools.push(entry)
   }
 
+  const apiKey = helper.effectiveApiKey(config)
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${helper.effectiveApiKey(config)}`,
-    'x-api-key': helper.effectiveApiKey(config),
+    Authorization: `Bearer ${apiKey}`,
+    'x-api-key': apiKey,
     'anthropic-version': '2023-06-01',
     'anthropic-dangerous-direct-browser-access': 'true',
     'Content-Type': 'application/json',

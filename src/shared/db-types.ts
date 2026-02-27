@@ -7,6 +7,7 @@
  */
 
 import type { TokenUsage } from './chatStream'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from './responsesOptions'
 export type { TokenUsage }
 
 // ── Conversation ─────────────────────────────────────────────
@@ -21,6 +22,8 @@ export interface DbConversation {
   truncateIndex: number
   versionSelections: Record<string, number> | null
   thinkingBudget: number | null
+  responsesReasoningSummary: ResponsesReasoningSummary | null
+  responsesTextVerbosity: ResponsesTextVerbosity | null
   summary: string | null
   lastSummarizedMessageCount: number
   createdAt: number
@@ -44,6 +47,8 @@ export interface ConversationUpdateInput {
   truncateIndex?: number
   versionSelections?: Record<string, number> | null
   thinkingBudget?: number | null
+  responsesReasoningSummary?: ResponsesReasoningSummary | null
+  responsesTextVerbosity?: ResponsesTextVerbosity | null
   summary?: string | null
   lastSummarizedMessageCount?: number
 }

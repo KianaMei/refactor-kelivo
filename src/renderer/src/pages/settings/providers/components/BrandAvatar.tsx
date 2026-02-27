@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useHideAvatars } from '../../../../contexts/HideAvatarsContext'
 
 // 模块级缓存：本地头像路径 → data URL，避免组件重新挂载时闪烁
 const avatarCache = new Map<string, string>()
@@ -98,13 +99,13 @@ export function BrandAvatar({
   square?: boolean
   fill?: boolean
 }) {
-  // 从缓存同步初始化，避免重新挂载时闪烁
   const [resolvedSrc, setResolvedSrc] = useState<string | null>(() => {
     const av = customAvatarPath?.trim()
     if (av && isLocalRelativePath(av)) return avatarCache.get(av) ?? null
     return null
   })
   const [imgFailed, setImgFailed] = useState(false)
+  const hideAvatars = useHideAvatars()
 
   // 本地相对路径 → 异步解析为 data URL（主进程读文件并返回 base64）
   useEffect(() => {
@@ -131,6 +132,36 @@ export function BrandAvatar({
     })
     return () => { cancelled = true }
   }, [customAvatarPath])
+
+  // 占位图：统一替换所有头像（所有 hooks 调用完之后再做条件渲染）
+  if (hideAvatars) {
+    return (
+      <div
+        className="brand-avatar"
+        style={{
+          ...(fill ? { width: '100%', height: '100%' } : { width: size, height: size }),
+          borderRadius: square ? 4 : 12,
+          background: 'var(--surface-2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--text-3)',
+          flexShrink: 0
+        }}
+      >
+        <svg
+          width={fill ? '40%' : size * 0.55}
+          height={fill ? '40%' : size * 0.55}
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          style={{ opacity: 0.45 }}
+        >
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+        </svg>
+      </div>
+    )
+  }
 
   const initial = name.charAt(0).toUpperCase() || '?'
   const brandAsset = getBrandAsset(name)

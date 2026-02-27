@@ -22,7 +22,9 @@ import {
   joinUrl
 } from '../../../streamingHttpClient'
 import type { UserImage } from '../../chatApiService'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../responsesOptions'
 import * as helper from '../../../chatApiHelper'
+import { buildChatCompletionsMessages } from './openaiMessageFormat'
 
 /** 发送流式请求的参数 */
 export interface SendStreamParams {
@@ -31,6 +33,8 @@ export interface SendStreamParams {
   messages: ChatMessage[]
   userImages?: UserImage[]
   thinkingBudget?: number
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  responsesTextVerbosity?: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number
@@ -80,7 +84,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   const effort = rawEffort === 'minimal' ? 'low' : rawEffort
   const isGrok = helper.isGrokModel(config, modelId)
 
-  const mm = buildMessages(messages, userImages)
+  const mm = buildChatCompletionsMessages(messages, userImages)
 
   const body: Record<string, unknown> = {
     model: upstreamModelId,
@@ -734,45 +738,10 @@ function extractContent(content: unknown): string {
   return ''
 }
 
-function buildMessages(
-  messages: ChatMessage[],
-  userImages?: UserImage[]
-): Array<Record<string, unknown>> {
-  const mm: Array<Record<string, unknown>> = []
-
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i]
-    const isLast = i === messages.length - 1
-    const raw = typeof m.content === 'string' ? m.content : ''
-    const hasMarkdownImages = raw.includes('![') && raw.includes('](')
-    const hasCustomImages = raw.includes('[image:')
-    const hasAttachedImages = isLast && userImages && userImages.length > 0 && m.role === 'user'
-
-    if (hasMarkdownImages || hasCustomImages || hasAttachedImages) {
-      const parts: Array<Record<string, unknown>> = []
-      if (raw) parts.push({ type: 'text', text: raw })
-
-      if (hasAttachedImages) {
-        for (const img of userImages!) {
-          const dataUrl = `data:${img.mime};base64,${img.base64}`
-          parts.push({ type: 'image_url', image_url: { url: dataUrl } })
-        }
-      }
-
-      mm.push({ role: m.role, content: parts })
-    } else if (typeof m.content === 'string') {
-      mm.push({ role: m.role, content: m.content })
-    } else {
-      mm.push({ role: m.role, content: m.content })
-    }
-  }
-
-  return mm
-}
-
 function checkModelIsReasoning(modelId: string): boolean {
   const m = modelId.toLowerCase()
   if (/^o[134]/.test(m)) return true
+  if (m.startsWith('gpt-5')) return true
   if (m.includes('deepseek') && m.includes('r1')) return true
   if (m.includes('claude') && (m.includes('opus') || m.includes('sonnet'))) return true
   if (m.includes('qwen') && m.includes('qwq')) return true

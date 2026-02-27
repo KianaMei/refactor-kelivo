@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { AppConfig, SettingsMenuKey } from '../../../../shared/types'
 import { BadgeInfo, Bot, Boxes, Cpu, Database, Earth, Globe, Heart, Monitor, Terminal, Volume2, Zap } from 'lucide-react'
@@ -62,6 +62,16 @@ export function SettingsPage(props: { config: AppConfig; onSave: (next: AppConfi
       }
     })
   }
+
+  useEffect(() => {
+    const extMenu = props.config.ui.desktop.selectedSettingsMenu
+    if (extMenu) {
+      const targetMenu = extMenu === 'data' ? 'backup' : extMenu
+      if (targetMenu !== menu) {
+        setMenu(targetMenu as SettingsMenuKey)
+      }
+    }
+  }, [props.config.ui.desktop.selectedSettingsMenu, menu])
 
   const handleMenuDrag = useCallback((dx: number) => {
     setMenuWidth((w) => Math.max(MENU_MIN_WIDTH, Math.min(MENU_MAX_WIDTH, w + dx)))

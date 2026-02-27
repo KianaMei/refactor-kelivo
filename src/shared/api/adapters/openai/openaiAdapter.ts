@@ -12,6 +12,7 @@ import type {
   OnToolCallFn
 } from '../../../chatStream'
 import type { UserImage } from '../../chatApiService'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../responsesOptions'
 import * as openaiChatCompletions from './openaiChatCompletions'
 import * as openaiResponsesApi from './openaiResponsesApi'
 
@@ -22,6 +23,8 @@ export interface SendStreamParams {
   messages: ChatMessage[]
   userImages?: UserImage[]
   thinkingBudget?: number
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  responsesTextVerbosity?: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number

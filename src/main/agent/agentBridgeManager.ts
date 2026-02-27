@@ -229,9 +229,9 @@ export class AgentBridgeManager {
       clearTimeout(pending.timeout)
 
       if (msg.error) {
-        const e = new Error(msg.error.message)
-        ;(e as Record<string, unknown>).code = msg.error.code
-        ;(e as Record<string, unknown>).data = msg.error.data
+        const e = new Error(msg.error.message) as Error & { code?: number; data?: unknown }
+        e.code = msg.error.code
+        e.data = msg.error.data
         pending.reject(e)
       } else {
         pending.resolve(msg.result)
@@ -264,7 +264,11 @@ export class AgentBridgeManager {
         this.pending.delete(id)
         reject(new Error(`Agent Bridge request timeout: ${method}`))
       }, timeoutMs)
-      this.pending.set(id, { resolve, reject, timeout })
+      this.pending.set(id, {
+        resolve: (v: unknown) => resolve(v as T),
+        reject,
+        timeout
+      })
       this.send({ jsonrpc: '2.0', id, method, params })
     })
   }

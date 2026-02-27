@@ -14,6 +14,7 @@ import { ImageStudioPage } from './pages/ImageStudioPage'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ConfirmProvider } from './hooks/useConfirm'
 import { Toaster } from './components/ui/sonner'
+import { HideAvatarsContext } from './contexts/HideAvatarsContext'
 
 export default function App() {
   const [tab, setTab] = useState<NavKey>('chat')
@@ -159,47 +160,67 @@ export default function App() {
 
   return (
     <ConfirmProvider>
-      <Toaster />
-      <div style={styles.appContainer}>
-        <TitleBar />
-        <div style={styles.root}>
-          <NavRail
-            active={tab}
-            onChange={setTab}
-            themeMode={config?.themeMode ?? 'system'}
-            onCycleTheme={cycleTheme}
-            user={config?.user}
-            onUserChange={(user) => config && persist({ ...config, user })}
-          />
+      <HideAvatarsContext.Provider value={config?.display.hideAllAvatars ?? false}>
+        <Toaster />
+        <div style={styles.appContainer}>
+          <TitleBar />
+          <div style={styles.root}>
+            <NavRail
+              active={tab}
+              onChange={setTab}
+              themeMode={config?.themeMode ?? 'system'}
+              onCycleTheme={cycleTheme}
+              user={config?.user}
+              onUserChange={(user) => config && persist({ ...config, user })}
+            />
 
-          <div style={styles.main}>
-            {saveError ? <div style={styles.errorBox}>错误：{saveError}</div> : null}
-            {!config ? (
-              <div style={{ padding: 16 }}>加载中...</div>
-            ) : (
-              <div style={styles.pageHost}>
-                <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                  {tab === 'chat' ? (
-                    <ChatPage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} onOpenSettings={openSettingsPane} />
-                  ) : tab === 'translate' ? (
-                    <TranslatePage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} />
-                  ) : tab === 'apiTest' ? (
-                    <ApiTestPage config={config} />
-                  ) : tab === 'imageStudio' ? (
-                    <ImageStudioPage config={config} onSave={persist} />
-                  ) : tab === 'storage' ? (
-                    <StoragePage />
-                  ) : tab === 'agent' ? (
-                    <AgentPage config={config} onSave={persist} />
-                  ) : (
-                    <SettingsPage config={config} onSave={persist} />
-                  )}
-                </ErrorBoundary>
-              </div>
-            )}
+            <div style={styles.main}>
+              {saveError ? <div style={styles.errorBox}>错误：{saveError}</div> : null}
+              {!config ? (
+                <div style={{ padding: 16 }}>加载中...</div>
+              ) : (
+                <>
+                  <div style={{ ...styles.pageHost, display: tab === 'chat' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <ChatPage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} onOpenSettings={openSettingsPane} />
+                    </ErrorBoundary>
+                  </div>
+                  <div style={{ ...styles.pageHost, display: tab === 'translate' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <TranslatePage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} />
+                    </ErrorBoundary>
+                  </div>
+                  <div style={{ ...styles.pageHost, display: tab === 'imageStudio' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <ImageStudioPage config={config} onSave={persist} />
+                    </ErrorBoundary>
+                  </div>
+                  <div style={{ ...styles.pageHost, display: tab === 'agent' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <AgentPage config={config} onSave={persist} />
+                    </ErrorBoundary>
+                  </div>
+                  <div style={{ ...styles.pageHost, display: tab === 'apiTest' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <ApiTestPage config={config} onSave={persist} onOpenSettings={openSettingsPane} />
+                    </ErrorBoundary>
+                  </div>
+                  <div style={{ ...styles.pageHost, display: tab === 'storage' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <StoragePage />
+                    </ErrorBoundary>
+                  </div>
+                  <div style={{ ...styles.pageHost, display: tab === 'settings' ? 'flex' : 'none' }}>
+                    <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
+                      <SettingsPage config={config} onSave={persist} />
+                    </ErrorBoundary>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </HideAvatarsContext.Provider>
     </ConfirmProvider>
   )
 }
@@ -218,12 +239,19 @@ const styles: Record<string, any> = {
   main: {
     flex: 1,
     minWidth: 0,
+    minHeight: 0,
     display: 'flex',
-    flexDirection: 'column'
+    flexDirection: 'column',
+    overflow: 'hidden'
   },
   pageHost: {
     flex: 1,
-    minHeight: 0
+    minHeight: 0,
+    height: '100%',
+    overflow: 'hidden',
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column'
   },
   errorBox: {
     margin: 16,

@@ -33,7 +33,10 @@ export function applyAssistantRegex(
   let out = content
   for (const r of rules) {
     if (!r || !r.enabled) continue
-    if (mode === 'request' && r.visualOnly) continue
+    const visualOnly = !!r.visualOnly
+    const replaceOnly = !!r.replaceOnly && !visualOnly
+    if (visualOnly && mode !== 'display') continue
+    if (replaceOnly && mode !== 'request') continue
     if (r.scopes && r.scopes.length > 0 && !r.scopes.includes(role)) continue
     try {
       const re = new RegExp(r.pattern, 'g')

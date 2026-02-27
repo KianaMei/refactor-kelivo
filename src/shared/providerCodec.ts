@@ -133,7 +133,7 @@ function normalizeFields(obj: Record<string, unknown>): Partial<ProviderConfigV2
   if (str('apiKey') !== undefined) result.apiKey = str('apiKey')!
   if (str('baseUrl')) result.baseUrl = str('baseUrl')!
   const pt = str('providerType')
-  if (pt === 'openai' || pt === 'claude' || pt === 'google') result.providerType = pt
+  if (pt === 'openai' || pt === 'openai_response' || pt === 'claude' || pt === 'google') result.providerType = pt
   if (str('chatPath') !== undefined) result.chatPath = str('chatPath')
   if (bool('useResponseApi') !== undefined) result.useResponseApi = bool('useResponseApi')
   if (bool('vertexAI') !== undefined) result.vertexAI = bool('vertexAI')

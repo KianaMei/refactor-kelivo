@@ -1,6 +1,7 @@
 /**
  * Search related types shared between main and renderer
  */
+import type { SearchApiKeyConfig, SearchLoadBalanceStrategy } from './types'
 
 export const SEARCH_CHANNELS = {
     SEARCH: 'search:execute',
@@ -41,14 +42,23 @@ export interface SearchResponse {
 export interface ExaConfig {
     apiKey: string
     baseUrl?: string
+    id?: string
+    apiKeys?: SearchApiKeyConfig[]
+    strategy?: SearchLoadBalanceStrategy
 }
 
 export interface TavilyConfig {
     apiKey: string
+    id?: string
+    apiKeys?: SearchApiKeyConfig[]
+    strategy?: SearchLoadBalanceStrategy
 }
 
 export interface BraveConfig {
     apiKey: string
+    id?: string
+    apiKeys?: SearchApiKeyConfig[]
+    strategy?: SearchLoadBalanceStrategy
 }
 
 export interface DuckDuckGoConfig {

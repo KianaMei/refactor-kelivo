@@ -1,4 +1,5 @@
 import type { UserConfig } from '../../../shared/types'
+import { useHideAvatars } from '../contexts/HideAvatarsContext'
 
 export interface UserAvatarProps {
     user?: UserConfig
@@ -7,15 +8,33 @@ export interface UserAvatarProps {
     onClick?: () => void
 }
 
+function AvatarPlaceholder({ size }: { size: number }) {
+    return (
+        <svg
+            width={size * 0.6}
+            height={size * 0.6}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            style={{ opacity: 0.4 }}
+        >
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+        </svg>
+    )
+}
+
 export function UserAvatar(props: UserAvatarProps) {
     const { user, size = 36, onClick, className } = props
+    const hideAvatars = useHideAvatars()
     const name = user?.name ?? 'Kelivo'
     const avatarType = user?.avatarType ?? 'initial'
     const avatarValue = user?.avatarValue ?? ''
 
     let content: React.ReactNode
 
-    if (avatarType === 'emoji' && avatarValue) {
+    if (hideAvatars) {
+        content = <AvatarPlaceholder size={size} />
+    } else if (avatarType === 'emoji' && avatarValue) {
         content = <span style={{ fontSize: size * 0.5, lineHeight: 1 }}>{avatarValue}</span>
     } else if ((avatarType === 'url' || avatarType === 'file') && avatarValue) {
         const src = avatarType === 'file' ? `file://${avatarValue}` : avatarValue
@@ -25,15 +44,9 @@ export function UserAvatar(props: UserAvatarProps) {
                 alt={name}
                 style={{ width: '100%', height: '100%', borderRadius: 'var(--radius)', objectFit: 'cover' }}
                 onError={(e) => {
-                    // 图片加载失败时显示首字母
                     const parent = e.currentTarget.parentElement
                     if (parent) {
                         e.currentTarget.style.display = 'none'
-                        // 清空并显示首字母，这里简单处理，实际可能需要更复杂的 fallback 逻辑
-                        // 但因为我们在父容器里渲染，这里直接修改 display 不足以回退到文本
-                        // 所以我们采用一种混合策略：图片放在顶层，文字放在下层？
-                        // 简单起见，如果我们要完美回退，可能需要状态管理。
-                        // 但 NavRail 原版是用 e.currentTarget.parentElement!.textContent 直接改 DOM
                         parent.textContent = name.charAt(0) || '?'
                         parent.style.fontSize = `${size * 0.45}px`
                         parent.style.fontWeight = '700'
@@ -45,7 +58,6 @@ export function UserAvatar(props: UserAvatarProps) {
             />
         )
     } else {
-        // 默认显示名字首字母
         content = (
             <span style={{ fontSize: size * 0.45, fontWeight: 700 }}>
                 {name.charAt(0) || '?'}
@@ -79,3 +91,4 @@ export function UserAvatar(props: UserAvatarProps) {
         </button>
     )
 }
+

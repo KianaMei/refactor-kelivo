@@ -8,6 +8,7 @@ import { sendMessageStream } from '../../../shared/api/chatApiService'
 import type { UserImage } from '../../../shared/api/chatApiService'
 import type { ChatStreamChunk, ChatMessage, ToolDefinition, OnToolCallFn } from '../../../shared/chatStream'
 import type { ProviderConfigV2, McpServerConfig, McpToolCallMode } from '../../../shared/types'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../shared/responsesOptions'
 
 // ========== Tool Definitions ==========
 
@@ -353,6 +354,8 @@ export interface RendererStreamParams {
   mcpServers?: McpServerConfig[]
   mcpToolCallMode?: McpToolCallMode
   thinkingBudget?: number
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  responsesTextVerbosity?: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number
@@ -382,6 +385,8 @@ export async function* rendererSendMessageStream(
     mcpServers,
     mcpToolCallMode,
     thinkingBudget,
+    responsesReasoningSummary,
+    responsesTextVerbosity,
     temperature,
     topP,
     maxTokens,
@@ -443,6 +448,8 @@ export async function* rendererSendMessageStream(
     messages: finalMessages,
     userImages,
     thinkingBudget,
+    responsesReasoningSummary,
+    responsesTextVerbosity,
     temperature,
     topP,
     maxTokens,

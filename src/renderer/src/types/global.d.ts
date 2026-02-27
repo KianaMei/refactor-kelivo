@@ -46,6 +46,14 @@ import type {
   ImageStudioSubmitRequest,
   ImageStudioSubmitResult
 } from '../../../shared/imageStudio'
+import type {
+  PromptLibraryCreateInput,
+  PromptLibraryUpdateInput,
+  PromptLibraryListRequest,
+  PromptLibraryListResult,
+  PromptLibrarySingleResult,
+  PromptLibraryDeleteResult
+} from '../../../shared/promptLibrary'
 
 interface PreprocessImageParams {
   imagePaths: string[]
@@ -215,6 +223,14 @@ declare global {
         outputDelete: (request: ImageStudioOutputDeleteRequest) => Promise<ImageStudioOutputDeleteResult>
         historyRetry: (request: ImageStudioRetryRequest) => Promise<ImageStudioSubmitResult>
         onEvent: (fn: (event: ImageStudioEvent) => void) => () => void
+      }
+      promptLibrary: {
+        list: (request: PromptLibraryListRequest) => Promise<PromptLibraryListResult>
+        create: (input: PromptLibraryCreateInput) => Promise<PromptLibrarySingleResult>
+        update: (id: string, input: PromptLibraryUpdateInput) => Promise<PromptLibrarySingleResult>
+        get: (id: string) => Promise<PromptLibrarySingleResult>
+        delete: (id: string) => Promise<PromptLibraryDeleteResult>
+        clear: () => Promise<PromptLibraryDeleteResult>
       }
       backup: {
         exportLocal: (options: { includeChats: boolean; includeAttachments: boolean; includeGeneratedImages: boolean }) => Promise<{ success: boolean; data?: Buffer; error?: string }>

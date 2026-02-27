@@ -13,8 +13,6 @@ export function registerChatIpc(): void {
       throw new Error(`未找到供应商：${params.providerId}`)
     }
 
-    if (!provider.apiKey) throw new Error('该供应商未配置 API Key')
-
     // 使用 generateText 发送简单测试请求（自动适配所有 provider 类型）
     await generateText({
       config: provider,

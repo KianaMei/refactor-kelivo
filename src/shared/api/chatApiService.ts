@@ -5,6 +5,7 @@
  */
 
 import type { ProviderConfigV2 } from '../types'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../responsesOptions'
 import type {
   ChatStreamChunk,
   ChatMessage,
@@ -36,6 +37,10 @@ export interface SendMessageStreamParams {
   userImages?: UserImage[]
   /** 思考预算 (token 数或 effort level) */
   thinkingBudget?: number
+  /** Responses API: reasoning.summary */
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  /** Responses API: text.verbosity */
+  responsesTextVerbosity?: ResponsesTextVerbosity
   /** 温度 */
   temperature?: number
   /** Top P */

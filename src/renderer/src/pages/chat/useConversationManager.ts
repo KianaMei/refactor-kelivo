@@ -5,6 +5,7 @@ import type { Conversation } from './ConversationSidebar'
 import type { ChatMessage } from './MessageBubble'
 import { getDefaultAssistantId, getEffectiveAssistant } from './assistantChat'
 import type { EffortValue } from '../../components/ReasoningBudgetPopover'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
 import { safeUuid } from '../../../../shared/utils'
 
 function dbConvToConversation(c: DbConversation, assistantCount?: number): Conversation {
@@ -17,6 +18,8 @@ function dbConvToConversation(c: DbConversation, assistantCount?: number): Conve
     workspaceId: c.workspaceId,
     truncateIndex: c.truncateIndex,
     thinkingBudget: c.thinkingBudget,
+    responsesReasoningSummary: c.responsesReasoningSummary,
+    responsesTextVerbosity: c.responsesTextVerbosity,
     assistantCount
   }
 }
@@ -136,6 +139,8 @@ export function useConversationManager(deps: Deps) {
     const assistant = getEffectiveAssistant(config, defaultAssistantId)
     const preset = assistant?.presetMessages ?? []
     const inheritedThinkingBudget = activeConversation?.thinkingBudget ?? null
+    const inheritedResponsesReasoningSummary = activeConversation?.responsesReasoningSummary ?? null
+    const inheritedResponsesTextVerbosity = activeConversation?.responsesTextVerbosity ?? null
     const now = Date.now()
     const presetMsgs: ChatMessage[] = preset.map((m, i) => ({
       id: safeUuid(),
@@ -153,7 +158,9 @@ export function useConversationManager(deps: Deps) {
       assistantId: assistant?.id,
       workspaceId,
       truncateIndex: -1,
-      thinkingBudget: inheritedThinkingBudget
+      thinkingBudget: inheritedThinkingBudget,
+      responsesReasoningSummary: inheritedResponsesReasoningSummary,
+      responsesTextVerbosity: inheritedResponsesTextVerbosity
     }
     setConversations((prev) => [conv, ...prev])
     setMessagesByConv((prev) => ({ ...prev, [id]: presetMsgs }))
@@ -163,6 +170,12 @@ export function useConversationManager(deps: Deps) {
       await window.api.db.conversations.create({ id, title: '新对话', assistantId: assistant?.id, workspaceId })
       if (inheritedThinkingBudget !== null) {
         await window.api.db.conversations.update(id, { thinkingBudget: inheritedThinkingBudget })
+      }
+      if (inheritedResponsesReasoningSummary !== null || inheritedResponsesTextVerbosity !== null) {
+        await window.api.db.conversations.update(id, {
+          responsesReasoningSummary: inheritedResponsesReasoningSummary,
+          responsesTextVerbosity: inheritedResponsesTextVerbosity
+        })
       }
       if (presetMsgs.length > 0) {
         await window.api.db.messages.createBatch(
@@ -244,9 +257,24 @@ export function useConversationManager(deps: Deps) {
     await window.api.db.conversations.update(activeConvId, { thinkingBudget: v })
   }
 
+  async function setConversationResponsesReasoningSummary(v: ResponsesReasoningSummary) {
+    if (!activeConvId) return
+    setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, responsesReasoningSummary: v } : c)))
+    await window.api.db.conversations.update(activeConvId, { responsesReasoningSummary: v })
+  }
+
+  async function setConversationResponsesTextVerbosity(v: ResponsesTextVerbosity) {
+    if (!activeConvId) return
+    setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, responsesTextVerbosity: v } : c)))
+    await window.api.db.conversations.update(activeConvId, { responsesTextVerbosity: v })
+  }
+
   async function clearConversationContext() {
     if (!activeConvId) return
-    const truncateIndex = (messagesByConv[activeConvId] ?? []).length
+    const currentConv = conversations.find((c) => c.id === activeConvId)
+    const msgCount = (messagesByConv[activeConvId] ?? []).length
+    // Toggle: 如果 truncateIndex 已在末尾，则取消清除；否则设置为当前消息数量
+    const truncateIndex = (currentConv?.truncateIndex === msgCount) ? -1 : msgCount
     setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, truncateIndex } : c)))
     await window.api.db.conversations.update(activeConvId, { truncateIndex })
   }
@@ -296,7 +324,10 @@ export function useConversationManager(deps: Deps) {
     // Conversation handlers
     handleNewConversation, handleRenameConversation, handleDeleteConversation,
     handleTogglePinConversation, handleRegenerateConversationTitle,
-    setConversationThinkingBudget, clearConversationContext,
+    setConversationThinkingBudget,
+    setConversationResponsesReasoningSummary,
+    setConversationResponsesTextVerbosity,
+    clearConversationContext,
     // Workspace handlers
     handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace,
   }

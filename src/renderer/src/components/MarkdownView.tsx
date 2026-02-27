@@ -1,11 +1,13 @@
 import { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import 'katex/dist/katex.min.css'
 
 function isDarkTheme(): boolean {
-  // App.tsx 会把最终主题写到 <html data-theme="light|dark">
   return document.documentElement.dataset.theme !== 'light'
 }
 
@@ -40,18 +42,65 @@ function createSlugger() {
   }
 }
 
+// 将 $...$ 转换为 \(...\)，但跳过代码块内容
+// 参考 RikkaHub/kelivo 的预处理逻辑：代码块内的 $ 不能被转换
+function preprocessDollarLatex(content: string): string {
+  // 先记录所有代码块的位置范围（fenced + inline）
+  const codeRanges: Array<[number, number]> = []
+  const fenced = /```[\s\S]*?```|~~~[\s\S]*?~~~/g
+  const inlineCode = /`[^`\n]+`/g
+  let m: RegExpExecArray | null
+
+  while ((m = fenced.exec(content)) !== null) {
+    codeRanges.push([m.index, m.index + m[0].length])
+  }
+  while ((m = inlineCode.exec(content)) !== null) {
+    codeRanges.push([m.index, m.index + m[0].length])
+  }
+
+  const isInCode = (pos: number) => codeRanges.some(([s, e]) => pos >= s && pos < e)
+
+  // 替换行内 $...$ → \(...\)，跳过代码块
+  return content.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (match, inner, offset) => {
+    if (isInCode(offset)) return match
+    return `\\(${inner}\\)`
+  })
+}
+
 export const MarkdownView = memo(
-  function MarkdownView(props: { content: string; messageId?: string }) {
+  function MarkdownView(props: {
+    content: string
+    messageId?: string
+    enableMath?: boolean
+    enableDollarLatex?: boolean
+  }) {
+    const { enableMath = false, enableDollarLatex = false } = props
     const dark = isDarkTheme()
+
+    const processedContent = useMemo(() => {
+      if (!enableMath || !enableDollarLatex) return props.content
+      return preprocessDollarLatex(props.content)
+    }, [props.content, enableMath, enableDollarLatex])
+
     const slugger = useMemo(() => createSlugger(), [props.content])
+
+    const remarkPlugins = useMemo(
+      () => enableMath ? [remarkGfm, remarkMath] : [remarkGfm],
+      [enableMath]
+    )
+
+    const rehypePlugins = useMemo(
+      () => enableMath ? [rehypeKatex] : [],
+      [enableMath]
+    )
 
     return (
       <div className="markdown">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins as any}
           components={{
             a({ children, href }) {
-              // Electron：强制外链在系统浏览器打开（主进程已 setWindowOpenHandler）
               return (
                 <a href={href} target="_blank" rel="noreferrer">
                   {children}
@@ -97,11 +146,6 @@ export const MarkdownView = memo(
               const match = /language-(\w+)/.exec(className ?? '')
               const lang = match?.[1] ?? ''
 
-              // react-markdown v10 在某些情况下不会传 inline；
-              // 如果把"行内 code"误判成 code block，会在 <p> 里渲染 <div>/<pre> 导致 validateDOMNesting/hydration 警告。
-              // 这里用一个稳健的兜底：
-              // - 有 language-xxx 或者包含换行 => 认为是 code block
-              // - 否则一律当作行内 code
               const inlineProp = typeof codeProps?.inline === 'boolean' ? (codeProps.inline as boolean) : undefined
               const isBlock = Boolean(lang) || /[\r\n]/.test(text)
               const isInline = inlineProp ?? !isBlock
@@ -138,10 +182,14 @@ export const MarkdownView = memo(
             }
           }}
         >
-          {props.content}
+          {processedContent}
         </ReactMarkdown>
       </div>
     )
   },
-  (prev, next) => prev.content === next.content && prev.messageId === next.messageId
+  (prev, next) =>
+    prev.content === next.content &&
+    prev.messageId === next.messageId &&
+    prev.enableMath === next.enableMath &&
+    prev.enableDollarLatex === next.enableDollarLatex
 )

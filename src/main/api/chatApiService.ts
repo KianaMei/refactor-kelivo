@@ -4,6 +4,7 @@
  */
 
 import type { ProviderConfigV2 } from '../../shared/types'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../shared/responsesOptions'
 import type {
   ChatStreamChunk,
   ChatMessage,
@@ -24,6 +25,8 @@ export interface SendMessageStreamParams {
   messages: ChatMessage[]
   userImagePaths?: string[]
   thinkingBudget?: number
+  responsesReasoningSummary?: ResponsesReasoningSummary
+  responsesTextVerbosity?: ResponsesTextVerbosity
   temperature?: number
   topP?: number
   maxTokens?: number

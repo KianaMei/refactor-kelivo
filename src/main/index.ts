@@ -23,6 +23,7 @@ import { registerMcpIpc } from './mcpIpc'
 import { registerStorageIpc } from './storageIpc'
 import { registerDepsIpc } from './deps/depsIpc'
 import { registerImageStudioIpc } from './imageStudioIpc'
+import { registerPromptLibraryIpc } from './promptLibraryIpc'
 import { initDatabase, closeDatabase } from './db/database'
 import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
 import { getMemoryCount, bulkInsertMemories } from './db/repositories/memoryRepo'
@@ -201,6 +202,7 @@ app.whenReady().then(() => {
   registerStorageIpc()
   registerDepsIpc()
   registerImageStudioIpc()
+  registerPromptLibraryIpc()
 
   createMainWindow()
 
@@ -213,10 +215,12 @@ app.whenReady().then(() => {
       for (const svc of services) {
         if (!svc.enabled) continue
         try {
-          const apiKey = svc.apiKeys.find(k => k.isEnabled && k.key)?.key
           const regConfig = {
             type: svc.type,
-            ...(apiKey ? { apiKey } : {}),
+            id: svc.id,
+            apiKeys: svc.apiKeys,
+            strategy: svc.strategy,
+            apiKey: svc.apiKeys.find(k => k.isEnabled && k.key)?.key ?? '',
             ...(svc.baseUrl ? { baseUrl: svc.baseUrl } : {}),
             ...(svc.serviceConfig ?? {})
           }

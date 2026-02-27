@@ -30,6 +30,7 @@ import {
   EFFORT_HIGH,
   effortToBudget
 } from '../../chatApiHelper'
+import { resolveGeminiToolsPayload } from './googleGeminiTools'
 
 // ========== Thinking Budget Constants ==========
 const PRO_THINKING_MIN = 128
@@ -524,31 +525,15 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
   const resolvedBudget = isGemini3 ? undefined : resolveThinkingBudget(upstreamModelId, budgetForGemini25 ?? undefined)
   const off = isGemini3 ? (thinkingBudget === 0) : (resolvedBudget === 0)
 
-  // Built-in tools
+  // Tools (built-ins and function declarations are mutually exclusive)
   const builtIns = builtInTools(config, modelId)
   const isOfficialGemini = !config.vertexAI
-  const builtInToolEntries: Array<Record<string, unknown>> = []
-  if (isOfficialGemini && builtIns.size > 0) {
-    if (builtIns.has('search')) builtInToolEntries.push({ google_search: {} })
-    if (builtIns.has('url_context')) builtInToolEntries.push({ url_context: {} })
-  }
-
-  // Map tools to Gemini format
-  let geminiTools: Array<Record<string, unknown>> | undefined
-  if (builtInToolEntries.length === 0 && tools?.length) {
-    const decls: Array<Record<string, unknown>> = []
-    for (const t of tools) {
-      const fn = t.function
-      if (!fn?.name) continue
-      const d: Record<string, unknown> = { name: fn.name }
-      if (fn.description) d.description = fn.description
-      if (fn.parameters) {
-        d.parameters = cleanSchemaForGemini(fn.parameters as Record<string, unknown>)
-      }
-      decls.push(d)
-    }
-    if (decls.length > 0) geminiTools = [{ function_declarations: decls }]
-  }
+  const geminiToolsPayload = resolveGeminiToolsPayload({
+    isOfficialGemini,
+    builtIns,
+    tools,
+    normalizeParameters: cleanSchemaForGemini
+  })
 
   // Multi-round tool loop
   let convo = [...contents]
@@ -585,10 +570,10 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
 
     const body: Record<string, unknown> = { contents: convo }
     if (Object.keys(gen).length > 0) body.generationConfig = gen
-    if (builtInToolEntries.length > 0) {
-      body.tools = builtInToolEntries
-    } else if (geminiTools?.length) {
-      body.tools = geminiTools
+    if (geminiToolsPayload.builtInToolEntries.length > 0) {
+      body.tools = geminiToolsPayload.builtInToolEntries
+    } else if (geminiToolsPayload.functionToolEntries.length > 0) {
+      body.tools = geminiToolsPayload.functionToolEntries
     }
 
     const hdrs: Record<string, string> = {

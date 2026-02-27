@@ -3,6 +3,7 @@ export const IpcChannel = {
   ConfigSave: 'config:save',
 
   ModelsList: 'models:list',
+  ModelsTestFetch: 'models:testFetch',
 
   ChatTest: 'chat:test',
   ChatPreprocess: 'chat:preprocess',
@@ -99,5 +100,13 @@ export const IpcChannel = {
   ImageStudioHistoryDelete: 'imageStudio:history:delete',
   ImageStudioOutputDelete: 'imageStudio:output:delete',
   ImageStudioHistoryRetry: 'imageStudio:history:retry',
-  ImageStudioEvent: 'imageStudio:event'
+  ImageStudioEvent: 'imageStudio:event',
+
+  // Prompt Library
+  PromptLibraryList: 'promptLibrary:list',
+  PromptLibraryCreate: 'promptLibrary:create',
+  PromptLibraryUpdate: 'promptLibrary:update',
+  PromptLibraryGet: 'promptLibrary:get',
+  PromptLibraryDelete: 'promptLibrary:delete',
+  PromptLibraryClear: 'promptLibrary:clear'
 } as const

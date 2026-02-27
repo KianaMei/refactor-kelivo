@@ -3,7 +3,7 @@
  * 对齐旧版 Kelivo 的 desktop_api_test_page.dart
  * 包括：多配置管理、拉取 models、流式测试、工具面板等
  */
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   Plus,
   Trash2,
@@ -20,52 +20,58 @@ import {
   Play,
   X
 } from 'lucide-react'
-import { MarkdownView } from '../components/MarkdownView'
 import { CustomSelect } from '../components/ui/CustomSelect'
 import { BrandAvatar } from './settings/providers/components/BrandAvatar'
-import type { AppConfig } from '../../../shared/types'
+import type { AppConfig, ProviderConfigV2, ApiTestConfig } from '../../../shared/types'
 import { useDeleteConfirm } from '../hooks/useDeleteConfirm'
+import { rendererSendMessageStream, type ChatMessage } from '../lib/chatService'
+import { MessageBubble } from './chat/MessageBubble'
+import { ChatInputBar } from './chat/ChatInputBar'
+import { safeUuid } from '../../../shared/utils'
 
-interface ApiTestConfig {
+// Type alias for compatibility
+type TestMessage = ChatMessage & {
   id: string
-  name: string
-  provider: 'openai' | 'anthropic' | 'google' | 'custom'
-  apiKey: string
-  baseUrl: string
-  models: string[]
-  selectedModel: string | null
+  ts: number
 }
 
-interface TestMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  ts: number
-  usage?: {
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
+// Ensure window.api.models.testFetch is available
+declare global {
+  interface Window {
+    apiTestStopCurrent?: () => void
   }
-  latency?: number
 }
 
 const PROVIDER_PRESETS: Record<string, { name: string; defaultUrl: string }> = {
-  openai: { name: 'OpenAI', defaultUrl: 'https://api.openai.com/v1' },
-  anthropic: { name: 'Anthropic', defaultUrl: 'https://api.anthropic.com/v1' },
-  google: { name: 'Google AI', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta' },
-  custom: { name: '自定义 (OpenAI 兼容)', defaultUrl: '' }
+  openai: { name: 'OpenAI 兼容', defaultUrl: 'https://api.openai.com/v1' },
+  anthropic: { name: 'Anthropic 格式', defaultUrl: 'https://api.anthropic.com/v1' },
+  google: { name: 'Gemini 格式', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta' }
 }
 
-import { safeUuid } from '../../../shared/utils'
 
 interface Props {
   config: AppConfig
+  onSave: (next: AppConfig) => Promise<void>
+  onOpenSettings?: (pane?: string) => void
 }
 
 export function ApiTestPage(props: Props) {
   // 多配置管理
-  const [configs, setConfigs] = useState<ApiTestConfig[]>(() => [
-    {
+  const configs = props.config.apiTestConfigs || []
+  const activeConfigId = props.config.apiTestActiveConfigId
+
+  const setConfigs = (updater: ApiTestConfig[] | ((prev: ApiTestConfig[]) => ApiTestConfig[])) => {
+    const nextConfigs = typeof updater === 'function' ? updater(props.config.apiTestConfigs) : updater
+    props.onSave({ ...props.config, apiTestConfigs: nextConfigs })
+  }
+
+  const setActiveConfigId = (nextId: string) => {
+    props.onSave({ ...props.config, apiTestActiveConfigId: nextId })
+  }
+
+  // 当前配置
+  const activeConfig: ApiTestConfig = useMemo(() => {
+    const list: ApiTestConfig[] = configs && configs.length > 0 ? configs : [{
       id: 'default',
       name: '默认配置',
       provider: 'openai',
@@ -73,12 +79,9 @@ export function ApiTestPage(props: Props) {
       baseUrl: 'https://api.openai.com/v1',
       models: [],
       selectedModel: null
-    }
-  ])
-  const [activeConfigId, setActiveConfigId] = useState('default')
-
-  // 当前配置
-  const activeConfig = useMemo(() => configs.find((c) => c.id === activeConfigId) ?? configs[0], [configs, activeConfigId])
+    }]
+    return list.find((c) => c.id === activeConfigId) ?? list[0]
+  }, [configs, activeConfigId])
 
   // 编辑状态
   const [apiKey, setApiKey] = useState(activeConfig.apiKey)
@@ -97,8 +100,57 @@ export function ApiTestPage(props: Props) {
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
+  const [streamingReasoning, setStreamingReasoning] = useState('')
+  const [reasoningEffort, setReasoningEffort] = useState<number>(-1)
   const streamingMsgId = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // 编辑消息对话框
+  const [editDialog, setEditDialog] = useState<{ open: boolean; msgId: string; content: string }>({
+    open: false,
+    msgId: '',
+    content: ''
+  })
+
+  // 侧边栏可调整宽度
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('apiTestPanelWidth')
+    return saved ? Number(saved) : 280
+  })
+  const isDragging = useRef(false)
+  const startX = useRef(0)
+  const startWidth = useRef(280)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    startX.current = e.clientX
+    startWidth.current = panelWidth
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = ev.clientX - startX.current
+      const newWidth = Math.min(500, Math.max(200, startWidth.current + delta))
+      setPanelWidth(newWidth)
+    }
+
+    const handleMouseUp = () => {
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      // 保存到 localStorage
+      const el = document.querySelector('.apiTestConfigPanel') as HTMLElement
+      if (el) localStorage.setItem('apiTestPanelWidth', String(el.offsetWidth))
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [panelWidth])
 
   // 重命名对话框
   const [renameDialog, setRenameDialog] = useState<{ open: boolean; configId: string; name: string }>({
@@ -106,6 +158,9 @@ export function ApiTestPage(props: Props) {
     configId: '',
     name: ''
   })
+
+  // 模型快速切换弹窗
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const configDeleteConfirm = useDeleteConfirm()
 
   // 同步活动配置到编辑状态
@@ -121,7 +176,7 @@ export function ApiTestPage(props: Props) {
   // 滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length, streamingContent])
+  }, [messages.length, streamingContent, streamingReasoning])
 
   // 更新当前配置
   function updateActiveConfig(partial: Partial<ApiTestConfig>) {
@@ -183,6 +238,77 @@ export function ApiTestPage(props: Props) {
       models,
       selectedModel
     })
+    // 如果有 input，处理掉它
+    if (input.trim()) {
+      setInput('')
+    }
+  }
+
+  // 重新生成最后一条 User 消息
+  async function handleRegenerate() {
+    if (isGenerating) return
+    // 找到最后一条 user 消息的索引
+    let lastUserIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { lastUserIdx = i; break }
+    }
+    if (lastUserIdx === -1) return
+
+    // 截断到最后一条 user 消息（含），直接传入 handleSend 避免 setState 异步问题
+    const truncated = messages.slice(0, lastUserIdx + 1)
+    setMessages(truncated)
+    await handleSend(truncated)
+  }
+
+  // 转换为供应商配置
+  async function handleConvertToProvider() {
+    if (!apiKey.trim()) return
+
+    // 尽量把自定义模型带入
+    const isGoogle = selectedProvider === 'google' || baseUrl.includes('google')
+    const providerType = isGoogle ? 'google' : (selectedProvider === 'anthropic' ? 'claude' : 'openai')
+
+    const newProviderId: string = safeUuid()
+
+    // 创建一个新的提供商配置
+    const newProvider: ProviderConfigV2 = {
+      id: newProviderId,
+      name: `${activeConfig.name} - 已转换`,
+      baseUrl: baseUrl || 'https://api.openai.com/v1',
+      apiKey,
+      providerType,
+      models: [...models],
+      modelOverrides: {},
+      enabled: true,
+      createdAt: String(Date.now()),
+      updatedAt: String(Date.now())
+    }
+
+    const latestConfig = await window.api.config.get()
+
+    const nextProvidersOrder = latestConfig.providersOrder?.length
+      ? [...latestConfig.providersOrder, newProvider.id]
+      : [...Object.keys(latestConfig.providerConfigs), newProvider.id]
+
+    // 更新到 AppConfig
+    await props.onSave({
+      ...latestConfig,
+      providerConfigs: {
+        ...latestConfig.providerConfigs,
+        [newProvider.id]: newProvider
+      },
+      providersOrder: Array.from(new Set(nextProvidersOrder)),
+      ui: {
+        ...latestConfig.ui,
+        desktop: {
+          ...latestConfig.ui.desktop,
+          selectedSettingsMenu: 'providers' as any
+        }
+      }
+    })
+
+    // 成功后仅切换 Tab
+    props.onOpenSettings?.()
   }
 
   // 获取模型列表
@@ -196,22 +322,18 @@ export function ApiTestPage(props: Props) {
     setModelError(null)
 
     try {
-      // 实际项目中这里应该调用 IPC 或 fetch
-      // 这里模拟一个请求
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const result = await (window.api.models as any).testFetch({
+        providerType: selectedProvider,
+        baseUrl,
+        apiKey
+      })
 
-      // 模拟返回的模型列表
-      const mockModels = selectedProvider === 'openai'
-        ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-preview', 'o1-mini']
-        : selectedProvider === 'anthropic'
-          ? ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229']
-          : ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp']
-
-      setModels(mockModels)
-      if (mockModels.length > 0 && !selectedModel) {
-        setSelectedModel(mockModels[0])
+      const fetchedModels = result.models || []
+      setModels(fetchedModels)
+      if (fetchedModels.length > 0 && (!selectedModel || !fetchedModels.includes(selectedModel))) {
+        setSelectedModel(fetchedModels[0])
       }
-      updateActiveConfig({ models: mockModels, selectedModel: mockModels[0] })
+      updateActiveConfig({ models: fetchedModels, selectedModel: fetchedModels[0] })
     } catch (e) {
       setModelError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -235,99 +357,197 @@ export function ApiTestPage(props: Props) {
   }
 
   // 发送测试消息
-  async function handleSend() {
-    const text = input.trim()
-    if (!text) return
+  // overrideHistory: 可选，用于 regenerate/resend 时传入截断后的消息列表，避免 setState 异步问题
+  async function handleSend(overrideHistory?: TestMessage[]) {
+    const history = overrideHistory ?? messages
+    const text = overrideHistory ? '' : input.trim()
+
+    // 如果没有 overrideHistory，则需要有用户输入
+    if (!overrideHistory && !text) return
     if (isGenerating) return
     if (!selectedModel) {
       setModelError('请先选择一个模型')
       return
     }
 
-    const userMsg: TestMessage = { id: safeUuid(), role: 'user', content: text, ts: Date.now() }
-    const assistantMsgId = safeUuid()
+    // 构建新消息列表
+    let sendMessages: TestMessage[]
+    if (overrideHistory) {
+      // regenerate/resend: 已经包含了 user 消息
+      sendMessages = overrideHistory
+    } else {
+      const userMsg: TestMessage = { id: safeUuid(), role: 'user', content: text, ts: Date.now() }
+      sendMessages = [...history, userMsg]
+      setMessages(sendMessages)
+      setInput('')
+    }
 
-    setMessages((prev) => [...prev, userMsg])
-    setInput('')
+    const assistantMsgId = safeUuid()
     setIsGenerating(true)
     streamingMsgId.current = assistantMsgId
     setStreamingContent('')
+    setStreamingReasoning('')
 
     const startTime = Date.now()
 
-    try {
-      // 模拟流式响应
-      // 实际项目中应该调用真实的 API
-      const mockResponse = `这是来自 ${selectedModel} 的测试响应。\n\n您发送的消息是：\n\n> ${text}\n\n当前时间：${new Date().toLocaleString()}`
+    // 构建临时提供商配置
+    const tempConfig: ProviderConfigV2 = {
+      id: 'test-api-provider',
+      name: 'API Test Provider',
+      providerType: selectedProvider as any,
+      baseUrl,
+      apiKey,
+      models: [],
+      modelOverrides: {},
+      enabled: true,
+      createdAt: String(Date.now()),
+      updatedAt: String(Date.now())
+    }
 
-      for (let i = 0; i < mockResponse.length; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 10))
-        setStreamingContent((prev) => prev + mockResponse[i])
+    // AbortController
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
+    // 从全局配置读取工具相关参数（对齐 reference 的 _sendMessage）
+    const appConfig = props.config
+    const searchEnabled = appConfig.searchConfig?.global?.enabled ?? false
+    const searchServiceId = appConfig.searchConfig?.global?.defaultServiceId ?? undefined
+
+    let fullContent = ''
+    let reasoningContent = ''
+    let usage: any = undefined
+    let firstTokenAt: number | undefined = undefined
+
+    try {
+      const stream = rendererSendMessageStream({
+        config: tempConfig,
+        modelId: selectedModel,
+        messages: sendMessages.map(m => ({ role: m.role, content: m.content })),
+        thinkingBudget: reasoningEffort,
+        enableSearchTool: searchEnabled,
+        searchServiceId,
+        mcpServers: appConfig.mcpServers ?? [],
+        mcpToolCallMode: appConfig.mcpToolCallMode,
+        signal: abortController.signal
+      })
+
+      for await (const chunk of stream) {
+        if (!firstTokenAt && chunk.content) {
+          firstTokenAt = Date.now()
+        }
+
+        if (chunk.content) fullContent += chunk.content
+        if (chunk.reasoning) reasoningContent += chunk.reasoning
+        if (chunk.usage) usage = chunk.usage
+
+        setStreamingContent(fullContent)
+        setStreamingReasoning(reasoningContent)
       }
 
-      const latency = Date.now() - startTime
+      const finishedAt = Date.now()
       const assistantMsg: TestMessage = {
         id: assistantMsgId,
         role: 'assistant',
-        content: mockResponse,
-        ts: Date.now(),
-        latency,
-        usage: {
-          promptTokens: Math.floor(text.length / 4),
-          completionTokens: Math.floor(mockResponse.length / 4),
-          totalTokens: Math.floor((text.length + mockResponse.length) / 4)
-        }
-      }
+        content: fullContent,
+        reasoning: reasoningContent || undefined,
+        ts: finishedAt,
+        latency: firstTokenAt ? firstTokenAt - startTime : undefined,
+        firstTokenAt,
+        finishedAt,
+        usage: usage ? {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens
+        } : undefined,
+      } as unknown as ChatMessage & { ts: number, id: string }
       setMessages((prev) => [...prev, assistantMsg])
     } catch (e) {
-      const errMsg: TestMessage = {
-        id: assistantMsgId,
-        role: 'assistant',
-        content: `【错误】${e instanceof Error ? e.message : String(e)}`,
-        ts: Date.now()
+      const isAbort = (e as Error).name === 'AbortError'
+      if (isAbort) {
+        // 用户手动停止：保存已生成的内容
+        const stoppedContent = fullContent ? fullContent + '\n\n（已停止）' : '（已停止）'
+        setMessages((prev) => [...prev, {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: stoppedContent,
+          ts: Date.now()
+        } as unknown as TestMessage])
+      } else {
+        // 非 abort 错误：显示错误消息
+        setMessages((prev) => [...prev, {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: `【错误】${e instanceof Error ? e.message : String(e)}`,
+          ts: Date.now()
+        } as unknown as TestMessage])
       }
-      setMessages((prev) => [...prev, errMsg])
     } finally {
       setIsGenerating(false)
       streamingMsgId.current = null
+      abortControllerRef.current = null
       setStreamingContent('')
+      setStreamingReasoning('')
     }
   }
 
   // 停止生成
   function handleStop() {
-    // 在实际项目中需要中断流式请求
-    setIsGenerating(false)
-    streamingMsgId.current = null
-    if (streamingContent) {
-      const assistantMsg: TestMessage = {
-        id: safeUuid(),
-        role: 'assistant',
-        content: streamingContent + '\n\n（已停止）',
-        ts: Date.now()
-      }
-      setMessages((prev) => [...prev, assistantMsg])
-      setStreamingContent('')
-    }
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
   }
 
   // 清空消息
   function handleClear() {
+    handleStop()
     setMessages([])
+    setIsGenerating(false)
+    streamingMsgId.current = null
+    setStreamingContent('')
+    setStreamingReasoning('')
   }
 
   // 复制消息
   const [copiedId, setCopiedId] = useState<string | null>(null)
   function handleCopy(msg: TestMessage) {
-    navigator.clipboard.writeText(msg.content)
-    setCopiedId(msg.id)
-    setTimeout(() => setCopiedId(null), 2000)
+    if (typeof msg.content === 'string') {
+      navigator.clipboard.writeText(msg.content)
+      setCopiedId(msg.ts.toString())
+      setTimeout(() => setCopiedId(null), 2000)
+    }
+  }
+
+  // 删除消息（对齐 reference _deleteMessage）
+  function handleDeleteMessage(msg: TestMessage) {
+    // 如果正在流式输出且删除的是流式消息，直接停止
+    if (streamingMsgId.current === msg.id) {
+      handleStop()
+    }
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id))
+  }
+
+  // 编辑消息（对齐 reference _editMessage）
+  function handleEditMessage(msg: TestMessage, newContent: string) {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msg.id ? { ...m, content: newContent } : m))
+    )
+  }
+
+  // 重发用户消息（对齐 reference _resendMessage）
+  async function handleResendMessage(msg: TestMessage) {
+    if (isGenerating) return
+    const idx = messages.findIndex((m) => m.id === msg.id)
+    if (idx < 0) return
+
+    // 截断该消息之后的所有消息，保留到该用户消息（含）
+    const truncated = messages.slice(0, idx + 1)
+    setMessages(truncated)
+    await handleSend(truncated)
   }
 
   return (
     <div style={{ display: 'flex', height: '100%' }}>
       {/* 左侧配置面板 */}
-      <div className="apiTestConfigPanel frosted">
+      <div className="apiTestConfigPanel frosted" style={{ width: panelWidth }}>
         {/* 配置选择器 */}
         <div className="apiTestConfigHeader">
           <CustomSelect
@@ -402,10 +622,12 @@ export function ApiTestPage(props: Props) {
           <label>API Key</label>
           <input
             className="input"
-            type="password"
+            type="text"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            onBlur={handleSaveConfig}
+            onChange={(e) => {
+              setApiKey(e.target.value)
+              updateActiveConfig({ apiKey: e.target.value })
+            }}
             placeholder="sk-..."
           />
         </div>
@@ -416,8 +638,10 @@ export function ApiTestPage(props: Props) {
           <input
             className="input"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            onBlur={handleSaveConfig}
+            onChange={(e) => {
+              setBaseUrl(e.target.value)
+              updateActiveConfig({ baseUrl: e.target.value })
+            }}
             placeholder="https://api.openai.com/v1"
           />
         </div>
@@ -478,12 +702,21 @@ export function ApiTestPage(props: Props) {
 
         {/* 快捷操作 */}
         <div style={{ marginTop: 'auto', padding: '12px 0', borderTop: '1px solid var(--border)' }}>
-          <button type="button" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: '100%', justifyContent: 'flex-start' }}
+            onClick={handleConvertToProvider}
+            disabled={!apiKey.trim()}
+          >
             <ExternalLink size={14} />
             <span>转换为供应商配置</span>
           </button>
         </div>
       </div>
+
+      {/* 拖拽调整宽度手柄 */}
+      <div className="resizeHandle" onMouseDown={handleResizeStart} />
 
       {/* 右侧测试区 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -508,36 +741,36 @@ export function ApiTestPage(props: Props) {
             </div>
           ) : (
             <>
-              {messages.map((msg) => (
-                <div key={msg.id} className={`apiTestMessage ${msg.role === 'user' ? 'apiTestMessageUser' : ''}`}>
-                  <div className="apiTestMessageContent">
-                    <MarkdownView content={msg.content} />
-                  </div>
-                  <div className="apiTestMessageMeta">
-                    {msg.usage && (
-                      <span>
-                        {msg.usage.totalTokens} tokens
-                      </span>
-                    )}
-                    {msg.latency && (
-                      <span>{(msg.latency / 1000).toFixed(2)}s</span>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-icon btn-sm"
-                      onClick={() => handleCopy(msg)}
-                    >
-                      {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
-                    </button>
-                  </div>
-                </div>
+              {messages.map((msg, idx) => (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg as any}
+                  assistantName={activeConfig.name}
+                  providerName={selectedProvider}
+                  onCopy={() => handleCopy(msg)}
+                  onDelete={() => handleDeleteMessage(msg)}
+                  onEdit={(m, newContent) => handleEditMessage(msg, newContent)}
+                  onRegenerate={msg.role === 'assistant' && idx === messages.length - 1 && !isGenerating
+                    ? () => handleRegenerate()
+                    : undefined}
+                  onResend={msg.role === 'user' && !isGenerating
+                    ? () => handleResendMessage(msg)
+                    : undefined}
+                />
               ))}
-              {isGenerating && streamingContent && (
-                <div className="apiTestMessage">
-                  <div className="apiTestMessageContent">
-                    <MarkdownView content={streamingContent} />
-                  </div>
-                </div>
+              {isGenerating && (
+                <MessageBubble
+                  message={({
+                    id: 'streaming',
+                    role: 'assistant',
+                    content: streamingContent,
+                    reasoning: streamingReasoning || undefined,
+                    ts: Date.now()
+                  }) as any}
+                  isLoading={true}
+                  assistantName={activeConfig.name}
+                  providerName={selectedProvider}
+                />
               )}
             </>
           )}
@@ -545,34 +778,56 @@ export function ApiTestPage(props: Props) {
         </div>
 
         {/* 输入栏 */}
-        <div className="apiTestInputBar frosted">
-          <textarea
-            className="input"
+        <div style={{ padding: '0 20px 20px', maxWidth: 1000, margin: '0 auto', width: '100%' }}>
+          <ChatInputBar
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            placeholder="输入测试消息..."
-            rows={2}
-            style={{ flex: 1, resize: 'none', minHeight: 60 }}
+            onChange={setInput}
+            onSend={() => handleSend()}
+            onStop={handleStop}
+            onRegenerate={(() => {
+              const clone = [...messages]
+              return clone.reverse().findIndex((m) => m.role === 'user') !== -1 ? handleRegenerate : undefined
+            })()}
+            isGenerating={isGenerating}
+            disabled={!selectedModel || isGenerating}
+            placeholder={selectedModel ? "输入测试消息..." : "请先选择一个模型..."}
+            currentModelId={selectedModel || ''}
+            currentProviderName={selectedProvider}
+            reasoningEffort={reasoningEffort as any}
+            onReasoningEffortChange={setReasoningEffort as any}
+            onOpenModelPicker={() => setModelPickerOpen(true)}
+            onClearContext={handleClear}
           />
-          {isGenerating ? (
-            <button type="button" className="btn btn-primary" onClick={handleStop}>
-              <Square size={16} />
-              <span>停止</span>
-            </button>
-          ) : (
-            <button type="button" className="btn btn-primary" onClick={handleSend} disabled={!selectedModel}>
-              <Send size={16} />
-              <span>发送</span>
-            </button>
-          )}
         </div>
       </div>
+
+      {/* 编辑消息对话框 */}
+      {editDialog.open && (
+        <div className="modalOverlay" onMouseDown={() => setEditDialog((d) => ({ ...d, open: false }))}>
+          <div className="modalSurface frosted" style={{ width: 480, padding: 16 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, marginBottom: 12 }}>编辑消息</div>
+            <textarea
+              className="input"
+              style={{ width: '100%', minHeight: 120, marginBottom: 16, resize: 'vertical' }}
+              value={editDialog.content}
+              onChange={(e) => setEditDialog((d) => ({ ...d, content: e.target.value }))}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn" onClick={() => setEditDialog((d) => ({ ...d, open: false }))}>
+                取消
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => {
+                const msg = messages.find((m) => m.id === editDialog.msgId)
+                if (msg) handleEditMessage(msg, editDialog.content.trim())
+                setEditDialog({ open: false, msgId: '', content: '' })
+              }}>
+                确认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 重命名对话框 */}
       {renameDialog.open && (
@@ -596,6 +851,54 @@ export function ApiTestPage(props: Props) {
               </button>
               <button type="button" className="btn btn-primary" onClick={handleRenameConfig}>
                 确认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 模型快速切换对话框 */}
+      {modelPickerOpen && (
+        <div className="modalOverlay" onMouseDown={() => setModelPickerOpen(false)}>
+          <div className="modalSurface frosted" style={{ width: 320, maxHeight: 400, display: 'flex', flexDirection: 'column' }} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={{ padding: '16px', fontWeight: 700, borderBottom: '1px solid var(--border)' }}>
+              选择模型
+            </div>
+            <div className="scrollbarHover" style={{ overflowY: 'auto', padding: 8 }}>
+              {activeConfig.models.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', opacity: 0.5, fontSize: 13 }}>
+                  暂无模型，请先在左侧获取列表或手动输入
+                </div>
+              ) : (
+                activeConfig.models.map((m) => (
+                  <div
+                    key={m}
+                    onClick={() => { setSelectedModel(m); setModelPickerOpen(false); }}
+                    style={{
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: selectedModel === m ? 600 : 400,
+                      background: selectedModel === m ? 'var(--primary-bg)' : 'transparent',
+                      color: selectedModel === m ? 'var(--primary)' : 'var(--text)',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedModel !== m) e.currentTarget.style.background = 'var(--hover-bg)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedModel !== m) e.currentTarget.style.background = 'transparent'
+                    }}
+                  >
+                    {m}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+              <button type="button" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setModelPickerOpen(false)}>
+                关闭
               </button>
             </div>
           </div>

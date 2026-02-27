@@ -3,7 +3,7 @@
  * 对齐旧版 Kelivo 的 home_page.dart
  * 包括：双栏布局（会话列表 + 消息区）
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 
 import type { AppConfig, AssistantConfig } from '../../../shared/types'
@@ -23,6 +23,8 @@ import { useMessageTranslation } from './chat/useMessageTranslation'
 import { useConversationManager } from './chat/useConversationManager'
 import { useChatStream } from './chat/useChatStream'
 import type { EffortValue } from '../components/ReasoningBudgetPopover'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../shared/responsesOptions'
+import { supportsResponsesXHighEffort } from '../../../shared/chatApiHelper'
 
 import { safeUuid } from '../../../shared/utils'
 
@@ -79,7 +81,10 @@ export function ChatPage(props: Props) {
     sidebarLoadingConversationIds, filteredConversations,
     handleNewConversation, handleRenameConversation, handleDeleteConversation,
     handleTogglePinConversation, handleRegenerateConversationTitle,
-    setConversationThinkingBudget, clearConversationContext,
+    setConversationThinkingBudget,
+    setConversationResponsesReasoningSummary,
+    setConversationResponsesTextVerbosity,
+    clearConversationContext,
     handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace,
   } = useConversationManager({ config, onOpenDefaultModelSettings: props.onOpenDefaultModelSettings })
 
@@ -132,6 +137,17 @@ export function ChatPage(props: Props) {
   const effectiveProviderId = activeAssistant?.boundModelProvider ?? config.currentModelProvider
   const effectiveModelId = activeAssistant?.boundModelId ?? config.currentModelId
   const currentProvider = effectiveProviderId ? config.providerConfigs[effectiveProviderId] : null
+  const isOpenAIResponsesMode =
+    (currentProvider?.providerType === 'openai' || currentProvider?.providerType === 'openai_response') &&
+    currentProvider.useResponseApi === true
+  const allowXHighReasoning =
+    isOpenAIResponsesMode &&
+    !!effectiveModelId &&
+    supportsResponsesXHighEffort(effectiveModelId)
+  const responsesReasoningSummary =
+    (activeConversation?.responsesReasoningSummary ?? 'detailed') as ResponsesReasoningSummary
+  const responsesTextVerbosity =
+    (activeConversation?.responsesTextVerbosity ?? 'high') as ResponsesTextVerbosity
   const needsDefaultModel = !effectiveProviderId || !effectiveModelId
 
   // 快捷短语：全局 + 当前助手
@@ -974,35 +990,47 @@ export function ChatPage(props: Props) {
                 <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
                 <div>开始新对话</div>
               </div>
-            ) : (
-              displayMessages.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  message={{ ...m, version: m._versionIndex, totalVersions: m._totalVersions }}
-                  displayContent={applyAssistantRegex(m.content, m.role, activeAssistant?.regexRules, 'display')}
-                  assistantName={activeAssistant?.name}
-                  assistantAvatar={activeAssistant?.avatar}
-                  useAssistantAvatar={activeAssistant?.useAssistantAvatar}
-                  isLoading={m.id === streamingMsgId}
-                  displaySettings={config.display}
-                  // 传递供应商名称
-                  providerName={m.providerId ? (config.providerConfigs[m.providerId]?.name ?? m.providerId) : undefined}
-                  onEdit={handleEditMessage}
-                  onDelete={handleDeleteMessage}
-                  onRegenerate={handleRegenerateMessage}
-                  onResend={handleResendMessage}
-                  onMentionReAnswer={handleMentionReAnswer}
-                  onSpeak={handleSpeakMessage}
-                  onTranslate={handleTranslateMessage}
-                  onTranslationExpandChange={(msg, expanded) => setMessageTranslationExpanded(msg.id, expanded)}
-                  onFork={handleForkMessage}
-                  onVersionChange={handleVersionChange}
-                  isTranslating={translatingMsgId === m.id}
-                  isSpeaking={speakingMsgId === m.id}
-                  user={config.user}
-                />
+            ) : (() => {
+              const truncIdx = activeConversation?.truncateIndex ?? -1
+              const truncateMsgId = truncIdx > 0 && truncIdx <= activeMessages.length
+                ? activeMessages[truncIdx - 1]?.id
+                : null
+              return displayMessages.map((m) => (
+                <React.Fragment key={m.id}>
+                  <MessageBubble
+                    message={{ ...m, version: m._versionIndex, totalVersions: m._totalVersions }}
+                    displayContent={applyAssistantRegex(m.content, m.role, activeAssistant?.regexRules, 'display')}
+                    assistantName={activeAssistant?.name}
+                    assistantAvatar={activeAssistant?.avatar}
+                    useAssistantAvatar={activeAssistant?.useAssistantAvatar}
+                    isLoading={m.id === streamingMsgId}
+                    displaySettings={config.display}
+                    providerName={m.providerId ? (config.providerConfigs[m.providerId]?.name ?? m.providerId) : undefined}
+                    onEdit={handleEditMessage}
+                    onDelete={handleDeleteMessage}
+                    onRegenerate={handleRegenerateMessage}
+                    onResend={handleResendMessage}
+                    onMentionReAnswer={handleMentionReAnswer}
+                    onSpeak={handleSpeakMessage}
+                    onTranslate={handleTranslateMessage}
+                    onTranslationExpandChange={(msg, expanded) => setMessageTranslationExpanded(msg.id, expanded)}
+                    onFork={handleForkMessage}
+                    onVersionChange={handleVersionChange}
+                    isTranslating={translatingMsgId === m.id}
+                    isSpeaking={speakingMsgId === m.id}
+                    user={config.user}
+                  />
+                  {truncateMsgId && m.id === truncateMsgId && (
+                    <div className="contextTruncateDivider">
+                      <div className="contextTruncateLine" />
+                      <span className="contextTruncateLabel">上下文已清除</span>
+                      <div className="contextTruncateLine" />
+                    </div>
+                  )}
+                </React.Fragment>
               ))
-            )}
+            })()
+            }
             <div ref={messagesEndRef} />
           </div>
 
@@ -1056,6 +1084,12 @@ export function ChatPage(props: Props) {
 
           reasoningEffort={(activeConversation?.thinkingBudget ?? -1) as EffortValue}
           onReasoningEffortChange={(v) => void setConversationThinkingBudget(v)}
+          allowXHighReasoning={allowXHighReasoning}
+          showResponsesOptions={isOpenAIResponsesMode}
+          responsesReasoningSummary={responsesReasoningSummary}
+          onResponsesReasoningSummaryChange={(v) => void setConversationResponsesReasoningSummary(v)}
+          responsesTextVerbosity={responsesTextVerbosity}
+          onResponsesTextVerbosityChange={(v) => void setConversationResponsesTextVerbosity(v)}
           maxTokens={activeAssistant?.maxTokens ?? 0}
           onMaxTokensChange={(v) => void patchActiveAssistant({ maxTokens: v })}
           mcpServers={mcpServers}
@@ -1063,9 +1097,11 @@ export function ChatPage(props: Props) {
           mcpToolCallMode={config.mcpToolCallMode}
           onMcpToolCallModeChange={(mode) => void setMcpToolCallMode(mode)}
           onClearContext={() => void clearConversationContext()}
+          isContextCleared={(activeConversation?.truncateIndex ?? -1) >= 0}
           toolLoopIterations={activeAssistant?.maxToolLoopIterations ?? 10}
           onToolLoopIterationsChange={(v) => void patchActiveAssistant({ maxToolLoopIterations: v })}
           onOpenModelPicker={() => setModelPickerOpen((v) => !v)}
+          enableUserMarkdown={config.display?.enableUserMarkdown !== false}
         />
 
         <ChatPagePopovers
@@ -1085,8 +1121,15 @@ export function ChatPage(props: Props) {
           onCloseAssistantPicker={() => setAssistantPickerOpen(false)}
           assistants={assistants}
           activeAssistantId={activeAssistantId ?? null}
-          onSelectAssistant={(id) => setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, assistantId: id } : c)))}
-          onManageAssistant={() => props.onOpenSettings?.('assistant')}
+          onSelectAssistant={(id) => {
+            setConversations((prev) => prev.map((c) => (c.id === activeConvId ? { ...c, assistantId: id } : c)))
+            void window.api.db.conversations.update(activeConvId, { assistantId: id })
+              .catch(err => console.error('[ChatPageNew] update assistantId failed:', err))
+          }}
+          onManageAssistant={() => {
+            setAssistantPickerOpen(false)
+            props.onOpenSettings?.('assistant')
+          }}
         />
 
       </div>

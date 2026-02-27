@@ -13,6 +13,7 @@ import { Check, Edit2, History, Pin, RotateCw, Search, Trash2, X } from 'lucide-
 import type { AssistantConfig } from '../../../../shared/types'
 import { useDialogClose } from '../../hooks/useDialogClose'
 import { MessageSearchDialog } from './MessageSearchDialog'
+import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
 
 export interface Conversation {
   id: string
@@ -27,6 +28,10 @@ export interface Conversation {
   truncateIndex?: number
   /** 对齐 Flutter：会话级推理预算（token 数或 effort level） */
   thinkingBudget?: number | null
+  /** Responses API 专属：reasoning.summary */
+  responsesReasoningSummary?: ResponsesReasoningSummary | null
+  /** Responses API 专属：text.verbosity */
+  responsesTextVerbosity?: ResponsesTextVerbosity | null
 }
 
 interface Props {

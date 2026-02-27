@@ -10,11 +10,16 @@ import {
   SearchOptions,
   mergeSearchOptions
 } from '../searchService'
+import type { SearchApiKeyConfig, SearchLoadBalanceStrategy } from '../../../../shared/types'
+import { selectSearchApiKey } from '../searchKeyHelper'
 
 /** Tavily 配置 */
 export interface TavilyConfig {
   apiKey: string
   depth?: 'basic' | 'advanced'
+  id?: string
+  apiKeys?: SearchApiKeyConfig[]
+  strategy?: SearchLoadBalanceStrategy
 }
 
 const BASE_URL = 'https://api.tavily.com'
@@ -28,19 +33,27 @@ export class TavilySearchService extends SearchService {
 
   private apiKey: string
   private depth: string
+  private serviceId: string
+  private apiKeys: SearchApiKeyConfig[] | undefined
+  private strategy: SearchLoadBalanceStrategy | undefined
 
   constructor(config: TavilyConfig) {
     super()
-    this.apiKey = config.apiKey
+    this.serviceId = config.id ?? ''
+    this.apiKey = config.apiKey ?? ''
+    this.apiKeys = config.apiKeys
+    this.strategy = config.strategy
     this.depth = config.depth || 'advanced'
   }
 
   isAvailable(): boolean {
-    return !!this.apiKey
+    const hasMultiKey = this.apiKeys?.some(k => k.isEnabled && k.key.trim())
+    return !!(hasMultiKey || this.apiKey)
   }
 
   async search(query: string, options?: SearchOptions): Promise<SearchResult> {
     const opts = mergeSearchOptions(options)
+    const key = selectSearchApiKey(this.serviceId, this.apiKey, this.apiKeys, this.strategy)
 
     const response = await fetch(`${BASE_URL}/search`, {
       method: 'POST',
@@ -48,7 +61,7 @@ export class TavilySearchService extends SearchService {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        api_key: this.apiKey,
+        api_key: key,
         query,
         max_results: opts.resultSize,
         search_depth: this.depth,

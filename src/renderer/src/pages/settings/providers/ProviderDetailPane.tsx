@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ProviderConfigV2 } from '../../../../../shared/types'
-import type { ModelOverride } from './types'
+import { LOAD_BALANCE_STRATEGIES, type ModelOverride } from './types'
 import { AbilityCapsule } from './components/AbilityCapsule'
 import { BrandAvatar } from './components/BrandAvatar'
 import { ConnectionTestDialog } from './dialogs/ConnectionTestDialog'
@@ -57,6 +57,16 @@ export function ProviderDetailPane({
   const [showApiKey, setShowApiKey] = useState(false)
   const [enabled, setEnabled] = useState(provider.enabled !== false)
   const [saving, setSaving] = useState(false)
+
+  const providerApiKeys = provider.apiKeys ?? []
+  const isMultiKeyMode = !!provider.multiKeyEnabled
+  const enabledMultiKeyCount = providerApiKeys.filter((k) => k.isEnabled && k.key.trim()).length
+  const multiKeyStrategy = provider.keyManagement?.strategy ?? 'roundRobin'
+  const multiKeyStrategyLabel = LOAD_BALANCE_STRATEGIES.find((s) => s.value === multiKeyStrategy)?.label ?? multiKeyStrategy
+
+  const providerType = provider.providerType ?? 'openai'
+  const useResponseApi =
+    (providerType === 'openai' || providerType === 'openai_response') && provider.useResponseApi === true
 
   // 模型列表状态
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -492,36 +502,53 @@ export function ProviderDetailPane({
         {/* API Key */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, paddingLeft: 2 }}>
-            <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>API Key</label>
+            <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>
+              {isMultiKeyMode ? '多 Key' : 'API Key'}
+            </label>
             <button type="button" className="desk-button" style={{ padding: '4px 10px', fontSize: 12 }} title="管理多个 API Key" onClick={() => setMultiKeyDialogOpen(true)}>
               多Key管理
             </button>
           </div>
-          <div style={{ position: 'relative' }}>
-            <input
-              className="input-detail"
-              style={{ paddingRight: 40 }}
-              type={showApiKey ? 'text' : 'password'}
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); saveChanges({ apiKey: e.target.value }) }}
-              placeholder="请输入 API Key"
-            />
-            <button type="button" className="eye-toggle-btn" onClick={() => setShowApiKey(!showApiKey)} title={showApiKey ? '隐藏' : '显示'}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                {showApiKey ? (
-                  <>
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                  </>
-                ) : (
-                  <>
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </>
-                )}
-              </svg>
-            </button>
-          </div>
+
+          {isMultiKeyMode ? (
+            <>
+              <div style={{
+                fontSize: 12,
+                color: 'var(--text-3)',
+                paddingLeft: 2,
+                lineHeight: 1.4,
+                marginBottom: 10
+              }}>
+                已启用多 Key：{enabledMultiKeyCount}/{providerApiKeys.length}；策略：{multiKeyStrategyLabel}
+              </div>
+            </>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input-detail"
+                style={{ paddingRight: 40 }}
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); saveChanges({ apiKey: e.target.value }) }}
+                placeholder="请输入 API Key"
+              />
+              <button type="button" className="eye-toggle-btn" onClick={() => setShowApiKey(!showApiKey)} title={showApiKey ? '隐藏' : '显示'}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  {showApiKey ? (
+                    <>
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </>
+                  ) : (
+                    <>
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* API Base URL */}
@@ -538,12 +565,21 @@ export function ProviderDetailPane({
         {/* API 路径 */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API 路径</label>
-          <input
-            className="input-detail"
-            value={chatPath}
-            onChange={(e) => { setChatPath(e.target.value); saveChanges({ chatPath: e.target.value }) }}
-            placeholder="/chat/completions"
-          />
+
+          {useResponseApi ? (
+            <input
+              className="input-detail"
+              value="/responses"
+              disabled
+            />
+          ) : (
+            <input
+              className="input-detail"
+              value={chatPath}
+              onChange={(e) => { setChatPath(e.target.value); saveChanges({ chatPath: e.target.value }) }}
+              placeholder="/chat/completions"
+            />
+          )}
         </div>
 
         {/* 模型区域 */}

@@ -839,7 +839,10 @@ export function SearchPane({ config, onSave }: { config: AppConfig; onSave: (nex
         try {
           const regConfig: Record<string, unknown> = {
             type: updatedService.type,
-            ...(updatedService.apiKeys[0]?.key ? { apiKey: updatedService.apiKeys[0].key } : {}),
+            id: updatedService.id,
+            apiKeys: updatedService.apiKeys,
+            strategy: updatedService.strategy,
+            apiKey: updatedService.apiKeys.find(k => k.isEnabled && k.key)?.key ?? '',
             ...(updatedService.baseUrl ? { baseUrl: updatedService.baseUrl } : {}),
             ...(updatedService.serviceConfig ?? {})
           }

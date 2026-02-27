@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 import {
+  BookmarkPlus,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   Maximize2,
   Play,
   Save,
+  ScrollText,
   Square,
   Trash2,
   Upload,
@@ -24,7 +26,9 @@ import { toast } from 'sonner'
 
 import type { AppConfig } from '../../../shared/types'
 import { useConfirm } from '../hooks/useConfirm'
+import { usePromptLibrary } from '../hooks/usePromptLibrary'
 import { CustomSelect } from '../components/ui/CustomSelect'
+import { PromptHistoryPanel } from '../components/PromptHistoryPanel'
 import {
   FAL_SEEDREAM_IMAGE_SIZE_PRESETS,
   normalizeFalSeedreamEditOptions,
@@ -47,6 +51,38 @@ type InputDraft = ImageInputSource & { previewUrl?: string }
 const MAX_INPUT_IMAGES = 10
 const MAX_TOTAL_IMAGES = 15
 const HISTORY_COLLAPSED_STORAGE_KEY = 'kelivo:imageStudio:historyCollapsed'
+const REF_DOCK_WIDTH_STORAGE_KEY = 'kelivo:imageStudio:refDockWidth'
+const HISTORY_WIDTH_STORAGE_KEY = 'kelivo:imageStudio:historyWidth'
+
+const REF_DOCK_MIN_WIDTH = 140
+const REF_DOCK_MAX_WIDTH = 520
+const HISTORY_MIN_WIDTH = 44
+const HISTORY_MAX_WIDTH = 360
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (Number.isNaN(value)) return min
+  return Math.min(max, Math.max(min, value))
+}
+
+function readStoredNumber(key: string): number | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const value = Number.parseFloat(raw)
+    if (!Number.isFinite(value)) return null
+    return value
+  } catch {
+    return null
+  }
+}
+
+function writeStoredNumber(key: string, value: number) {
+  try {
+    localStorage.setItem(key, String(Math.round(value)))
+  } catch {
+    // ignore
+  }
+}
 
 const IMAGE_SIZE_LABELS: Record<FalSeedreamImageSizePreset, string> = {
   square_hd: 'square_hd',
@@ -199,18 +235,17 @@ function HistoryRail(props: HistoryRailProps) {
 
   return (
     <aside className={`csPaintingsList ${collapsed ? 'is-collapsed' : ''}`} aria-label="历史缩略图">
-      <button
-        className="csHistoryToggleBtn csTip"
-        data-tip={collapsed ? '展开历史' : '折叠历史'}
-        type="button"
-        onClick={() => setCollapsed((prev) => !prev)}>
-        {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-      </button>
+      <div className="csHistoryHeader" aria-label="历史栏">
+        <button className="csHistoryToggleBtn" type="button" onClick={() => setCollapsed((prev) => !prev)} title={collapsed ? '展开' : '收起'}>
+          {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
 
-      <div className="csPaintingsListBody" aria-hidden={collapsed}>
-        <button className="csNewPaintingButton" type="button" onClick={props.onNew} title="新建">
+        <button className="csHistoryNewBtn" type="button" onClick={props.onNew} title="新建">
           +
         </button>
+      </div>
+
+      <div className="csPaintingsListBody" aria-hidden={collapsed}>
         <div className="csThumbList">
           {props.rightJobs.length === 0 ? (
             <div className="csThumbEmpty">{props.historyLoading ? '加载中...' : '暂无'}</div>
@@ -258,6 +293,8 @@ function HistoryRail(props: HistoryRailProps) {
 
 export function ImageStudioPage(props: Props) {
   const confirm = useConfirm()
+  const promptLib = usePromptLibrary()
+  const paintContainerRef = useRef<HTMLDivElement | null>(null)
   const providers = props.config.imageStudio.providers
   const defaultProviderId = props.config.imageStudio.defaultProviderId
   const defaultOptions = normalizeFalSeedreamEditOptions(props.config.imageStudio.uiDefaults.falSeedreamEditOptions)
@@ -288,6 +325,7 @@ export function ImageStudioPage(props: Props) {
   const [previewImage, setPreviewImage] = useState<{ src: string; title: string; outputId?: string } | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; src: string; title: string; outputId?: string } | null>(null)
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
+  const [promptHistoryOpen, setPromptHistoryOpen] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const promptEditorRef = useRef<HTMLTextAreaElement | null>(null)
@@ -295,6 +333,21 @@ export function ImageStudioPage(props: Props) {
   const refreshRunningJobInFlightRef = useRef(false)
   const refreshRunningJobAtRef = useRef(0)
   const apiKeyProviderIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const host = paintContainerRef.current
+    if (!host) return
+
+    const refW = readStoredNumber(REF_DOCK_WIDTH_STORAGE_KEY)
+    if (refW != null) {
+      host.style.setProperty('--cs-ref-w', `${clampNumber(refW, REF_DOCK_MIN_WIDTH, REF_DOCK_MAX_WIDTH)}px`)
+    }
+
+    const hisW = readStoredNumber(HISTORY_WIDTH_STORAGE_KEY)
+    if (hisW != null) {
+      host.style.setProperty('--cs-his-w', `${clampNumber(hisW, HISTORY_MIN_WIDTH, HISTORY_MAX_WIDTH)}px`)
+    }
+  }, [])
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === providerId) ?? providers[0],
@@ -315,6 +368,7 @@ export function ImageStudioPage(props: Props) {
   }, [currentJob, focusedOutputId])
 
   const focusedOutputSrc = focusedOutput ? outputSrc(focusedOutput) : null
+  const hasFocusedOutput = Boolean(focusedOutput && focusedOutputSrc)
 
   const previewOutputIndex = useMemo(() => {
     if (!previewImage?.outputId) return 0
@@ -666,6 +720,26 @@ export function ImageStudioPage(props: Props) {
             return next
           })
         })
+        return
+      }
+
+      // 实时追加日志条目（后端 appendLog 只发 type:'log' + message，不带 job/outputs/status）
+      if (event.type === 'log' && event.message) {
+        const gid = event.generationId
+        const msg = event.message
+        startTransition(() => {
+          setCurrentJob((prev) => {
+            if (!prev || prev.id !== gid) return prev
+            return { ...prev, logs: [...prev.logs, msg] }
+          })
+          setHistory((prev) => {
+            const idx = prev.findIndex((item) => item.id === gid)
+            if (idx === -1) return prev
+            const next = [...prev]
+            next[idx] = { ...next[idx], logs: [...next[idx].logs, msg] }
+            return next
+          })
+        })
       }
     })
 
@@ -777,15 +851,15 @@ export function ImageStudioPage(props: Props) {
 
           // 兜底：拿不到本地路径时才转 DataURL，避免把大图 Base64 常驻内存（会明显拖慢渲染与历史切换）。
           const preview = await readFileAsDataUrl(file)
-           return {
-             id: crypto.randomUUID(),
-             type: 'url' as const,
-             value: preview,
-             fileName: file.name,
-             previewUrl: preview
-           }
-         })
-       )
+          return {
+            id: crypto.randomUUID(),
+            type: 'url' as const,
+            value: preview,
+            fileName: file.name,
+            previewUrl: preview
+          }
+        })
+      )
       setInputs((prev) => [...prev, ...drafts])
     } catch (error) {
       toast.error(String(error))
@@ -881,7 +955,7 @@ export function ImageStudioPage(props: Props) {
       const maxImagesAllowed = Math.max(1, Math.floor(outputBudget / Math.max(1, nextOptions.numImages)))
       toast.error(
         `总图上限为 ${MAX_TOTAL_IMAGES}（输入+输出）。你当前输入 ${inputs.length} 张；num_images=${nextOptions.numImages} 且 max_images=${nextOptions.maxImages} 时，最大输出=${maxPossibleOutputs} 张，最大总图=${maxPossibleTotal}/${MAX_TOTAL_IMAGES}。\n` +
-          `建议：将 max_images 降到 ≤ ${Math.min(6, maxImagesAllowed)}，或减少参考图/num_images；如果你只想“固定输出 ${nextOptions.numImages} 张”，请把 max_images 设为 1。`
+        `建议：将 max_images 降到 ≤ ${Math.min(6, maxImagesAllowed)}，或减少参考图/num_images；如果你只想“固定输出 ${nextOptions.numImages} 张”，请把 max_images 设为 1。`
       )
       return
     }
@@ -938,6 +1012,7 @@ export function ImageStudioPage(props: Props) {
         return next
       })
       setPromptEditorOpen(false)
+      void promptLib.addPrompt(prompt)
       toast.success('任务已提交')
     } catch (err) {
       toast.error(String(err))
@@ -1054,32 +1129,137 @@ export function ImageStudioPage(props: Props) {
 
   const statusText = currentJob ? `${statusLabel(currentJob.status)} · ${currentJob.id.slice(0, 8)}` : '暂无任务'
 
+  const startColumnResize = useCallback(
+    (side: 'ref' | 'his', event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return
+
+      const host = paintContainerRef.current
+      const handleEl = event.currentTarget
+      const contentEl = handleEl.closest('.csPaintContent') as HTMLDivElement | null
+      if (!host || !contentEl) return
+
+      const refEl = contentEl.querySelector('.csRefDock') as HTMLElement | null
+      const hisEl = contentEl.querySelector('.csPaintingsList') as HTMLElement | null
+      const mainEl = contentEl.querySelector('.csPaintMain') as HTMLElement | null
+      if (!refEl || !hisEl || !mainEl) return
+      if (side === 'his' && hisEl.classList.contains('is-collapsed')) return
+
+      event.preventDefault()
+
+      const pointerId = event.pointerId
+      try {
+        handleEl.setPointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
+
+      handleEl.classList.add('is-dragging')
+
+      const startX = event.clientX
+      const containerW = contentEl.getBoundingClientRect().width
+      const refW0 = refEl.getBoundingClientRect().width
+      const hisW0 = hisEl.getBoundingClientRect().width
+      const mainW0 = mainEl.getBoundingClientRect().width
+      const splitTotal = Math.max(0, containerW - refW0 - hisW0 - mainW0)
+      const minMainW = Math.max(280, Math.min(420, containerW * 0.4))
+
+      const maxRefFromLayout = containerW - hisW0 - splitTotal - minMainW
+      const maxHisFromLayout = containerW - refW0 - splitTotal - minMainW
+      const maxRefW = Math.max(REF_DOCK_MIN_WIDTH, Math.min(REF_DOCK_MAX_WIDTH, maxRefFromLayout))
+      const maxHisW = Math.max(HISTORY_MIN_WIDTH, Math.min(HISTORY_MAX_WIDTH, maxHisFromLayout))
+
+      let lastWidth = side === 'ref' ? refW0 : hisW0
+
+      const prevCursor = document.body.style.cursor
+      const prevUserSelect = document.body.style.userSelect
+      const prevWebkitUserSelect = document.body.style.getPropertyValue('-webkit-user-select')
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      document.body.style.setProperty('-webkit-user-select', 'none')
+
+      const onMove = (e: PointerEvent) => {
+        if (e.pointerId !== pointerId) return
+        const dx = e.clientX - startX
+
+        if (side === 'ref') {
+          const next = clampNumber(refW0 + dx, REF_DOCK_MIN_WIDTH, maxRefW)
+          lastWidth = next
+          host.style.setProperty('--cs-ref-w', `${Math.round(next)}px`)
+          return
+        }
+
+        const next = clampNumber(hisW0 - dx, HISTORY_MIN_WIDTH, maxHisW)
+        lastWidth = next
+        host.style.setProperty('--cs-his-w', `${Math.round(next)}px`)
+      }
+
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onCancel)
+
+        handleEl.classList.remove('is-dragging')
+        document.body.style.cursor = prevCursor
+        document.body.style.userSelect = prevUserSelect
+        document.body.style.setProperty('-webkit-user-select', prevWebkitUserSelect)
+
+        try {
+          handleEl.releasePointerCapture(pointerId)
+        } catch {
+          // ignore
+        }
+
+        if (side === 'ref') {
+          writeStoredNumber(REF_DOCK_WIDTH_STORAGE_KEY, lastWidth)
+          return
+        }
+
+        writeStoredNumber(HISTORY_WIDTH_STORAGE_KEY, lastWidth)
+      }
+
+      const onUp = (e: PointerEvent) => {
+        if (e.pointerId !== pointerId) return
+        cleanup()
+      }
+
+      const onCancel = (e: PointerEvent) => {
+        if (e.pointerId !== pointerId) return
+        cleanup()
+      }
+
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onCancel)
+    },
+    []
+  )
+
   return (
     <>
-        <div className="imageStudioCherryRoot csPaintContainer">
-          <div className="csPaintContent">
-            {/* 统一的隐藏文件选择器：让参考图在任意面板状态下都能上传 */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(event) => void onPickFiles(event)}
-            />
+        <div ref={paintContainerRef} className="imageStudioCherryRoot csPaintContainer">
+        <div className="csPaintContent">
+          {/* 统一的隐藏文件选择器：让参考图在任意面板状态下都能上传 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(event) => void onPickFiles(event)}
+          />
 
-            {!settingsOpen ? (
-              <button
-                className="csSettingsTrigger"
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                aria-haspopup="dialog"
-                aria-expanded={false}
-                aria-controls="imageStudioSettingsPanel">
-                <span className="csSettingsTriggerText">{selectedProvider?.name ?? '配置'}</span>
-                <ChevronDown size={14} className="csSettingsTriggerChevron" />
-              </button>
-            ) : null}
+          {!settingsOpen ? (
+            <button
+              className="csSettingsTrigger"
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={false}
+              aria-controls="imageStudioSettingsPanel">
+              <span className="csSettingsTriggerText">{selectedProvider?.name ?? '配置'}</span>
+              <ChevronDown size={14} className="csSettingsTriggerChevron" />
+            </button>
+          ) : null}
 
           {settingsOpen ? (
             <div className="csSettingsPanelOverlay imageStudioCherryRoot" onMouseDown={() => setSettingsOpen(false)}>
@@ -1167,164 +1347,164 @@ export function ImageStudioPage(props: Props) {
                           <div className="csSettingsGroupMeta">Seedream v4.5</div>
                         </div>
                         <div className="csSettingsGroupBody">
-                        <div className="csLabel">image_size</div>
-                        <div className="csGrid2">
-                          <CustomSelect
-                            className="csControl csSelectTrigger"
-                            value={sizeMode}
-                            options={[
-                              { value: 'preset', label: '预设' },
-                              { value: 'custom', label: '自定义' }
-                            ]}
-                            onChange={(value) => setSizeMode(value as 'preset' | 'custom')}
-                          />
-
-                          {sizeMode === 'preset' ? (
+                          <div className="csLabel">image_size</div>
+                          <div className="csGrid2">
                             <CustomSelect
                               className="csControl csSelectTrigger"
-                              value={sizePreset}
-                              options={FAL_SEEDREAM_IMAGE_SIZE_PRESETS.map((preset) => ({
-                                value: preset,
-                                label: IMAGE_SIZE_LABELS[preset]
-                              }))}
-                              onChange={(value) => setSizePreset(value as FalSeedreamImageSizePreset)}
+                              value={sizeMode}
+                              options={[
+                                { value: 'preset', label: '预设' },
+                                { value: 'custom', label: '自定义' }
+                              ]}
+                              onChange={(value) => setSizeMode(value as 'preset' | 'custom')}
                             />
-                          ) : (
-                            <div className="csGrid2">
-                              <input
-                                className="csControl"
-                                type="number"
-                                min={1}
-                                value={customWidth}
-                                onChange={(event) => setCustomWidth(Number(event.target.value || 0))}
-                                placeholder="width"
-                              />
-                              <input
-                                className="csControl"
-                                type="number"
-                                min={1}
-                                value={customHeight}
-                                onChange={(event) => setCustomHeight(Number(event.target.value || 0))}
-                                placeholder="height"
-                              />
-                            </div>
-                          )}
-                        </div>
 
-                        <div className="csField">
-                          <div className="csLabelRow">
-                            <span className="csLabelInline">num_images</span>
-                            <span className="csHint">{options.numImages}</span>
+                            {sizeMode === 'preset' ? (
+                              <CustomSelect
+                                className="csControl csSelectTrigger"
+                                value={sizePreset}
+                                options={FAL_SEEDREAM_IMAGE_SIZE_PRESETS.map((preset) => ({
+                                  value: preset,
+                                  label: IMAGE_SIZE_LABELS[preset]
+                                }))}
+                                onChange={(value) => setSizePreset(value as FalSeedreamImageSizePreset)}
+                              />
+                            ) : (
+                              <div className="csGrid2">
+                                <input
+                                  className="csControl"
+                                  type="number"
+                                  min={1}
+                                  value={customWidth}
+                                  onChange={(event) => setCustomWidth(Number(event.target.value || 0))}
+                                  placeholder="width"
+                                />
+                                <input
+                                  className="csControl"
+                                  type="number"
+                                  min={1}
+                                  value={customHeight}
+                                  onChange={(event) => setCustomHeight(Number(event.target.value || 0))}
+                                  placeholder="height"
+                                />
+                              </div>
+                            )}
                           </div>
-                          <input
-                            className="csRange"
-                            type="range"
-                            min={1}
-                            max={6}
-                            value={options.numImages}
-                            onChange={(event) =>
-                              setOptions((prev) => ({
-                                ...prev,
-                                numImages: Math.max(1, Math.min(6, Math.round(Number(event.target.value || 1))))
-                              }))
-                            }
-                          />
-                        </div>
 
-                        <div className="csGrid2">
                           <div className="csField">
                             <div className="csLabelRow">
-                              <span
-                                className="csLabelInline"
-                                title="max_images > 1 时启用多图生成：每次 generation 可能返回 1~max_images 张；总共执行 num_images 次 generation；总输出范围 num_images~(num_images*max_images)。总图量限制按最大可能输出计算。">
-                                max_images
-                              </span>
-                              <span className="csHint">{options.maxImages}</span>
+                              <span className="csLabelInline">num_images</span>
+                              <span className="csHint">{options.numImages}</span>
                             </div>
                             <input
-                              className="csControl"
-                              type="number"
+                              className="csRange"
+                              type="range"
                               min={1}
                               max={6}
-                              value={options.maxImages}
+                              value={options.numImages}
                               onChange={(event) =>
                                 setOptions((prev) => ({
                                   ...prev,
-                                  maxImages: Math.max(1, Math.min(6, Math.round(Number(event.target.value || 1))))
+                                  numImages: Math.max(1, Math.min(6, Math.round(Number(event.target.value || 1))))
                                 }))
                               }
                             />
                           </div>
 
-                          <div className="csField">
-                            <div className="csLabelInline">seed</div>
-                            <div className="csRow">
+                          <div className="csGrid2">
+                            <div className="csField">
+                              <div className="csLabelRow">
+                                <span
+                                  className="csLabelInline"
+                                  title="max_images > 1 时启用多图生成：每次 generation 可能返回 1~max_images 张；总共执行 num_images 次 generation；总输出范围 num_images~(num_images*max_images)。总图量限制按最大可能输出计算。">
+                                  max_images
+                                </span>
+                                <span className="csHint">{options.maxImages}</span>
+                              </div>
                               <input
-                                className="csControl csGrow"
+                                className="csControl"
                                 type="number"
-                                min={0}
-                                max={2147483647}
-                                value={options.seed}
+                                min={1}
+                                max={6}
+                                value={options.maxImages}
                                 onChange={(event) =>
                                   setOptions((prev) => ({
                                     ...prev,
-                                    seed: Math.max(0, Math.min(2147483647, Math.round(Number(event.target.value || 0))))
+                                    maxImages: Math.max(1, Math.min(6, Math.round(Number(event.target.value || 1))))
                                   }))
                                 }
                               />
-                              <button className="csIconBtn" type="button" onClick={randomSeed} title="随机种子">
-                                <Wand2 size={16} />
-                              </button>
+                            </div>
+
+                            <div className="csField">
+                              <div className="csLabelInline">seed</div>
+                              <div className="csRow">
+                                <input
+                                  className="csControl csGrow"
+                                  type="number"
+                                  min={0}
+                                  max={2147483647}
+                                  value={options.seed}
+                                  onChange={(event) =>
+                                    setOptions((prev) => ({
+                                      ...prev,
+                                      seed: Math.max(0, Math.min(2147483647, Math.round(Number(event.target.value || 0))))
+                                    }))
+                                  }
+                                />
+                                <button className="csIconBtn" type="button" onClick={randomSeed} title="随机种子">
+                                  <Wand2 size={16} />
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div
-                          className="csHint csHintBlock"
-                          title="输出范围（不含输入图）：num_images ~ (num_images*max_images)；总图量限制按最大可能输出计算。">
-                          输出范围：{options.numImages}~{options.numImages * options.maxImages} 张；最大总图：{inputs.length} +{' '}
-                          {options.numImages * options.maxImages} = {inputs.length + options.numImages * options.maxImages} / {MAX_TOTAL_IMAGES}
-                        </div>
+                          <div
+                            className="csHint csHintBlock"
+                            title="输出范围（不含输入图）：num_images ~ (num_images*max_images)；总图量限制按最大可能输出计算。">
+                            输出范围：{options.numImages}~{options.numImages * options.maxImages} 张；最大总图：{inputs.length} +{' '}
+                            {options.numImages * options.maxImages} = {inputs.length + options.numImages * options.maxImages} / {MAX_TOTAL_IMAGES}
+                          </div>
 
-                        <div className="csField">
-                          <div className="csLabel">enhance_prompt_mode</div>
-                          <CustomSelect
-                            className="csControl csSelectTrigger"
-                            value={options.enhancePromptMode}
-                            options={[
-                              { value: 'standard', label: 'standard（默认）' },
-                              { value: 'fast', label: 'fast（更快）' }
-                            ]}
-                            onChange={(value) =>
-                              setOptions((prev) => ({
-                                ...prev,
-                                enhancePromptMode: value === 'fast' ? 'fast' : 'standard'
-                              }))
-                            }
-                          />
-                        </div>
+                          <div className="csField">
+                            <div className="csLabel">enhance_prompt_mode</div>
+                            <CustomSelect
+                              className="csControl csSelectTrigger"
+                              value={options.enhancePromptMode}
+                              options={[
+                                { value: 'standard', label: 'standard（默认）' },
+                                { value: 'fast', label: 'fast（更快）' }
+                              ]}
+                              onChange={(value) =>
+                                setOptions((prev) => ({
+                                  ...prev,
+                                  enhancePromptMode: value === 'fast' ? 'fast' : 'standard'
+                                }))
+                              }
+                            />
+                          </div>
 
-                        <div className="csSwitchRow">
-                          <span className="csLabelInline">sync_mode</span>
-                          <input
-                            type="checkbox"
-                            className="csToggle"
-                            checked={options.syncMode}
-                            onChange={(event) => setOptions((prev) => ({ ...prev, syncMode: event.target.checked }))}
-                          />
-                        </div>
+                          <div className="csSwitchRow">
+                            <span className="csLabelInline">sync_mode</span>
+                            <input
+                              type="checkbox"
+                              className="csToggle"
+                              checked={options.syncMode}
+                              onChange={(event) => setOptions((prev) => ({ ...prev, syncMode: event.target.checked }))}
+                            />
+                          </div>
 
-                        <div className="csSwitchRow csSwitchRowAccent">
-                          <span className="csLabelInline">enable_safety_checker</span>
-                          <input
-                            type="checkbox"
-                            className="csToggle"
-                            checked={options.enableSafetyChecker}
-                            onChange={(event) => setOptions((prev) => ({ ...prev, enableSafetyChecker: event.target.checked }))}
-                          />
+                          <div className="csSwitchRow csSwitchRowAccent">
+                            <span className="csLabelInline">enable_safety_checker</span>
+                            <input
+                              type="checkbox"
+                              className="csToggle"
+                              checked={options.enableSafetyChecker}
+                              onChange={(event) => setOptions((prev) => ({ ...prev, enableSafetyChecker: event.target.checked }))}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    </section>
+                      </section>
                     </div>
 
                     {/* 参考图在左侧常驻 Dock 中维护：这里不重复展示，避免「同一份内容两套 UI」造成割裂与卡顿。 */}
@@ -1334,119 +1514,128 @@ export function ImageStudioPage(props: Props) {
             </div>
           ) : null}
 
-            {/* 左侧参考图常驻：输出图不必占满，参考图更醒目 */}
-            <aside className="csRefDock" aria-label="参考图">
-              <div className="csRefDockHeader">
-                <div className="csRefDockTitle">参考图</div>
-                <div className="csRefDockMeta">
-                  {inputs.length}/{MAX_INPUT_IMAGES}
-                </div>
+          {/* 左侧参考图常驻：输出图不必占满，参考图更醒目 */}
+          <aside className="csRefDock" aria-label="参考图">
+            <div className="csRefDockHeader">
+              <div className="csRefDockTitle">参考图</div>
+              <div className="csRefDockMeta">
+                {inputs.length}/{MAX_INPUT_IMAGES}
               </div>
+            </div>
 
-              <button
-                className="csRefDropzone"
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(event) => {
-                  event.preventDefault()
-                  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
-                }}
-                onDrop={onDropFiles}
-                title="点击或拖拽上传图片（支持多选）">
-                <div className="csRefDropzoneInner">
-                  <ImagePlus size={28} />
-                  <div className="csRefDropzoneText">点击或拖拽上传图片</div>
-                  <div className="csRefDropzoneSub">支持多张图片选择</div>
-                </div>
+            <button
+              className="csRefDropzone"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault()
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+              }}
+              onDrop={onDropFiles}
+              title="点击或拖拽上传图片（支持多选）">
+              <div className="csRefDropzoneInner">
+                <ImagePlus size={28} />
+                <div className="csRefDropzoneText">点击或拖拽上传图片</div>
+                <div className="csRefDropzoneSub">支持多张图片选择</div>
+              </div>
+            </button>
+
+            <div className="csRow">
+              <input
+                className="csControl csGrow"
+                value={urlInput}
+                onChange={(event) => setUrlInput(event.target.value)}
+                placeholder="粘贴图片 URL（https://... 或 data:...）"
+              />
+              <button className="csIconBtn" type="button" onClick={addUrl} title="添加 URL">
+                <Link2 size={16} />
               </button>
+            </div>
 
-              <div className="csRow">
-                <input
-                  className="csControl csGrow"
-                  value={urlInput}
-                  onChange={(event) => setUrlInput(event.target.value)}
-                  placeholder="粘贴图片 URL（https://... 或 data:...）"
-                />
-                <button className="csIconBtn" type="button" onClick={addUrl} title="添加 URL">
-                  <Link2 size={16} />
-                </button>
-              </div>
-
-              <div className="csRefList" aria-label="参考图列表">
-                {inputs.length === 0 ? (
-                  <div className="csHint">暂无参考图</div>
-                ) : (
-                  inputs.map((item, index) => {
-                    const src = item.previewUrl
-                    const title = item.fileName ?? item.value
-                    return (
-                      <div key={item.id} className="csRefItem">
-                        <button
-                          className="csRefThumb"
-                          type="button"
-                          disabled={!src}
-                          onClick={() => src && openPreview(src, title)}
-                          onContextMenu={(event) => src && openImageMenu(event, src, title)}
-                          title={title}>
-                          {src ? (
-                            <img className="csRefThumbImg" src={src} alt={title} loading="lazy" decoding="async" />
-                          ) : (
-                            <div className="csRefThumbEmpty">
-                              <ImagePlus size={16} />
-                            </div>
-                          )}
-                        </button>
-
-                        <div className="csRefMeta">
-                          <div className="csRefName" title={title}>
-                            {item.fileName ?? (item.type === 'localPath' ? '本地图片' : '图片 URL')}
+            <div className="csRefList" aria-label="参考图列表">
+              {inputs.length === 0 ? (
+                <div className="csHint">暂无参考图</div>
+              ) : (
+                inputs.map((item, index) => {
+                  const src = item.previewUrl
+                  const title = item.fileName ?? item.value
+                  return (
+                    <div key={item.id} className="csRefItem">
+                      <button
+                        className="csRefThumb"
+                        type="button"
+                        disabled={!src}
+                        onClick={() => src && openPreview(src, title)}
+                        onContextMenu={(event) => src && openImageMenu(event, src, title)}
+                        title={title}>
+                        {src ? (
+                          <img className="csRefThumbImg" src={src} alt={title} loading="lazy" decoding="async" />
+                        ) : (
+                          <div className="csRefThumbEmpty">
+                            <ImagePlus size={16} />
                           </div>
-                          <div className="csRefSub" title={item.value}>
-                            {item.type === 'localPath' ? item.value : item.value.replace(/^data:[^,]+,.{0,12}.*/i, 'data:…')}
-                          </div>
+                        )}
+                      </button>
+
+                      <div className="csRefMeta">
+                        <div className="csRefName" title={title}>
+                          {item.fileName ?? (item.type === 'localPath' ? '本地图片' : '图片 URL')}
                         </div>
-
-                        <div className="csRefActions" aria-label="参考图操作">
-                          <button
-                            className="csMiniIconBtn csTip"
-                            data-tip="下载"
-                            type="button"
-                            onClick={() => src && void saveImageAs(src, item.fileName ?? `reference_${index + 1}.png`)}
-                            disabled={!src}>
-                            <Download size={14} />
-                          </button>
-                          <button
-                            className="csMiniIconBtn csTip"
-                            data-tip="上移"
-                            type="button"
-                            onClick={() => moveInput(index, -1)}
-                            disabled={index === 0}>
-                            <ChevronUp size={14} />
-                          </button>
-                          <button
-                            className="csMiniIconBtn csTip"
-                            data-tip="下移"
-                            type="button"
-                            onClick={() => moveInput(index, 1)}
-                            disabled={index === inputs.length - 1}>
-                            <ChevronDown size={14} />
-                          </button>
-                          <button
-                            className="csMiniIconBtn csMiniIconBtnDanger csTip"
-                            data-tip="删除"
-                            type="button"
-                            onClick={() => removeInput(item.id)}>
-                            <Trash2 size={14} />
-                          </button>
+                        <div className="csRefSub" title={item.value}>
+                          {item.type === 'localPath' ? item.value : item.value.replace(/^data:[^,]+,.{0,12}.*/i, 'data:…')}
                         </div>
                       </div>
-                    )
-                  })
-                )}
-              </div>
-            </aside>
 
-          <main className="csPaintMain">
+                      <div className="csRefActions" aria-label="参考图操作">
+                        <button
+                          className="csMiniIconBtn csTip"
+                          data-tip="下载"
+                          type="button"
+                          onClick={() => src && void saveImageAs(src, item.fileName ?? `reference_${index + 1}.png`)}
+                          disabled={!src}>
+                          <Download size={14} />
+                        </button>
+                        <button
+                          className="csMiniIconBtn csTip"
+                          data-tip="上移"
+                          type="button"
+                          onClick={() => moveInput(index, -1)}
+                          disabled={index === 0}>
+                          <ChevronUp size={14} />
+                        </button>
+                        <button
+                          className="csMiniIconBtn csTip"
+                          data-tip="下移"
+                          type="button"
+                          onClick={() => moveInput(index, 1)}
+                          disabled={index === inputs.length - 1}>
+                          <ChevronDown size={14} />
+                        </button>
+                        <button
+                          className="csMiniIconBtn csMiniIconBtnDanger csTip"
+                          data-tip="删除"
+                          type="button"
+                          onClick={() => removeInput(item.id)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </aside>
+
+          <div
+            className="csColResizer csColResizer--ref"
+            role="separator"
+            aria-label="调整参考图栏宽度"
+            aria-orientation="vertical"
+            title="拖动调整参考图栏宽度"
+            onPointerDown={(event) => startColumnResize('ref', event)}
+          />
+
+          <main className={`csPaintMain ${hasFocusedOutput ? 'is-has-output' : ''}`}>
             <section className="csArtboard" aria-label="输出图">
               <div className={`csArtboardInner ${isBusy ? 'is-dim' : ''}`}>
                 {focusedOutput && focusedOutputSrc ? (
@@ -1484,7 +1673,7 @@ export function ImageStudioPage(props: Props) {
                           data-tip="删除"
                           type="button"
                           onClick={() => void deleteOutput(focusedOutput.id)}
-                          >
+                        >
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -1524,40 +1713,133 @@ export function ImageStudioPage(props: Props) {
               ) : null}
             </section>
 
-            <section className="csInputContainer" aria-label="提示词">
-              <button
-                className="csPromptExpandBtn"
-                type="button"
-                onClick={() => setPromptEditorOpen(true)}
-                disabled={isRunning}
-                title="放大编辑提示词">
-                <Maximize2 size={16} />
-              </button>
-              <textarea
-                className="csTextarea"
-                value={prompt}
-                disabled={isRunning}
-                spellCheck={false}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder={isRunning ? '生成中...' : submitting ? '提交中...' : '输入提示词（Ctrl+Enter 生成）'}
-                onKeyDown={(event) => {
-                  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                    event.preventDefault()
-                    void submitJob()
-                  }
-                }}
-              />
+            <section className="csInputContainer" aria-label="提示词与日志">
+              {/* ── 左侧：提示词 ──────────────────────────── */}
+              <div className="csPromptPane">
+                <button
+                  className={`csPromptHistoryBtn ${promptHistoryOpen ? 'is-active' : ''}`}
+                  type="button"
+                  onClick={() => setPromptHistoryOpen(!promptHistoryOpen)}
+                  disabled={isRunning}
+                  title="提示词库">
+                  <ScrollText size={16} />
+                </button>
+                <button
+                  className="csPromptExpandBtn"
+                  type="button"
+                  onClick={() => setPromptEditorOpen(true)}
+                  disabled={isRunning}
+                  title="放大编辑提示词">
+                  <Maximize2 size={16} />
+                </button>
+                <textarea
+                  className="csTextarea"
+                  value={prompt}
+                  disabled={isRunning}
+                  spellCheck={false}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder={isRunning ? '生成中...' : submitting ? '提交中...' : '输入提示词（Ctrl+Enter 生成）'}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                      event.preventDefault()
+                      void submitJob()
+                    }
+                  }}
+                />
 
-              <button
-                className="csPromptGenerateBtn"
-                type="button"
-                onClick={() => void submitJob()}
-                disabled={submitting || isPlaceholder || isRunning}
-                title={isPlaceholder ? '占位供应商不可生成' : '开始生成'}>
-                {submitting ? <Loader2 size={16} className="spinning" /> : <Play size={16} />}
-              </button>
+                <button
+                  className="csPromptSaveBtn"
+                  type="button"
+                  onClick={() => {
+                    if (!prompt.trim()) return
+                    void promptLib.addPrompt(prompt).then(() => toast.success('已保存到提示词库'))
+                  }}
+                  disabled={!prompt.trim() || isRunning}
+                  title="保存到提示词库">
+                  <BookmarkPlus size={16} />
+                </button>
+
+                <button
+                  className="csPromptGenerateBtn"
+                  type="button"
+                  onClick={() => void submitJob()}
+                  disabled={submitting || isPlaceholder || isRunning}
+                  title={isPlaceholder ? '占位供应商不可生成' : '开始生成'}>
+                  {submitting ? <Loader2 size={16} className="spinning" /> : <Play size={16} />}
+                </button>
+
+                {promptHistoryOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: 'calc(100% + 8px)',
+                      left: 0,
+                      zIndex: 100,
+                      borderRadius: '12px',
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-background)',
+                      boxShadow: '0 12px 36px rgba(0,0,0,0.35)',
+                      overflow: 'hidden'
+                    }}>
+                    <PromptHistoryPanel
+                      items={promptLib.items}
+                      loading={promptLib.loading}
+                      searchQuery={promptLib.searchQuery}
+                      favoritesOnly={promptLib.favoritesOnly}
+                      total={promptLib.total}
+                      onSearchChange={promptLib.setSearchQuery}
+                      onFavoritesOnlyChange={promptLib.setFavoritesOnly}
+                      onSelect={(text) => {
+                        setPrompt(text)
+                        setPromptHistoryOpen(false)
+                      }}
+                      onToggleFavorite={promptLib.toggleFavorite}
+                      onDelete={promptLib.removeItem}
+                      onClearHistory={promptLib.clearHistory}
+                      onClose={() => setPromptHistoryOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* ── 右侧：请求日志 ─────────────────────────── */}
+              <div className="csLogPane">
+                <div className="csLogPaneHeader">
+                  <span className="csLogPaneTitle">请求日志</span>
+                  {currentJob ? (
+                    <span className={`csLogPaneStatus csLogPaneStatus--${currentJob.status}`}>
+                      {statusLabel(currentJob.status)}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="csLogPaneBody" ref={(el) => {
+                  if (el) el.scrollTop = el.scrollHeight
+                }}>
+                  {currentJob && (currentJob.logs.length > 0 || currentJob.errorMessage) ? (
+                    <>
+                      {currentJob.logs.map((log, index) => (
+                        <div key={index} className="csLogEntry">{log}</div>
+                      ))}
+                      {currentJob.errorMessage ? (
+                        <div className="csLogEntry csLogEntry--error">{currentJob.errorMessage}</div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="csLogPanePlaceholder">暂无日志</div>
+                  )}
+                </div>
+              </div>
             </section>
           </main>
+
+          <div
+            className="csColResizer csColResizer--his"
+            role="separator"
+            aria-label="调整历史栏宽度"
+            aria-orientation="vertical"
+            title="拖动调整历史栏宽度"
+            onPointerDown={(event) => startColumnResize('his', event)}
+          />
 
           <HistoryRail
             rightJobs={rightJobs}
@@ -1640,7 +1922,7 @@ export function ImageStudioPage(props: Props) {
                     data-tip="删除"
                     type="button"
                     onClick={() => void deleteOutput(previewImage.outputId!)}
-                    >
+                  >
                     <Trash2 size={16} />
                   </button>
                 ) : null}

@@ -10,6 +10,8 @@ import {
   SearchOptions,
   mergeSearchOptions
 } from '../searchService'
+import type { SearchApiKeyConfig, SearchLoadBalanceStrategy } from '../../../../shared/types'
+import { selectSearchApiKey } from '../searchKeyHelper'
 
 /** Exa 配置 */
 export interface ExaConfig {
@@ -17,6 +19,9 @@ export interface ExaConfig {
   apiKey: string
   /** 自定义 Base URL (可选) */
   baseUrl?: string
+  id?: string
+  apiKeys?: SearchApiKeyConfig[]
+  strategy?: SearchLoadBalanceStrategy
 }
 
 const DEFAULT_BASE_URL = 'https://api.exa.ai'
@@ -30,25 +35,33 @@ export class ExaSearchService extends SearchService {
 
   private apiKey: string
   private baseUrl: string
+  private serviceId: string
+  private apiKeys: SearchApiKeyConfig[] | undefined
+  private strategy: SearchLoadBalanceStrategy | undefined
 
   constructor(config: ExaConfig) {
     super()
-    this.apiKey = config.apiKey
+    this.serviceId = config.id ?? ''
+    this.apiKey = config.apiKey ?? ''
+    this.apiKeys = config.apiKeys
+    this.strategy = config.strategy
     this.baseUrl = config.baseUrl || DEFAULT_BASE_URL
   }
 
   isAvailable(): boolean {
-    return !!this.apiKey
+    const hasMultiKey = this.apiKeys?.some(k => k.isEnabled && k.key.trim())
+    return !!(hasMultiKey || this.apiKey)
   }
 
   async search(query: string, options?: SearchOptions): Promise<SearchResult> {
     const opts = mergeSearchOptions(options)
+    const key = selectSearchApiKey(this.serviceId, this.apiKey, this.apiKeys, this.strategy)
 
     const response = await fetch(`${this.baseUrl}/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.apiKey
+        'x-api-key': key
       },
       body: JSON.stringify({
         query,

@@ -150,7 +150,7 @@ async function fetchGoogleModels(provider: ProviderConfig): Promise<string[]> {
   // Google Gemini API: GET /models?key=API_KEY
   const baseUrl = provider.baseUrl.endsWith('/') ? provider.baseUrl.slice(0, -1) : provider.baseUrl
   const url = `${baseUrl}/models?key=${provider.apiKey}`
-  
+
   let resp: Response
   try {
     resp = await fetch(url, {
@@ -185,7 +185,7 @@ async function fetchGoogleModels(provider: ProviderConfig): Promise<string[]> {
 async function fetchClaudeModels(provider: ProviderConfig): Promise<string[]> {
   // Claude API: GET /models (with x-api-key header)
   const url = joinUrl(provider.baseUrl, '/models')
-  
+
   let resp: Response
   try {
     resp = await fetch(url, {
@@ -221,7 +221,7 @@ async function fetchClaudeModels(provider: ProviderConfig): Promise<string[]> {
       return null
     })
     .filter((x: unknown) => typeof x === 'string' && (x as string).trim().length > 0) as string[]
-  
+
   // 如果没有获取到模型，返回默认列表
   return ids.length > 0 ? ids : getDefaultClaudeModels()
 }
@@ -247,29 +247,52 @@ export function registerModelsIpc(): void {
     if (!provider) throw new Error(`未找到供应商：${params.providerId}`)
 
     const kind = provider.providerType ?? 'openai'
-    
     if (!provider.apiKey) throw new Error('该供应商未配置 API Key')
 
     let ids: string[] = []
-
     if (kind === 'google') {
-      // Google Gemini API
       ids = await fetchGoogleModels(provider)
     } else if (kind === 'claude') {
-      // Anthropic Claude API
       ids = await fetchClaudeModels(provider)
     } else {
-      // OpenAI 兼容 API
       ids = await fetchOpenAIModels(provider)
     }
 
     const uniq = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b))
-
-    // 推断每个模型的能力
     const modelInfos = uniq.map(id => inferModelCapabilities(id))
 
     const result: ModelsListResult = {
       providerId: params.providerId,
+      models: uniq,
+      modelInfos
+    }
+    return result
+  })
+
+  ipcMain.handle(IpcChannel.ModelsTestFetch, async (_event, params: { providerType: string; baseUrl: string; apiKey: string }) => {
+    if (!params.apiKey) throw new Error('API Key 不能为空')
+
+    const tempConfig: ProviderConfig = {
+      name: 'TestProvider',
+      baseUrl: params.baseUrl,
+      apiKey: params.apiKey
+    }
+
+    let ids: string[] = []
+    if (params.providerType === 'google') {
+      ids = await fetchGoogleModels(tempConfig)
+    } else if (params.providerType === 'claude' || params.providerType === 'anthropic') {
+      ids = await fetchClaudeModels(tempConfig)
+    } else {
+      // 默认走 openai 兼容
+      ids = await fetchOpenAIModels(tempConfig)
+    }
+
+    const uniq = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b))
+    const modelInfos = uniq.map(id => inferModelCapabilities(id))
+
+    const result: ModelsListResult = {
+      providerId: 'test',
       models: uniq,
       modelInfos
     }

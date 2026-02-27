@@ -159,6 +159,8 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
       </SettingsCard>
 
       <SettingsCard title="消息项显示">
+        <ToggleRow label="隐藏所有头像" value={display.hideAllAvatars ?? false} onChange={(v) => updateDisplay({ hideAllAvatars: v })} />
+        <RowDivider />
         <ToggleRow label="显示用户头像" value={display.showUserAvatar} onChange={(v) => updateDisplay({ showUserAvatar: v })} />
         <RowDivider />
         <ToggleRow label="显示用户名与时间" value={display.showUserNameTimestamp} onChange={(v) => updateDisplay({ showUserNameTimestamp: v })} />
@@ -355,13 +357,18 @@ function PaletteSelector(props: { value: ThemePalette; onChange: (v: ThemePalett
 
 function LanguageSelector(props: { value: AppLanguage; onChange: (v: AppLanguage) => void }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, right: 0 })
 
   const languages: AppLanguage[] = ['system', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'ru-RU']
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) {
         setOpen(false)
       }
     }
@@ -371,20 +378,33 @@ function LanguageSelector(props: { value: AppLanguage; onChange: (v: AppLanguage
     }
   }, [open])
 
+  function handleOpen() {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    setOpen(!open)
+  }
+
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div>
       <button
+        ref={btnRef}
         type="button"
         className="btn btn-ghost"
-        onClick={() => setOpen(!open)}
+        onClick={handleOpen}
         style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}
       >
         <span>{LANGUAGE_LABELS[props.value]}</span>
         <ChevronDown size={14} style={{ opacity: 0.5, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.2s' }} />
       </button>
 
-      {open && (
-        <div style={styles.dropdown}>
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fontSelectorDropdown"
+          style={{ ...styles.dropdown, position: 'fixed', top: pos.top, right: pos.right, left: 'auto' }}
+        >
           {languages.map((lang) => (
             <button
               key={lang}
@@ -399,7 +419,8 @@ function LanguageSelector(props: { value: AppLanguage; onChange: (v: AppLanguage
               {LANGUAGE_LABELS[lang]}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
