@@ -28,6 +28,7 @@ import { useConfirm } from '../hooks/useConfirm'
 import { usePromptLibrary } from '../hooks/usePromptLibrary'
 import { CustomSelect } from '../components/ui/CustomSelect'
 import { PromptHistoryPanel } from '../components/PromptHistoryPanel'
+import { DesktopPopover } from '../components/DesktopPopover'
 import {
   FAL_SEEDREAM_IMAGE_SIZE_PRESETS,
   normalizeFalSeedreamEditOptions,
@@ -114,6 +115,7 @@ export function ImageStudioPage() {
   const [promptHistoryOpen, setPromptHistoryOpen] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const promptHistoryBtnRef = useRef<HTMLButtonElement | null>(null)
   const promptEditorRef = useRef<HTMLTextAreaElement | null>(null)
   const currentJobRef = useRef<ImageStudioJob | null>(null)
   const refreshRunningJobInFlightRef = useRef(false)
@@ -1644,6 +1646,7 @@ export function ImageStudioPage() {
               {/* ── 左侧：提示词 ──────────────────────────── */}
               <div className="csPromptPane">
                 <button
+                  ref={promptHistoryBtnRef}
                   className={`csPromptHistoryBtn ${promptHistoryOpen ? 'is-active' : ''}`}
                   type="button"
                   onClick={() => setPromptHistoryOpen(!promptHistoryOpen)}
@@ -1695,38 +1698,30 @@ export function ImageStudioPage() {
                   {submitting ? <Loader2 size={16} className="spinning" /> : <Play size={16} />}
                 </button>
 
-                {promptHistoryOpen && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: 'calc(100% + 8px)',
-                      left: 0,
-                      zIndex: 100,
-                      borderRadius: '12px',
-                      border: '1px solid var(--color-border)',
-                      background: 'var(--color-background)',
-                      boxShadow: '0 12px 36px rgba(0,0,0,0.35)',
-                      overflow: 'hidden'
-                    }}>
-                    <PromptHistoryPanel
-                      items={promptLib.items}
-                      loading={promptLib.loading}
-                      searchQuery={promptLib.searchQuery}
-                      favoritesOnly={promptLib.favoritesOnly}
-                      total={promptLib.total}
-                      onSearchChange={promptLib.setSearchQuery}
-                      onFavoritesOnlyChange={promptLib.setFavoritesOnly}
-                      onSelect={(text) => {
-                        setPrompt(text)
-                        setPromptHistoryOpen(false)
-                      }}
-                      onToggleFavorite={promptLib.toggleFavorite}
-                      onDelete={promptLib.removeItem}
-                      onClearHistory={promptLib.clearHistory}
-                      onClose={() => setPromptHistoryOpen(false)}
-                    />
-                  </div>
-                )}
+                <DesktopPopover
+                  anchorRef={promptHistoryBtnRef}
+                  open={promptHistoryOpen}
+                  onClose={() => setPromptHistoryOpen(false)}
+                  minWidth={340}
+                  maxHeight={480}>
+                  <PromptHistoryPanel
+                    items={promptLib.items}
+                    loading={promptLib.loading}
+                    searchQuery={promptLib.searchQuery}
+                    favoritesOnly={promptLib.favoritesOnly}
+                    total={promptLib.total}
+                    onSearchChange={promptLib.setSearchQuery}
+                    onFavoritesOnlyChange={promptLib.setFavoritesOnly}
+                    onSelect={(text) => {
+                      setPrompt(text)
+                      setPromptHistoryOpen(false)
+                    }}
+                    onToggleFavorite={promptLib.toggleFavorite}
+                    onDelete={promptLib.removeItem}
+                    onClearHistory={promptLib.clearHistory}
+                    onClose={() => setPromptHistoryOpen(false)}
+                  />
+                </DesktopPopover>
               </div>
 
               {/* ── 右侧：请求日志 ─────────────────────────── */}

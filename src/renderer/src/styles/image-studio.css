@@ -3917,6 +3917,93 @@ select.csControl {
   cursor: not-allowed;
 }
 
+/* ── 提示词库按钮（左下角） ─── */
+.csPromptHistoryBtn {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-background) 82%, transparent);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.06s ease;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+}
+
+.csPromptPane:hover .csPromptHistoryBtn,
+.csPromptPane:focus-within .csPromptHistoryBtn {
+  opacity: 1;
+}
+
+.csPromptHistoryBtn:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
+}
+
+.csPromptHistoryBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.csPromptHistoryBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.csPromptHistoryBtn.is-active {
+  background: color-mix(in srgb, var(--color-primary) 15%, var(--color-background));
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  color: var(--color-primary);
+}
+
+/* ── 保存到提示词库按钮（右下角，生成按钮左侧） ─── */
+.csPromptSaveBtn {
+  position: absolute;
+  right: 42px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-background) 82%, transparent);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.06s ease;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+}
+
+.csPromptPane:hover .csPromptSaveBtn,
+.csPromptPane:focus-within .csPromptSaveBtn {
+  opacity: 1;
+}
+
+.csPromptSaveBtn:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
+}
+
+.csPromptSaveBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.csPromptSaveBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 生成按钮（右下角） ─── */
 .csPromptGenerateBtn {
   position: absolute;
   right: 8px;
@@ -4468,3 +4555,312 @@ select.csControl {
 
 /* ========== ChainOfThought 鏂板鍔ㄧ敾 ========== */
 
+
+/* ========== PromptHistoryPanel 提示词库面板 ========== */
+
+.phPanel {
+  display: flex;
+  flex-direction: column;
+  width: 680px;
+  max-height: inherit;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+/* -- Header ----------------------------------------- */
+.phHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.phTitle {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.phCount {
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--color-background-soft);
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+
+.phCloseBtn {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.phCloseBtn:hover {
+  background: var(--color-hover);
+  color: var(--text-1);
+}
+
+/* -- Toolbar: Tabs + Search ------------------------- */
+.phToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.phTabs {
+  display: flex;
+  gap: 2px;
+  background: var(--color-background-soft);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.phTab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.phTab:hover {
+  color: var(--text-2);
+}
+
+.phTab.is-active {
+  background: var(--color-background);
+  color: var(--text-1);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.phSearch {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  position: relative;
+}
+
+.phSearchIcon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.phSearchInput {
+  width: 100%;
+  padding: 5px 26px 5px 26px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 6px;
+  background: var(--color-background-soft);
+  color: var(--text-1);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.phSearchInput:focus {
+  border-color: var(--color-primary);
+}
+
+.phSearchInput::placeholder {
+  color: var(--text-3);
+}
+
+.phSearchClear {
+  position: absolute;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phSearchClear:hover {
+  background: var(--color-hover);
+  color: var(--text-1);
+}
+
+/* -- List ------------------------------------------- */
+.phList {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 340px;
+  padding: 4px 0;
+}
+
+.phEmpty {
+  padding: 32px 14px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.phItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.phItem:hover {
+  background: var(--color-hover);
+}
+
+.phItemBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.phItemText {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+}
+
+.phItemMeta {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.phItemActions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.phItem:hover .phItemActions {
+  opacity: 1;
+}
+
+.phItemBtn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.phItemBtn:hover {
+  background: var(--color-hover);
+  color: var(--text-1);
+}
+
+.phItemBtn.is-fav {
+  color: #f59e0b;
+}
+
+.phItemBtn.is-fav:hover {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.phItemBtn.is-del:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+/* -- Footer ----------------------------------------- */
+.phFooter {
+  padding: 8px 14px;
+  border-top: 1px solid var(--color-border-soft);
+  display: flex;
+  align-items: center;
+}
+
+.phClearTrigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.phClearTrigger:hover {
+  background: var(--color-hover);
+  color: var(--text-2);
+}
+
+.phClearConfirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.phClearBtn {
+  padding: 3px 10px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.phClearBtn:hover {
+  background: var(--color-hover);
+}
+
+.phClearBtn.is-danger {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.phClearBtn.is-danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}

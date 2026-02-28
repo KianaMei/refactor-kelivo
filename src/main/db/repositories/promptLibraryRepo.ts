@@ -78,17 +78,21 @@ export function updatePromptLibraryItem(
     const db = getDb()
     const now = Date.now()
 
-    const setClauses: string[] = ['updated_at = ?']
-    const params: unknown[] = [now]
+    const setClauses: string[] = []
+    const params: unknown[] = []
 
     if (input.prompt !== undefined) {
         setClauses.push('prompt = ?')
         params.push(input.prompt.trim())
+        setClauses.push('updated_at = ?')
+        params.push(now)
     }
     if (input.isFavorite !== undefined) {
         setClauses.push('is_favorite = ?')
         params.push(input.isFavorite ? 1 : 0)
     }
+
+    if (setClauses.length === 0) return getPromptLibraryItem(id)
 
     params.push(id)
 
