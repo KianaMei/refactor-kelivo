@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { AppConfig, SettingsMenuKey } from '../../../../shared/types'
+import { useConfig } from '../../contexts/ConfigContext'
 import { BadgeInfo, Bot, Boxes, Cpu, Database, Earth, Globe, Heart, Monitor, Terminal, Volume2, Zap } from 'lucide-react'
 
 import { ScrollArea } from '../../components/ui/scroll-area'
@@ -38,25 +39,26 @@ const menuItems: Array<{ key: SettingsMenuKey; icon: React.ReactNode; label: str
   , { key: 'dependencies', icon: <Cpu className="h-4 w-4" />, label: 'Dependencies / SDK' }
 ]
 
-export function SettingsPage(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
-  const initialMenu = (props.config.ui.desktop.selectedSettingsMenu === 'data'
+export function SettingsPage() {
+  const { config, updateConfig } = useConfig()
+  const initialMenu = (config.ui.desktop.selectedSettingsMenu === 'data'
     ? 'backup'
-    : props.config.ui.desktop.selectedSettingsMenu) as SettingsMenuKey
+    : config.ui.desktop.selectedSettingsMenu) as SettingsMenuKey
 
   const [menu, setMenu] = useState<SettingsMenuKey>(initialMenu)
   const [menuWidth, setMenuWidth] = useState(() => {
-    const w = props.config.ui.desktop.settingsSidebarWidth ?? 256
+    const w = config.ui.desktop.settingsSidebarWidth ?? 256
     return Math.max(MENU_MIN_WIDTH, Math.min(MENU_MAX_WIDTH, w))
   })
 
   async function setMenuAndPersist(next: SettingsMenuKey) {
     setMenu(next)
-    await props.onSave({
-      ...props.config,
+    await updateConfig({
+      ...config,
       ui: {
-        ...props.config.ui,
+        ...config.ui,
         desktop: {
-          ...props.config.ui.desktop,
+          ...config.ui.desktop,
           selectedSettingsMenu: next
         }
       }
@@ -64,64 +66,64 @@ export function SettingsPage(props: { config: AppConfig; onSave: (next: AppConfi
   }
 
   useEffect(() => {
-    const extMenu = props.config.ui.desktop.selectedSettingsMenu
+    const extMenu = config.ui.desktop.selectedSettingsMenu
     if (extMenu) {
       const targetMenu = extMenu === 'data' ? 'backup' : extMenu
       if (targetMenu !== menu) {
         setMenu(targetMenu as SettingsMenuKey)
       }
     }
-  }, [props.config.ui.desktop.selectedSettingsMenu, menu])
+  }, [config.ui.desktop.selectedSettingsMenu, menu])
 
   const handleMenuDrag = useCallback((dx: number) => {
     setMenuWidth((w) => Math.max(MENU_MIN_WIDTH, Math.min(MENU_MAX_WIDTH, w + dx)))
   }, [])
 
   const handleMenuDragEnd = useCallback(async () => {
-    const current = props.config.ui.desktop.settingsSidebarWidth ?? 256
+    const current = config.ui.desktop.settingsSidebarWidth ?? 256
     if (Math.round(current) === Math.round(menuWidth)) return
-    await props.onSave({
-      ...props.config,
+    await updateConfig({
+      ...config,
       ui: {
-        ...props.config.ui,
+        ...config.ui,
         desktop: {
-          ...props.config.ui.desktop,
+          ...config.ui.desktop,
           settingsSidebarWidth: Math.round(menuWidth)
         }
       }
     })
-  }, [menuWidth, props.config, props.onSave])
+  }, [menuWidth, config, updateConfig])
 
   const body = useMemo(() => {
     switch (menu) {
       case 'providers':
-        return <ProvidersPane config={props.config} onSave={props.onSave} />
+        return <ProvidersPane config={config} onSave={updateConfig} />
       case 'display':
-        return <DisplayPane config={props.config} onSave={props.onSave} />
+        return <DisplayPane config={config} onSave={updateConfig} />
       case 'assistant':
-        return <AssistantPane config={props.config} onSave={props.onSave} />
+        return <AssistantPane config={config} onSave={updateConfig} />
       case 'defaultModel':
-        return <DefaultModelPane config={props.config} onSave={props.onSave} />
+        return <DefaultModelPane config={config} onSave={updateConfig} />
       case 'search':
-        return <SearchPane config={props.config} onSave={props.onSave} />
+        return <SearchPane config={config} onSave={updateConfig} />
       case 'mcp':
-        return <McpPane config={props.config} onSave={props.onSave} />
+        return <McpPane config={config} onSave={updateConfig} />
       case 'quickPhrases':
-        return <QuickPhrasesPane config={props.config} onSave={props.onSave} />
+        return <QuickPhrasesPane config={config} onSave={updateConfig} />
       case 'tts':
         return <TtsPane />
       case 'networkProxy':
-        return <NetworkProxyPane config={props.config} onSave={props.onSave} />
+        return <NetworkProxyPane config={config} onSave={updateConfig} />
       case 'backup':
-        return <BackupPane config={props.config} onSave={props.onSave} />
+        return <BackupPane config={config} onSave={updateConfig} />
       case 'dependencies':
-        return <DependenciesPane config={props.config} onSave={props.onSave} />
+        return <DependenciesPane config={config} onSave={updateConfig} />
       case 'data':
         return <DataPane />
       case 'about':
         return <AboutPane />
     }
-  }, [menu, props.config, props.onSave])
+  }, [menu, config, updateConfig])
 
   return (
     <div className="h-full w-full bg-background text-foreground">

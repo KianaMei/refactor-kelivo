@@ -4,7 +4,6 @@
  * 零 Node.js 依赖，可在 Renderer 进程直接使用
  */
 
-import type { ProviderConfigV2 } from '../../../types'
 import type {
   ChatStreamChunk,
   TokenUsage,
@@ -21,30 +20,10 @@ import {
   readErrorBody,
   joinUrl
 } from '../../../streamingHttpClient'
-import type { UserImage } from '../../chatApiService'
-import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../responsesOptions'
+import type { SendStreamParams, UserImage } from '../../adapterParams'
+import type { ProviderConfigV2 } from '../../../types'
 import * as helper from '../../../chatApiHelper'
 import { buildChatCompletionsMessages } from './openaiMessageFormat'
-
-/** 发送流式请求的参数 */
-export interface SendStreamParams {
-  config: ProviderConfigV2
-  modelId: string
-  messages: ChatMessage[]
-  userImages?: UserImage[]
-  thinkingBudget?: number
-  responsesReasoningSummary?: ResponsesReasoningSummary
-  responsesTextVerbosity?: ResponsesTextVerbosity
-  temperature?: number
-  topP?: number
-  maxTokens?: number
-  maxToolLoopIterations?: number
-  tools?: ToolDefinition[]
-  onToolCall?: OnToolCallFn
-  extraHeaders?: Record<string, string>
-  extraBody?: Record<string, unknown>
-  signal?: AbortSignal
-}
 
 /**
  * OpenAI Chat Completions API 流式请求处理器
@@ -95,7 +74,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     ...(maxTokens !== undefined && maxTokens > 0 && { max_tokens: maxTokens }),
     ...(isReasoning && effort !== 'off' && effort !== 'auto' && { reasoning_effort: effort }),
     ...(tools && tools.length > 0 && {
-      tools: helper.cleanToolsForCompatibility(tools as any),
+      tools: helper.cleanToolsForCompatibility(tools),
       tool_choice: 'auto'
     })
   }
@@ -531,7 +510,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
       ...(maxTokens !== undefined && maxTokens > 0 && { max_tokens: maxTokens }),
       ...(isReasoning && effort !== 'off' && effort !== 'auto' && { reasoning_effort: effort }),
       ...(tools && tools.length > 0 && {
-        tools: helper.cleanToolsForCompatibility(tools as any),
+        tools: helper.cleanToolsForCompatibility(tools),
         tool_choice: 'auto'
       })
     }

@@ -17,6 +17,39 @@ export const IpcChannel = {
 
   DialogSaveFile: 'dialog:save-file',
   DialogOpenFile: 'dialog:open-file',
+  DialogWriteFile: 'dialog:write-file',
+
+  // Window
+  WindowMinimize: 'window-minimize',
+  WindowMaximize: 'window-maximize',
+  WindowClose: 'window-close',
+  WindowIsMaximized: 'window-is-maximized',
+  WindowMaximizedChanged: 'window-maximized-changed',
+
+  // OCR
+  OcrRun: 'ocr:run',
+  OcrGetCached: 'ocr:getCached',
+  OcrSetCache: 'ocr:setCache',
+  OcrClearCache: 'ocr:clearCache',
+  OcrGetCacheSize: 'ocr:getCacheSize',
+
+  // Search
+  SearchExecute: 'search:execute',
+  SearchListProviders: 'search:listProviders',
+  SearchRegister: 'search:register',
+  SearchUnregister: 'search:unregister',
+  SearchSetDefault: 'search:setDefault',
+
+  // MCP
+  McpListTools: 'mcp:listTools',
+  McpCallTool: 'mcp:callTool',
+
+  // Storage
+  StorageGetReport: 'storage:getReport',
+  StorageClear: 'storage:clear',
+  StorageOpenDataFolder: 'storage:openDataFolder',
+  StorageGetCategoryItems: 'storage:getCategoryItems',
+  StorageDeleteItems: 'storage:deleteItems',
 
   // Database — Conversations
   DbConversationList: 'db:conversation:list',

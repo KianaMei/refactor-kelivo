@@ -4,6 +4,7 @@ import type { DbConversation, DbMessage, DbWorkspace } from '../../../../shared/
 import type { Conversation } from './ConversationSidebar'
 import type { ChatMessage } from './MessageBubble'
 import { getDefaultAssistantId, getEffectiveAssistant } from './assistantChat'
+import { revokeOrphanBlobUrls } from './utils/objectUrls'
 import type { EffortValue } from '../../components/ReasoningBudgetPopover'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
 import { safeUuid } from '../../../../shared/utils'
@@ -28,12 +29,14 @@ function dbMsgToChatMessage(m: DbMessage): ChatMessage {
   let toolCalls: ChatMessage['toolCalls']
   let blocks: ChatMessage['blocks']
   if (m.toolCalls) {
-    const data = m.toolCalls as any
+    const data = m.toolCalls as unknown
     if (Array.isArray(data)) {
       toolCalls = data
-    } else if (data.toolCalls) {
-      toolCalls = data.toolCalls
-      blocks = data.blocks?.length ? data.blocks : undefined
+    } else if (data && typeof data === 'object' && 'toolCalls' in data) {
+      const rec = data as Record<string, unknown>
+      toolCalls = rec.toolCalls as ChatMessage['toolCalls']
+      const b = rec.blocks
+      blocks = Array.isArray(b) && b.length ? (b as ChatMessage['blocks']) : undefined
     }
   }
 
@@ -200,8 +203,11 @@ export function useConversationManager(deps: Deps) {
   function handleDeleteConversation(id: string) {
     setConversations((prev) => prev.filter((c) => c.id !== id))
     setMessagesByConv((prev) => {
+      const removing = prev[id] ?? []
       const next = { ...prev }
       delete next[id]
+
+      revokeOrphanBlobUrls({ removing, remainingByConv: next })
       return next
     })
     if (activeConvId === id) {

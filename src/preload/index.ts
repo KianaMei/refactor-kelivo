@@ -17,8 +17,8 @@ import type {
   McpCallToolResponse,
   StorageItemDetail
 } from '../shared/types'
-import { OCR_CHANNELS, type OcrRunRequest, type OcrRunResult } from '../shared/ocr'
-import { SEARCH_CHANNELS, type SearchRequest, type SearchResponse, type SearchServiceConfigUnion } from '../shared/search'
+import { type OcrRunRequest, type OcrRunResult } from '../shared/ocr'
+import { type SearchRequest, type SearchResponse, type SearchServiceConfigUnion } from '../shared/search'
 import type {
   ImageStudioCancelResult,
   ImageStudioDeleteRequest,
@@ -112,7 +112,7 @@ const api = {
     openFile: (options: { filters?: { name: string; extensions: string[] }[] }) =>
       ipcRenderer.invoke(IpcChannel.DialogOpenFile, options) as Promise<{ canceled: boolean; buffer?: Buffer; filePath?: string }>,
     writeFile: (filePath: string, data: Buffer) =>
-      ipcRenderer.invoke('dialog:write-file', filePath, data) as Promise<void>
+      ipcRenderer.invoke(IpcChannel.DialogWriteFile, filePath, data) as Promise<void>
   },
   db: {
     conversations: {
@@ -226,45 +226,45 @@ const api = {
     }
   },
   window: {
-    minimize: () => ipcRenderer.send('window-minimize'),
-    maximize: () => ipcRenderer.send('window-maximize'),
-    close: () => ipcRenderer.send('window-close'),
-    isMaximized: () => ipcRenderer.invoke('window-is-maximized') as Promise<boolean>,
+    minimize: () => ipcRenderer.send(IpcChannel.WindowMinimize),
+    maximize: () => ipcRenderer.send(IpcChannel.WindowMaximize),
+    close: () => ipcRenderer.send(IpcChannel.WindowClose),
+    isMaximized: () => ipcRenderer.invoke(IpcChannel.WindowIsMaximized) as Promise<boolean>,
     onMaximizedChange: (fn: (isMaximized: boolean) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, isMaximized: boolean) => fn(isMaximized)
-      ipcRenderer.on('window-maximized-changed', listener)
-      return () => ipcRenderer.removeListener('window-maximized-changed', listener)
+      ipcRenderer.on(IpcChannel.WindowMaximizedChanged, listener)
+      return () => ipcRenderer.removeListener(IpcChannel.WindowMaximizedChanged, listener)
     }
   },
   ocr: {
     run: (request: OcrRunRequest) =>
-      ipcRenderer.invoke('ocr:run', request) as Promise<OcrRunResult>,
+      ipcRenderer.invoke(IpcChannel.OcrRun, request) as Promise<OcrRunResult>,
     getCached: (imagePath: string) =>
-      ipcRenderer.invoke('ocr:getCached', imagePath) as Promise<string | null>,
+      ipcRenderer.invoke(IpcChannel.OcrGetCached, imagePath) as Promise<string | null>,
     setCache: (imagePath: string, text: string) =>
-      ipcRenderer.invoke('ocr:setCache', imagePath, text) as Promise<void>,
+      ipcRenderer.invoke(IpcChannel.OcrSetCache, imagePath, text) as Promise<void>,
     clearCache: () =>
-      ipcRenderer.invoke('ocr:clearCache') as Promise<void>,
+      ipcRenderer.invoke(IpcChannel.OcrClearCache) as Promise<void>,
     getCacheSize: () =>
-      ipcRenderer.invoke('ocr:getCacheSize') as Promise<number>
+      ipcRenderer.invoke(IpcChannel.OcrGetCacheSize) as Promise<number>
   },
   search: {
     execute: (request: SearchRequest) =>
-      ipcRenderer.invoke('search:execute', request) as Promise<SearchResponse>,
+      ipcRenderer.invoke(IpcChannel.SearchExecute, request) as Promise<SearchResponse>,
     listProviders: () =>
-      ipcRenderer.invoke('search:listProviders') as Promise<Array<{ id: string; name: string; type: string }>>,
+      ipcRenderer.invoke(IpcChannel.SearchListProviders) as Promise<Array<{ id: string; name: string; type: string }>>,
     register: (id: string, config: SearchServiceConfigUnion, isDefault?: boolean) =>
-      ipcRenderer.invoke('search:register', id, config, isDefault) as Promise<boolean>,
+      ipcRenderer.invoke(IpcChannel.SearchRegister, id, config, isDefault) as Promise<boolean>,
     unregister: (id: string) =>
-      ipcRenderer.invoke('search:unregister', id) as Promise<boolean>,
+      ipcRenderer.invoke(IpcChannel.SearchUnregister, id) as Promise<boolean>,
     setDefault: (id: string) =>
-      ipcRenderer.invoke('search:setDefault', id) as Promise<boolean>
+      ipcRenderer.invoke(IpcChannel.SearchSetDefault, id) as Promise<boolean>
   },
   mcp: {
     listTools: (serverId: string) =>
-      ipcRenderer.invoke('mcp:listTools', serverId) as Promise<McpListToolsResponse>,
+      ipcRenderer.invoke(IpcChannel.McpListTools, serverId) as Promise<McpListToolsResponse>,
     callTool: (request: McpCallToolRequest) =>
-      ipcRenderer.invoke('mcp:callTool', request) as Promise<McpCallToolResponse>
+      ipcRenderer.invoke(IpcChannel.McpCallTool, request) as Promise<McpCallToolResponse>
   },
   backup: {
     exportLocal: (options: { includeChats: boolean; includeAttachments: boolean; includeGeneratedImages: boolean }) =>
@@ -315,14 +315,14 @@ const api = {
     }
   },
   storage: {
-    getReport: () => ipcRenderer.invoke('storage:getReport') as Promise<StorageReport>,
+    getReport: () => ipcRenderer.invoke(IpcChannel.StorageGetReport) as Promise<StorageReport>,
     clear: (categoryKey: string, itemId: string | null) =>
-      ipcRenderer.invoke('storage:clear', categoryKey, itemId) as Promise<StorageReport>,
-    openDataFolder: () => ipcRenderer.invoke('storage:openDataFolder') as Promise<void>,
+      ipcRenderer.invoke(IpcChannel.StorageClear, categoryKey, itemId) as Promise<StorageReport>,
+    openDataFolder: () => ipcRenderer.invoke(IpcChannel.StorageOpenDataFolder) as Promise<void>,
     getCategoryItems: (categoryKey: string) =>
-      ipcRenderer.invoke('storage:getCategoryItems', categoryKey) as Promise<StorageItemDetail[]>,
+      ipcRenderer.invoke(IpcChannel.StorageGetCategoryItems, categoryKey) as Promise<StorageItemDetail[]>,
     deleteItems: (paths: string[]) =>
-      ipcRenderer.invoke('storage:deleteItems', paths) as Promise<void>
+      ipcRenderer.invoke(IpcChannel.StorageDeleteItems, paths) as Promise<void>
   },
   promptLibrary: {
     list: (request: PromptLibraryListRequest) =>

@@ -81,7 +81,8 @@ export function CustomSelect(props: CustomSelectProps) {
                         width: 'var(--radix-dropdown-menu-trigger-width)',
                         padding: 4,
                         minWidth: 160,
-                        zIndex: 1000,
+                        // 需高于 ImageStudio 设置面板遮罩层 (z-index: 2050)
+                        zIndex: 10000,
                         maxHeight: 300,
                         overflowY: 'auto'
                     }}

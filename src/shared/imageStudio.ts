@@ -19,6 +19,7 @@ export type FalSeedreamImageSizePreset =
   | 'landscape_4_3'
   | 'landscape_16_9'
   | 'auto_2K'
+  | 'auto_3K'
   | 'auto_4K'
 
 export type FalSeedreamImageSize = FalSeedreamImageSizePreset | FalSeedreamCustomImageSize
@@ -75,6 +76,13 @@ export interface ImageStudioSubmitRequest {
    * 用于避免“配置保存/读取竞态”导致主进程瞬间读到空 Key。
    */
   apiKey?: string
+
+  /**
+   * 可选：由渲染进程临时传入的 Base URL（仅用于本次请求，不落库）。
+   * 用于避免“配置保存/读取竞态”导致主进程读到旧 endpoint。
+   * 注意：fal 供应商会校验 host，必须是 queue endpoint（例如 https://queue.fal.run/fal-ai/...）。
+   */
+  baseUrl?: string
 }
 
 export interface ImageStudioSubmitResult {
@@ -196,6 +204,7 @@ export const FAL_SEEDREAM_IMAGE_SIZE_PRESETS: FalSeedreamImageSizePreset[] = [
   'landscape_4_3',
   'landscape_16_9',
   'auto_2K',
+  'auto_3K',
   'auto_4K'
 ]
 

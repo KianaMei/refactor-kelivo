@@ -80,7 +80,7 @@ function formatFetchError(err: unknown): string {
   if (err instanceof Error) {
     const parts: string[] = []
     if (err.message) parts.push(err.message)
-    const cause: any = (err as any).cause
+    const cause = (err as Error & { cause?: { code?: string; message?: string } }).cause
     if (cause) {
       if (typeof cause.code === 'string' && cause.code) parts.push(cause.code)
       if (typeof cause.message === 'string' && cause.message && cause.message !== err.message) parts.push(cause.message)

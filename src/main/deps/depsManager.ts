@@ -159,8 +159,9 @@ export async function installSdk(
   }, null, 2), 'utf8')
 
   emit('download', '下载并安装依赖中…')
-  const ArboristMod = require('@npmcli/arborist') as any
-  const ArboristCtor = ArboristMod?.default ?? ArboristMod
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ArboristMod = require('@npmcli/arborist') as Record<string, unknown>
+  const ArboristCtor = (ArboristMod?.default ?? ArboristMod) as new (opts: { path: string }) => { reify(): Promise<void> }
   const arb = new ArboristCtor({ path: tmpSdkDir })
   await arb.reify()
 

@@ -6,8 +6,9 @@
 import { ipcMain } from 'electron'
 import { getOcrService, runOcr, OcrService } from './services/ocrService'
 import { loadConfig } from './configStore'
-import { OCR_CHANNELS, type OcrRunRequest, type OcrRunResult } from '../shared/ocr'
-export { OCR_CHANNELS, type OcrRunRequest, type OcrRunResult }
+import { IpcChannel } from '../shared/ipc'
+import { type OcrRunRequest, type OcrRunResult } from '../shared/ocr'
+export { type OcrRunRequest, type OcrRunResult }
 
 /**
  * 注册 OCR IPC 处理器
@@ -16,7 +17,7 @@ export function registerOcrIpc(): void {
   const ocrService = getOcrService()
 
   // 执行 OCR
-  ipcMain.handle(OCR_CHANNELS.RUN, async (_event, request: OcrRunRequest): Promise<OcrRunResult> => {
+  ipcMain.handle(IpcChannel.OcrRun, async (_event, request: OcrRunRequest): Promise<OcrRunResult> => {
     const { imagePaths, providerId, modelId, prompt, useCache = true } = request
 
     if (!imagePaths || imagePaths.length === 0) {
@@ -74,22 +75,22 @@ export function registerOcrIpc(): void {
   })
 
   // 获取缓存
-  ipcMain.handle(OCR_CHANNELS.GET_CACHED, (_event, imagePath: string): string | null => {
+  ipcMain.handle(IpcChannel.OcrGetCached, (_event, imagePath: string): string | null => {
     return ocrService.getCached(imagePath)
   })
 
   // 设置缓存
-  ipcMain.handle(OCR_CHANNELS.SET_CACHE, (_event, imagePath: string, text: string): void => {
+  ipcMain.handle(IpcChannel.OcrSetCache, (_event, imagePath: string, text: string): void => {
     ocrService.setCache(imagePath, text)
   })
 
   // 清空缓存
-  ipcMain.handle(OCR_CHANNELS.CLEAR_CACHE, (): void => {
+  ipcMain.handle(IpcChannel.OcrClearCache, (): void => {
     ocrService.clearCache()
   })
 
   // 获取缓存大小
-  ipcMain.handle(OCR_CHANNELS.GET_CACHE_SIZE, (): number => {
+  ipcMain.handle(IpcChannel.OcrGetCacheSize, (): number => {
     return ocrService.getCacheSize()
   })
 }
@@ -112,11 +113,11 @@ export interface OcrPreloadApi {
  */
 export function createOcrPreloadApi(ipcRenderer: Electron.IpcRenderer): OcrPreloadApi {
   return {
-    run: (request) => ipcRenderer.invoke(OCR_CHANNELS.RUN, request),
-    getCached: (imagePath) => ipcRenderer.invoke(OCR_CHANNELS.GET_CACHED, imagePath),
-    setCache: (imagePath, text) => ipcRenderer.invoke(OCR_CHANNELS.SET_CACHE, imagePath, text),
-    clearCache: () => ipcRenderer.invoke(OCR_CHANNELS.CLEAR_CACHE),
-    getCacheSize: () => ipcRenderer.invoke(OCR_CHANNELS.GET_CACHE_SIZE),
+    run: (request) => ipcRenderer.invoke(IpcChannel.OcrRun, request),
+    getCached: (imagePath) => ipcRenderer.invoke(IpcChannel.OcrGetCached, imagePath),
+    setCache: (imagePath, text) => ipcRenderer.invoke(IpcChannel.OcrSetCache, imagePath, text),
+    clearCache: () => ipcRenderer.invoke(IpcChannel.OcrClearCache),
+    getCacheSize: () => ipcRenderer.invoke(IpcChannel.OcrGetCacheSize),
     wrapOcrBlock: OcrService.wrapOcrBlock
   }
 }

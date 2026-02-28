@@ -1,34 +1,27 @@
 import { ipcMain, shell } from 'electron'
 import { app } from 'electron'
 import { getStorageReport, clearStorageItem, getStorageCategoryItems, deleteStorageItems } from './services/storage/storageService'
-
-export const STORAGE_CHANNELS = {
-    GET_REPORT: 'storage:getReport',
-    CLEAR: 'storage:clear',
-    OPEN_DATA_FOLDER: 'storage:openDataFolder',
-    GET_CATEGORY_ITEMS: 'storage:getCategoryItems',
-    DELETE_ITEMS: 'storage:deleteItems'
-}
+import { IpcChannel } from '../shared/ipc'
 
 export function registerStorageIpc(): void {
-    ipcMain.handle(STORAGE_CHANNELS.GET_REPORT, async () => {
+    ipcMain.handle(IpcChannel.StorageGetReport, async () => {
         return await getStorageReport()
     })
 
-    ipcMain.handle(STORAGE_CHANNELS.CLEAR, async (_e, categoryKey: any, itemId: any) => {
+    ipcMain.handle(IpcChannel.StorageClear, async (_e, categoryKey: any, itemId: any) => {
         await clearStorageItem(categoryKey, itemId)
         return await getStorageReport()
     })
 
-    ipcMain.handle(STORAGE_CHANNELS.OPEN_DATA_FOLDER, () => {
+    ipcMain.handle(IpcChannel.StorageOpenDataFolder, () => {
         shell.openPath(app.getPath('userData'))
     })
 
-    ipcMain.handle(STORAGE_CHANNELS.GET_CATEGORY_ITEMS, async (_e, categoryKey: string) => {
+    ipcMain.handle(IpcChannel.StorageGetCategoryItems, async (_e, categoryKey: string) => {
         return await getStorageCategoryItems(categoryKey)
     })
 
-    ipcMain.handle(STORAGE_CHANNELS.DELETE_ITEMS, async (_e, paths: string[]) => {
+    ipcMain.handle(IpcChannel.StorageDeleteItems, async (_e, paths: string[]) => {
         await deleteStorageItems(paths)
     })
 }

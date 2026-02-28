@@ -14,7 +14,7 @@ import type {
 } from '../../chatStream'
 import { emptyUsage, mergeUsage } from '../../chatStream'
 import { postJsonStream, readErrorBody } from '../../streamingHttpClient'
-import type { UserImage } from '../chatApiService'
+import type { SendStreamParams, UserImage } from '../adapterParams'
 import {
   apiModelId,
   effectiveApiKey,
@@ -336,24 +336,7 @@ async function maybeVertexAccessToken(cfg: ProviderConfigV2): Promise<string | n
   return null
 }
 
-/** Send streaming parameters */
-export interface GoogleStreamParams {
-  config: ProviderConfigV2
-  modelId: string
-  messages: ChatMessage[]
-  userImages?: UserImage[]
-  thinkingBudget?: number
-  temperature?: number
-  topP?: number
-  maxTokens?: number
-  maxToolLoopIterations?: number
-  tools?: ToolDefinition[]
-  onToolCall?: OnToolCallFn
-  extraHeaders?: Record<string, string>
-  extraBody?: Record<string, unknown>
-  signal?: AbortSignal
-  resolveImagePath?: (filePath: string) => Promise<{ mime: string; base64: string }>
-}
+export type GoogleStreamParams = SendStreamParams
 
 /**
  * Send streaming request to Google Gemini/Vertex AI.
@@ -447,17 +430,16 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
         const functionCallObj = { name, args }
         const partObj: Record<string, unknown> = { functionCall: functionCallObj }
 
-        const fnAny = fn as any
-        const tcAny = tc as any
+        const tcRec = tc as unknown as Record<string, unknown>
 
-        if (fnAny.thought_signature !== undefined) {
-          partObj.thought_signature = fnAny.thought_signature
-        } else if (fnAny.thoughtSignature !== undefined) {
-          partObj.thoughtSignature = fnAny.thoughtSignature
-        } else if (tcAny.thought_signature !== undefined) {
-          partObj.thought_signature = tcAny.thought_signature
-        } else if (tcAny.thoughtSignature !== undefined) {
-          partObj.thoughtSignature = tcAny.thoughtSignature
+        if (fn['thought_signature'] !== undefined) {
+          partObj.thought_signature = fn['thought_signature']
+        } else if (fn['thoughtSignature'] !== undefined) {
+          partObj.thoughtSignature = fn['thoughtSignature']
+        } else if (tcRec['thought_signature'] !== undefined) {
+          partObj.thought_signature = tcRec['thought_signature']
+        } else if (tcRec['thoughtSignature'] !== undefined) {
+          partObj.thoughtSignature = tcRec['thoughtSignature']
         } else if (persistGeminiThoughtSigs) {
           partObj.thoughtSignature = 'context_engineering_is_the_way_to_go'
         }

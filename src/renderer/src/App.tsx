@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import type { AppConfig } from '../../shared/types'
+import type { AppConfig, SettingsMenuKey } from '../../shared/types'
 import { getPalette } from '../../shared/palettes'
 import { NavRail, type NavKey } from './layout/NavRail'
 import { TitleBar } from './layout/TitleBar'
@@ -15,6 +15,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ConfirmProvider } from './hooks/useConfirm'
 import { Toaster } from './components/ui/sonner'
 import { HideAvatarsContext } from './contexts/HideAvatarsContext'
+import { ConfigProvider } from './contexts/ConfigContext'
 
 export default function App() {
   const [tab, setTab] = useState<NavKey>('chat')
@@ -151,7 +152,7 @@ export default function App() {
           ...config.ui,
           desktop: {
             ...config.ui.desktop,
-            selectedSettingsMenu: pane as any
+            selectedSettingsMenu: pane as SettingsMenuKey
           }
         }
       })
@@ -179,30 +180,31 @@ export default function App() {
               {!config ? (
                 <div style={{ padding: 16 }}>加载中...</div>
               ) : (
+                <ConfigProvider config={config} onSave={persist}>
                 <>
                   <div style={{ ...styles.pageHost, display: tab === 'chat' ? 'flex' : 'none' }}>
                     <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                      <ChatPage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} onOpenSettings={openSettingsPane} />
+                      <ChatPage onOpenDefaultModelSettings={openDefaultModelSettings} onOpenSettings={openSettingsPane} />
                     </ErrorBoundary>
                   </div>
                   <div style={{ ...styles.pageHost, display: tab === 'translate' ? 'flex' : 'none' }}>
                     <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                      <TranslatePage config={config} onSave={persist} onOpenDefaultModelSettings={openDefaultModelSettings} />
+                      <TranslatePage onOpenDefaultModelSettings={openDefaultModelSettings} />
                     </ErrorBoundary>
                   </div>
                   <div style={{ ...styles.pageHost, display: tab === 'imageStudio' ? 'flex' : 'none' }}>
                     <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                      <ImageStudioPage config={config} onSave={persist} />
+                      <ImageStudioPage />
                     </ErrorBoundary>
                   </div>
                   <div style={{ ...styles.pageHost, display: tab === 'agent' ? 'flex' : 'none' }}>
                     <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                      <AgentPage config={config} onSave={persist} />
+                      <AgentPage />
                     </ErrorBoundary>
                   </div>
                   <div style={{ ...styles.pageHost, display: tab === 'apiTest' ? 'flex' : 'none' }}>
                     <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                      <ApiTestPage config={config} onSave={persist} onOpenSettings={openSettingsPane} />
+                      <ApiTestPage onOpenSettings={openSettingsPane} />
                     </ErrorBoundary>
                   </div>
                   <div style={{ ...styles.pageHost, display: tab === 'storage' ? 'flex' : 'none' }}>
@@ -212,10 +214,11 @@ export default function App() {
                   </div>
                   <div style={{ ...styles.pageHost, display: tab === 'settings' ? 'flex' : 'none' }}>
                     <ErrorBoundary title="页面渲染出错（请把错误信息截图发我）">
-                      <SettingsPage config={config} onSave={persist} />
+                      <SettingsPage />
                     </ErrorBoundary>
                   </div>
                 </>
+                </ConfigProvider>
               )}
             </div>
           </div>

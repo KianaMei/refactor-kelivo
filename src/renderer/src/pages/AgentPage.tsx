@@ -23,8 +23,10 @@ import type {
   ClaudePermissionMode,
   CodexApprovalPolicy,
   CodexSandboxMode,
-  AgentConfig
+  AgentConfig,
+  ProviderConfigV2
 } from '../../../shared/types'
+import { useConfig } from '../contexts/ConfigContext'
 import type { DbAgentMessage, DbAgentSession } from '../../../shared/db-types'
 import type { AgentPermissionRequestEvent, AgentRunStartParams } from '../../../shared/agentRuntime'
 import { toast } from 'sonner'
@@ -39,11 +41,6 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
-type Props = {
-  config: AppConfig
-  onSave: (next: AppConfig) => Promise<void>
-}
-
 function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
   const idx = list.findIndex((x) => x.id === item.id)
   if (idx < 0) return [...list, item]
@@ -52,8 +49,8 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
   return next
 }
 
-export function AgentPage(props: Props) {
-  const { config, onSave } = props
+export function AgentPage() {
+  const { config, updateConfig: onSave } = useConfig()
 
   const agentList = useMemo(() => {
     const order = config.agentsOrder ?? []
@@ -308,7 +305,7 @@ export function AgentPage(props: Props) {
   async function handleAgentConfigSave(providerId: string, updated: unknown) {
     // 1. Update Provider Config
     const nextMap = { ...(config.providerConfigs ?? {}) }
-    nextMap[providerId] = updated as any
+    nextMap[providerId] = updated as ProviderConfigV2
     const nextConfig = { ...config, providerConfigs: nextMap }
     await onSave(nextConfig)
 

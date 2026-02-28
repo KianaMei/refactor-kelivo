@@ -10,6 +10,7 @@ import { Languages, ChevronDown, Copy, Eraser, Square, Check, Bot } from 'lucide
 
 import type { ChatMessage as ChatStreamMessage } from '../../../shared/chatStream'
 import type { AppConfig, ProviderConfigV2 } from '../../../shared/types'
+import { useConfig } from '../contexts/ConfigContext'
 import { DEFAULT_TRANSLATE_PROMPT } from '../../../shared/types'
 import { isAbortError } from '../../../shared/streamingHttpClient'
 import { rendererSendMessageStream } from '../lib/chatService'
@@ -32,10 +33,9 @@ const languages: Lang[] = [
 ]
 
 export function TranslatePage(props: {
-  config: AppConfig
-  onSave: (next: AppConfig) => Promise<void>
   onOpenDefaultModelSettings: () => void
 }) {
+  const { config, updateConfig } = useConfig()
   const [source, setSource] = useState('')
   const [output, setOutput] = useState('')
   const [targetLang, setTargetLang] = useState<Lang>(languages[1])
@@ -48,20 +48,20 @@ export function TranslatePage(props: {
 
   const model = useMemo(() => {
     const providerId =
-      props.config.translateModelProvider ?? props.config.currentModelProvider
+      config.translateModelProvider ?? config.currentModelProvider
     const modelId =
-      props.config.translateModelId ?? props.config.currentModelId
+      config.translateModelId ?? config.currentModelId
     const provider = providerId
-      ? (props.config.providerConfigs[providerId] ?? null)
+      ? (config.providerConfigs[providerId] ?? null)
       : null
     return { providerId, modelId, provider }
-  }, [props.config])
+  }, [config])
 
   const providers = useMemo<ProviderConfigV2[]>(() => {
-    return Object.values(props.config.providerConfigs).filter(
+    return Object.values(config.providerConfigs).filter(
       (p): p is ProviderConfigV2 => !!p && Array.isArray(p.models) && p.models.length > 0
     )
-  }, [props.config.providerConfigs])
+  }, [config.providerConfigs])
 
   // Set default language based on system locale
   useEffect(() => {
@@ -75,13 +75,13 @@ export function TranslatePage(props: {
 
   const handleSelectModel = useCallback(
     async (providerId: string, modelId: string) => {
-      await props.onSave({
-        ...props.config,
+      await updateConfig({
+        ...config,
         translateModelProvider: providerId,
         translateModelId: modelId
       })
     },
-    [props]
+    [config, updateConfig]
   )
 
   const translate = useCallback(async () => {
@@ -93,7 +93,7 @@ export function TranslatePage(props: {
       return
     }
 
-    const promptTemplate = props.config.translatePrompt ?? DEFAULT_TRANSLATE_PROMPT
+    const promptTemplate = config.translatePrompt ?? DEFAULT_TRANSLATE_PROMPT
     const prompt = promptTemplate
       .replaceAll('{source_text}', text)
       .replaceAll('{target_lang}', targetLang.label)

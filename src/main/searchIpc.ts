@@ -9,8 +9,9 @@ import {
   createSearchService
 } from './services/search'
 import { formatSearchResultsXml, formatSearchResultsMarkdown } from './services/search/searchService'
-import { SEARCH_CHANNELS, type SearchRequest, type SearchResponse, type SearchServiceConfigUnion } from '../shared/search'
-export { SEARCH_CHANNELS, type SearchRequest, type SearchResponse }
+import { IpcChannel } from '../shared/ipc'
+import { type SearchRequest, type SearchResponse, type SearchServiceConfigUnion } from '../shared/search'
+export { type SearchRequest, type SearchResponse }
 
 /**
  * 注册搜索 IPC 处理器
@@ -18,7 +19,7 @@ export { SEARCH_CHANNELS, type SearchRequest, type SearchResponse }
 export function registerSearchIpc(): void {
   // 执行搜索
   ipcMain.handle(
-    SEARCH_CHANNELS.SEARCH,
+    IpcChannel.SearchExecute,
     async (_event, request: SearchRequest): Promise<SearchResponse> => {
       const { query, options, serviceId, format } = request
 
@@ -57,7 +58,7 @@ export function registerSearchIpc(): void {
   )
 
   // 获取可用服务列表
-  ipcMain.handle(SEARCH_CHANNELS.GET_PROVIDERS, (): Array<{
+  ipcMain.handle(IpcChannel.SearchListProviders, (): Array<{
     id: string
     name: string
     type: string
@@ -67,7 +68,7 @@ export function registerSearchIpc(): void {
 
   // 注册搜索服务
   ipcMain.handle(
-    SEARCH_CHANNELS.REGISTER_PROVIDER,
+    IpcChannel.SearchRegister,
     (_event, id: string, config: SearchServiceConfigUnion, isDefault?: boolean): boolean => {
       try {
         const service = createSearchService(config)
@@ -81,12 +82,12 @@ export function registerSearchIpc(): void {
   )
 
   // 注销搜索服务
-  ipcMain.handle(SEARCH_CHANNELS.UNREGISTER_PROVIDER, (_event, id: string): boolean => {
+  ipcMain.handle(IpcChannel.SearchUnregister, (_event, id: string): boolean => {
     return searchManager.unregister(id)
   })
 
   // 设置默认服务
-  ipcMain.handle(SEARCH_CHANNELS.SET_DEFAULT_PROVIDER, (_event, id: string): boolean => {
+  ipcMain.handle(IpcChannel.SearchSetDefault, (_event, id: string): boolean => {
     return searchManager.setDefault(id)
   })
 }
@@ -105,11 +106,11 @@ export interface SearchPreloadApi {
  */
 export function createSearchPreloadApi(ipcRenderer: Electron.IpcRenderer): SearchPreloadApi {
   return {
-    search: (request) => ipcRenderer.invoke(SEARCH_CHANNELS.SEARCH, request),
-    listProviders: () => ipcRenderer.invoke(SEARCH_CHANNELS.GET_PROVIDERS),
+    search: (request) => ipcRenderer.invoke(IpcChannel.SearchExecute, request),
+    listProviders: () => ipcRenderer.invoke(IpcChannel.SearchListProviders),
     register: (id, config, isDefault) =>
-      ipcRenderer.invoke(SEARCH_CHANNELS.REGISTER_PROVIDER, id, config, isDefault),
-    unregister: (id) => ipcRenderer.invoke(SEARCH_CHANNELS.UNREGISTER_PROVIDER, id),
-    setDefault: (id) => ipcRenderer.invoke(SEARCH_CHANNELS.SET_DEFAULT_PROVIDER, id)
+      ipcRenderer.invoke(IpcChannel.SearchRegister, id, config, isDefault),
+    unregister: (id) => ipcRenderer.invoke(IpcChannel.SearchUnregister, id),
+    setDefault: (id) => ipcRenderer.invoke(IpcChannel.SearchSetDefault, id)
   }
 }

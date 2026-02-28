@@ -1,5 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { AppConfig, ProviderConfigV2, BundleImportResult, McpListToolsResponse, McpCallToolRequest, McpCallToolResponse, StorageReport, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress } from '../shared/types'
+import type { AppConfig, ProviderConfigV2, BundleImportResult, McpListToolsResponse, McpCallToolRequest, McpCallToolResponse, StorageReport, StorageItemDetail, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress } from '../shared/types'
 import type { ModelsListResult } from '../shared/models'
 import type { OcrRunRequest, OcrRunResult } from '../shared/ocr'
 import type { SearchRequest, SearchResponse, SearchServiceConfigUnion } from '../shared/search'
@@ -47,6 +47,14 @@ import type {
     PromptLibrarySingleResult,
     PromptLibraryDeleteResult
 } from '../shared/promptLibrary'
+import type {
+    AgentEventPayload,
+    AgentPermissionRespondParams,
+    AgentRunAbortParams,
+    AgentRunStartParams,
+    AgentRunStartResult
+} from '../shared/agentRuntime'
+import type { DepsInstallParams, DepsProgressEvent, DepsStatusResult, DepsUninstallParams } from '../shared/deps'
 
 interface PreprocessImageParams {
     imagePaths: string[]
@@ -68,6 +76,8 @@ declare global {
                 getReport: () => Promise<StorageReport>
                 clear: (categoryKey: string, itemId: string | null) => Promise<StorageReport>
                 openDataFolder: () => Promise<void>
+                getCategoryItems: (categoryKey: string) => Promise<StorageItemDetail[]>
+                deleteItems: (paths: string[]) => Promise<void>
             }
             chat: {
                 test: (providerId: string, modelId: string) => Promise<void>
@@ -197,6 +207,18 @@ declare global {
                 get: (id: string) => Promise<PromptLibrarySingleResult>
                 delete: (id: string) => Promise<PromptLibraryDeleteResult>
                 clear: () => Promise<PromptLibraryDeleteResult>
+            }
+            agent: {
+                runStart: (params: AgentRunStartParams) => Promise<AgentRunStartResult>
+                abort: (params: AgentRunAbortParams) => Promise<void>
+                respondPermission: (params: AgentPermissionRespondParams) => Promise<void>
+                onEvent: (fn: (evt: AgentEventPayload) => void) => () => void
+            }
+            deps: {
+                getStatus: () => Promise<DepsStatusResult>
+                install: (params: DepsInstallParams) => Promise<DepsStatusResult>
+                uninstall: (params: DepsUninstallParams) => Promise<DepsStatusResult>
+                onProgress: (fn: (evt: DepsProgressEvent) => void) => () => void
             }
         }
     }

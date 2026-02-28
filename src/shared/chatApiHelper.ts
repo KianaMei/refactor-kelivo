@@ -4,7 +4,7 @@
  */
 
 import type { ProviderConfigV2, ProviderKind, ApiKeyConfig } from './types'
-import type { ToolResultInfo } from './chatStream'
+import type { ToolDefinition, ToolResultInfo } from './chatStream'
 
 // 多key运行时状态（随app重启重置，绝不写回config）
 const _roundRobinCounters = new Map<string, number>() // key: cfg.id
@@ -347,13 +347,12 @@ export function extractGrokCitations(response: Record<string, unknown>): ToolRes
 
 export function timestamp(): string {
   const now = new Date()
-  const utc8 = new Date(now.getTime() + 8 * 60 * 60 * 1000)
-  const year = utc8.getUTCFullYear().toString().padStart(4, '0')
-  const month = (utc8.getUTCMonth() + 1).toString().padStart(2, '0')
-  const day = utc8.getUTCDate().toString().padStart(2, '0')
-  const hour = utc8.getUTCHours().toString().padStart(2, '0')
-  const minute = utc8.getUTCMinutes().toString().padStart(2, '0')
-  const second = utc8.getUTCSeconds().toString().padStart(2, '0')
+  const year = now.getFullYear().toString().padStart(4, '0')
+  const month = (now.getMonth() + 1).toString().padStart(2, '0')
+  const day = now.getDate().toString().padStart(2, '0')
+  const hour = now.getHours().toString().padStart(2, '0')
+  const minute = now.getMinutes().toString().padStart(2, '0')
+  const second = now.getSeconds().toString().padStart(2, '0')
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`
 }
 
@@ -386,7 +385,7 @@ export function cleanSchemaForGemini(schema: Record<string, unknown>): Record<st
 }
 
 export function cleanToolsForCompatibility(
-  tools: Array<{ type: string; function: Record<string, unknown> }>
+  tools: ToolDefinition[]
 ): Array<{ type: string; function: Record<string, unknown> }> {
   return tools.map((tool) => {
     const result = { ...tool }

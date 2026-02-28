@@ -379,14 +379,15 @@ async function listToolsViaStreamableHttp(url: string, headers: RequestHeaders):
     })
 
     const result = resp.json?.result
-    const pageTools = Array.isArray(result?.tools) ? (result.tools as any[]) : []
+    const pageTools: unknown[] = Array.isArray(result?.tools) ? result.tools : []
     for (const t of pageTools) {
       if (!t || typeof t !== 'object') continue
-      const name = typeof (t as any).name === 'string' ? (t as any).name : ''
+      const rec = t as Record<string, unknown>
+      const name = typeof rec.name === 'string' ? rec.name : ''
       if (!name) continue
-      const description = typeof (t as any).description === 'string' ? (t as any).description : undefined
-      const inputSchema = (t as any).inputSchema && typeof (t as any).inputSchema === 'object'
-        ? ((t as any).inputSchema as Record<string, unknown>)
+      const description = typeof rec.description === 'string' ? rec.description : undefined
+      const inputSchema = rec.inputSchema && typeof rec.inputSchema === 'object'
+        ? (rec.inputSchema as Record<string, unknown>)
         : undefined
       tools.push({ name, description, inputSchema })
     }
@@ -501,11 +502,11 @@ async function listToolsViaLegacySse(url: string, headers: RequestHeaders): Prom
   }
 
   let endpointUrl: string | null = null
-  let endpointResolve: ((v: string) => void) | null = null
-  let endpointReject: ((err: Error) => void) | null = null
+  let endpointResolve!: (v: string) => void
+  let endpointReject!: (err: Error) => void
   const endpointPromise = new Promise<string>((resolve, reject) => {
     endpointResolve = resolve
-    endpointReject = reject
+    endpointReject = reject as (err: Error) => void
   })
 
   const pending = new Map<string, (json: JsonRpcResponse) => void>()
@@ -518,11 +519,11 @@ async function listToolsViaLegacySse(url: string, headers: RequestHeaders): Prom
 
         if (!endpointUrl && evt.event === 'endpoint') {
           endpointUrl = resolveMaybeRelativeUrl(url, data)
-          if (endpointResolve && endpointUrl) (endpointResolve as any)(endpointUrl)
+          if (endpointUrl) endpointResolve(endpointUrl)
           continue
         }
 
-        let json: any
+        let json: Record<string, unknown>
         try {
           json = JSON.parse(data)
         } catch {
@@ -539,11 +540,11 @@ async function listToolsViaLegacySse(url: string, headers: RequestHeaders): Prom
       }
     } catch (e) {
       if (!endpointUrl) {
-        if (endpointReject) (endpointReject as any)(e instanceof Error ? e : new Error(String(e)))
+        endpointReject(e instanceof Error ? e : new Error(String(e)))
       }
     } finally {
       // stream ended
-      if (!endpointUrl && endpointReject) (endpointReject as any)(new Error('MCP SSE 流结束，未收到 endpoint 事件'))
+      if (!endpointUrl) endpointReject(new Error('MCP SSE 流结束，未收到 endpoint 事件'))
     }
   })()
 
@@ -610,14 +611,15 @@ async function listToolsViaLegacySse(url: string, headers: RequestHeaders): Prom
         throw new Error(`MCP tools/list 错误：${resp.error.message}`)
       }
       const result = resp.result
-      const pageTools = Array.isArray(result?.tools) ? (result.tools as any[]) : []
+      const pageTools: unknown[] = Array.isArray(result?.tools) ? result.tools : []
       for (const t of pageTools) {
         if (!t || typeof t !== 'object') continue
-        const name = typeof (t as any).name === 'string' ? (t as any).name : ''
+        const rec = t as Record<string, unknown>
+        const name = typeof rec.name === 'string' ? rec.name : ''
         if (!name) continue
-        const description = typeof (t as any).description === 'string' ? (t as any).description : undefined
-        const inputSchema = (t as any).inputSchema && typeof (t as any).inputSchema === 'object'
-          ? ((t as any).inputSchema as Record<string, unknown>)
+        const description = typeof rec.description === 'string' ? rec.description : undefined
+        const inputSchema = rec.inputSchema && typeof rec.inputSchema === 'object'
+          ? (rec.inputSchema as Record<string, unknown>)
           : undefined
         tools.push({ name, description, inputSchema })
       }
@@ -661,11 +663,11 @@ async function callToolViaLegacySse(
   }
 
   let endpointUrl: string | null = null
-  let endpointResolve: ((v: string) => void) | null = null
-  let endpointReject: ((err: Error) => void) | null = null
+  let endpointResolve!: (v: string) => void
+  let endpointReject!: (err: Error) => void
   const endpointPromise = new Promise<string>((resolve, reject) => {
     endpointResolve = resolve
-    endpointReject = reject
+    endpointReject = reject as (err: Error) => void
   })
 
   const pending = new Map<string, (json: JsonRpcResponse) => void>()
@@ -678,18 +680,18 @@ async function callToolViaLegacySse(
 
         if (!endpointUrl && evt.event === 'endpoint') {
           endpointUrl = resolveMaybeRelativeUrl(url, data)
-          if (endpointResolve && endpointUrl) (endpointResolve as any)(endpointUrl)
+          if (endpointUrl) endpointResolve(endpointUrl)
           continue
         }
 
-        let json: unknown
+        let json: Record<string, unknown>
         try {
           json = JSON.parse(data)
         } catch {
           continue
         }
-        if (!json || typeof json !== 'object' || (json as { jsonrpc?: string }).jsonrpc !== '2.0') continue
-        const id = (json as { id?: JsonRpcId }).id
+        if (!json || typeof json !== 'object' || json.jsonrpc !== '2.0') continue
+        const id = json.id as JsonRpcId | undefined
         if (id === undefined || id === null) continue
         const key = String(id)
         const cb = pending.get(key)
@@ -699,11 +701,11 @@ async function callToolViaLegacySse(
       }
     } catch (e) {
       if (!endpointUrl) {
-        if (endpointReject) (endpointReject as any)(e instanceof Error ? e : new Error(String(e)))
+        endpointReject(e instanceof Error ? e : new Error(String(e)))
       }
     } finally {
-      if (!endpointUrl && endpointReject) {
-        (endpointReject as any)(new Error('MCP SSE stream ended before endpoint event'))
+      if (!endpointUrl) {
+        endpointReject(new Error('MCP SSE stream ended before endpoint event'))
       }
     }
   })()

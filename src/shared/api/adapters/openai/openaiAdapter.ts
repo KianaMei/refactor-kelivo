@@ -4,37 +4,12 @@
  * 零 Node.js 依赖
  */
 
-import type { ProviderConfigV2 } from '../../../types'
-import type {
-  ChatStreamChunk,
-  ChatMessage,
-  ToolDefinition,
-  OnToolCallFn
-} from '../../../chatStream'
-import type { UserImage } from '../../chatApiService'
-import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../responsesOptions'
+import type { ChatStreamChunk } from '../../../chatStream'
+import type { SendStreamParams } from '../../adapterParams'
 import * as openaiChatCompletions from './openaiChatCompletions'
 import * as openaiResponsesApi from './openaiResponsesApi'
 
-/** 发送流式请求的参数 */
-export interface SendStreamParams {
-  config: ProviderConfigV2
-  modelId: string
-  messages: ChatMessage[]
-  userImages?: UserImage[]
-  thinkingBudget?: number
-  responsesReasoningSummary?: ResponsesReasoningSummary
-  responsesTextVerbosity?: ResponsesTextVerbosity
-  temperature?: number
-  topP?: number
-  maxTokens?: number
-  maxToolLoopIterations?: number
-  tools?: ToolDefinition[]
-  onToolCall?: OnToolCallFn
-  extraHeaders?: Record<string, string>
-  extraBody?: Record<string, unknown>
-  signal?: AbortSignal
-}
+export type { SendStreamParams }
 
 /**
  * 发送流式请求到 OpenAI 兼容 API

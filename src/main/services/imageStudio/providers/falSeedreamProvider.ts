@@ -158,6 +158,17 @@ export const falSeedreamProvider: ImageStudioProvider = {
       throw new Error(`fal submit 失败 (${response.status}) ${detail}`.trim())
     }
 
+    const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
+    if (!contentType.includes('application/json')) {
+      const detail = (await safeReadText(response)).trim()
+      const snippet = detail.length > 400 ? `${detail.slice(0, 400)}…` : detail
+      throw new Error(
+        `fal submit 返回非 JSON（content-type=${contentType || 'unknown'}）。` +
+          `Base URL 必须是 queue endpoint（例如 https://queue.fal.run/fal-ai/...），不要填 fal.ai/models 的页面链接。` +
+          (snippet ? ` 响应片段：${snippet}` : '')
+      )
+    }
+
     const payload = (await response.json()) as FalQueueSubmitResponse
 
     if (!payload.status_url || !payload.response_url || !payload.cancel_url) {

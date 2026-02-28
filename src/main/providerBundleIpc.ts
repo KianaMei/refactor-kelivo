@@ -171,7 +171,7 @@ export function registerProviderBundleIpc(): void {
 
   // --- Write file (for saving exported bundle) ---
   ipcMain.handle(
-    'dialog:write-file',
+    IpcChannel.DialogWriteFile,
     async (_event, filePath: string, data: Buffer): Promise<void> => {
       await writeFile(filePath, data)
     }

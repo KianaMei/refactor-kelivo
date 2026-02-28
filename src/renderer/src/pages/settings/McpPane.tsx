@@ -56,15 +56,15 @@ type ParamSpec = { name: string; required: boolean; type?: string }
 
 function schemaToParams(schema: unknown): ParamSpec[] {
   if (!schema || typeof schema !== 'object') return []
-  const obj = schema as any
-  const props = obj.properties && typeof obj.properties === 'object' ? obj.properties : null
+  const obj = schema as Record<string, unknown>
+  const props = obj.properties && typeof obj.properties === 'object' ? (obj.properties as Record<string, unknown>) : null
   if (!props) return []
-  const required = new Set<string>(Array.isArray(obj.required) ? obj.required.filter((x: any) => typeof x === 'string') : [])
+  const required = new Set<string>(Array.isArray(obj.required) ? (obj.required as unknown[]).filter((x): x is string => typeof x === 'string') : [])
 
   const out: ParamSpec[] = []
   for (const [k, v] of Object.entries(props)) {
     if (typeof k !== 'string') continue
-    const vv: any = v
+    const vv = v as Record<string, unknown> | null | undefined
     const type = typeof vv?.type === 'string' ? vv.type : undefined
     out.push({ name: k, required: required.has(k), type })
   }

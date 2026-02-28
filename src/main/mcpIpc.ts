@@ -1,8 +1,9 @@
 /**
  * MCP IPC
- * - 目前先实现“同步工具列表”（对齐 Flutter：refreshTools�? * - 连接/调用工具后续再扩�? */
+ * - 目前先实现“同步工具列表”（对齐 Flutter：refreshTools�? * - 连接/调用工具后续再扩�? */
 
 import { ipcMain } from 'electron'
+import { IpcChannel } from '../shared/ipc'
 
 import type {
   McpListToolsResponse,
@@ -12,13 +13,8 @@ import type {
 import { loadConfig } from './configStore'
 import { listMcpTools, callMcpTool } from './services/mcp/mcpClient'
 
-export const MCP_CHANNELS = {
-  LIST_TOOLS: 'mcp:listTools',
-  CALL_TOOL: 'mcp:callTool'
-} as const
-
 export function registerMcpIpc(): void {
-  ipcMain.handle(MCP_CHANNELS.LIST_TOOLS, async (_event, serverId: string): Promise<McpListToolsResponse> => {
+  ipcMain.handle(IpcChannel.McpListTools, async (_event, serverId: string): Promise<McpListToolsResponse> => {
     try {
       const cfg = await loadConfig()
       const server = (cfg.mcpServers ?? []).find((s) => s.id === serverId)
@@ -43,7 +39,7 @@ export function registerMcpIpc(): void {
     }
   })
 
-  ipcMain.handle(MCP_CHANNELS.CALL_TOOL, async (_event, req: McpCallToolRequest): Promise<McpCallToolResponse> => {
+  ipcMain.handle(IpcChannel.McpCallTool, async (_event, req: McpCallToolRequest): Promise<McpCallToolResponse> => {
     try {
       const serverId = String(req.serverId ?? '').trim()
       const toolName = String(req.toolName ?? '').trim()

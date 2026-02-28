@@ -24,6 +24,7 @@ import { registerStorageIpc } from './storageIpc'
 import { registerDepsIpc } from './deps/depsIpc'
 import { registerImageStudioIpc } from './imageStudioIpc'
 import { registerPromptLibraryIpc } from './promptLibraryIpc'
+import { IpcChannel } from '../shared/ipc'
 import { initDatabase, closeDatabase } from './db/database'
 import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
 import { getMemoryCount, bulkInsertMemories } from './db/repositories/memoryRepo'
@@ -56,23 +57,23 @@ function createMainWindow(): void {
   })
 
   // 窗口控制 IPC
-  ipcMain.on('window-minimize', () => mainWindow.minimize())
-  ipcMain.on('window-maximize', () => {
+  ipcMain.on(IpcChannel.WindowMinimize, () => mainWindow.minimize())
+  ipcMain.on(IpcChannel.WindowMaximize, () => {
     if (mainWindow.isMaximized()) {
       mainWindow.unmaximize()
     } else {
       mainWindow.maximize()
     }
   })
-  ipcMain.on('window-close', () => mainWindow.close())
-  ipcMain.handle('window-is-maximized', () => mainWindow.isMaximized())
+  ipcMain.on(IpcChannel.WindowClose, () => mainWindow.close())
+  ipcMain.handle(IpcChannel.WindowIsMaximized, () => mainWindow.isMaximized())
 
   // 监听最大化状态变化
   mainWindow.on('maximize', () => {
-    mainWindow.webContents.send('window-maximized-changed', true)
+    mainWindow.webContents.send(IpcChannel.WindowMaximizedChanged, true)
   })
   mainWindow.on('unmaximize', () => {
-    mainWindow.webContents.send('window-maximized-changed', false)
+    mainWindow.webContents.send(IpcChannel.WindowMaximizedChanged, false)
   })
 
   mainWindow.on('ready-to-show', () => {

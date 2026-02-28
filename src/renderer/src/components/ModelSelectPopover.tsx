@@ -60,12 +60,12 @@ function inferModelMeta(modelId: string, provider?: ProviderConfigV2): ModelMeta
     abilities: []
   }
 
-  const ov = provider?.modelOverrides?.[modelId] as any
+  const ov = provider?.modelOverrides?.[modelId] as Record<string, unknown> | undefined
   if (ov) {
-    if (ov.type) meta.type = ov.type
-    if (Array.isArray(ov.input)) meta.inputModality = ov.input
-    if (Array.isArray(ov.output)) meta.outputModality = ov.output
-    if (Array.isArray(ov.abilities)) meta.abilities = ov.abilities
+    if (ov.type === 'chat' || ov.type === 'embedding') meta.type = ov.type
+    if (Array.isArray(ov.input)) meta.inputModality = ov.input as ModelMeta['inputModality']
+    if (Array.isArray(ov.output)) meta.outputModality = ov.output as ModelMeta['outputModality']
+    if (Array.isArray(ov.abilities)) meta.abilities = ov.abilities as ModelMeta['abilities']
     return meta
   }
 

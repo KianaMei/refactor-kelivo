@@ -18,6 +18,8 @@ import {
 import {
   normalizeFalSeedreamEditOptions,
   type FalSeedreamEditOptions,
+  type FalSeedreamImageSize,
+  type FalSeedreamImageSizePreset,
   type ImageInputSource,
   type ImageStudioCancelResult,
   type ImageStudioConfig,
@@ -65,6 +67,9 @@ interface RunJobParams {
   context: ActiveJobContext
 }
 
+const FAL_QUEUE_HOST = 'queue.fal.run'
+const FAL_MODEL_PAGE_SUFFIXES = new Set(['api', 'playground', 'llms.txt'])
+
 const FAL_QUEUE_POLL_INTERVAL_MS = 1500
 const INPUT_IMAGE_LIMIT = 10
 const TOTAL_IMAGE_LIMIT = 15
@@ -72,6 +77,30 @@ const CUSTOM_IMAGE_SIZE_MIN = 1920
 const CUSTOM_IMAGE_SIZE_MAX = 4096
 const CUSTOM_IMAGE_PIXELS_MIN = 2560 * 1440
 const CUSTOM_IMAGE_PIXELS_MAX = 4096 * 4096
+
+type SeedreamEndpointKind = 'seedream_v45_edit' | 'seedream_v5_lite_edit' | 'unknown'
+
+const SEEDREAM_V45_IMAGE_SIZE_PRESETS: ReadonlySet<FalSeedreamImageSizePreset> = new Set([
+  'square_hd',
+  'square',
+  'portrait_4_3',
+  'portrait_16_9',
+  'landscape_4_3',
+  'landscape_16_9',
+  'auto_2K',
+  'auto_4K'
+])
+
+const SEEDREAM_V5_LITE_IMAGE_SIZE_PRESETS: ReadonlySet<FalSeedreamImageSizePreset> = new Set([
+  'square_hd',
+  'square',
+  'portrait_4_3',
+  'portrait_16_9',
+  'landscape_4_3',
+  'landscape_16_9',
+  'auto_2K',
+  'auto_3K'
+])
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -129,6 +158,64 @@ function isDataUrl(value: string): boolean {
 function toSafeErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message) return err.message
   return String(err)
+}
+
+function normalizeFalQueueBaseUrlInput(input: string): { baseUrl: string; normalizedFrom: string | null } {
+  const raw = input.trim()
+  if (!raw) return { baseUrl: raw, normalizedFrom: null }
+
+  if (!raw.includes('://') && raw.startsWith('fal-ai/')) {
+    return { baseUrl: `https://${FAL_QUEUE_HOST}/${raw.replace(/^\/+/, '')}`, normalizedFrom: raw }
+  }
+
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    const path = url.pathname
+
+    if (host === 'fal.ai' || host.endsWith('.fal.ai')) {
+      if (path.startsWith('/models/')) {
+        const parts = path
+          .slice('/models/'.length)
+          .split('/')
+          .map((seg) => seg.trim())
+          .filter(Boolean)
+
+        if (parts.length && FAL_MODEL_PAGE_SUFFIXES.has(parts[parts.length - 1].toLowerCase())) {
+          parts.pop()
+        }
+
+        const endpoint = parts.join('/')
+        if (endpoint) {
+          return { baseUrl: `https://${FAL_QUEUE_HOST}/${endpoint}`, normalizedFrom: raw }
+        }
+      }
+
+      if (path.startsWith('/api/openapi/queue/openapi.json')) {
+        const endpointId = url.searchParams.get('endpoint_id')?.trim() ?? ''
+        if (endpointId) {
+          return { baseUrl: `https://${FAL_QUEUE_HOST}/${endpointId.replace(/^\/+/, '')}`, normalizedFrom: raw }
+        }
+      }
+    }
+
+    {
+      const parts = url.pathname
+        .split('/')
+        .map((seg) => seg.trim())
+        .filter(Boolean)
+      if (parts.length && FAL_MODEL_PAGE_SUFFIXES.has(parts[parts.length - 1].toLowerCase())) {
+        parts.pop()
+        const nextPath = parts.join('/')
+        const nextUrl = nextPath ? `${url.origin}/${nextPath}` : url.origin
+        return { baseUrl: nextUrl, normalizedFrom: raw }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return { baseUrl: raw, normalizedFrom: null }
 }
 
 function extensionFromContentType(contentType: string | null | undefined, fallbackUrl: string): string {
@@ -189,6 +276,58 @@ function validateCustomImageSize(options: Required<FalSeedreamEditOptions>): str
   }
 
   return null
+}
+
+function inferSeedreamEndpointKind(baseUrl: string): SeedreamEndpointKind {
+  const raw = baseUrl.trim()
+  if (!raw) return 'unknown'
+
+  const path = (() => {
+    try {
+      return new URL(raw).pathname.toLowerCase()
+    } catch {
+      return raw.toLowerCase()
+    }
+  })()
+
+  if (path.includes('/seedream/v5/lite/edit')) return 'seedream_v5_lite_edit'
+  if (path.includes('/seedream/v4.5/edit')) return 'seedream_v45_edit'
+  return 'unknown'
+}
+
+function normalizeSeedreamImageSizeForEndpoint(
+  endpoint: SeedreamEndpointKind,
+  imageSize: FalSeedreamImageSize
+): { imageSize: FalSeedreamImageSize; normalizedMessage: string | null } {
+  if (!imageSize || typeof imageSize !== 'string') return { imageSize, normalizedMessage: null }
+
+  const preset = imageSize as FalSeedreamImageSizePreset
+  const supported = endpoint === 'seedream_v45_edit'
+    ? SEEDREAM_V45_IMAGE_SIZE_PRESETS
+    : endpoint === 'seedream_v5_lite_edit'
+      ? SEEDREAM_V5_LITE_IMAGE_SIZE_PRESETS
+      : null
+
+  if (!supported) return { imageSize, normalizedMessage: null }
+  if (supported.has(preset)) return { imageSize, normalizedMessage: null }
+
+  if (endpoint === 'seedream_v45_edit') {
+    const fallback: FalSeedreamImageSizePreset = preset === 'auto_3K' ? 'auto_4K' : 'auto_2K'
+    return {
+      imageSize: fallback,
+      normalizedMessage: `提示：当前模型不支持 image_size=${preset}，已自动改为 ${fallback}。`
+    }
+  }
+
+  if (endpoint === 'seedream_v5_lite_edit') {
+    const fallback: FalSeedreamImageSizePreset = preset === 'auto_4K' ? 'auto_3K' : 'auto_2K'
+    return {
+      imageSize: fallback,
+      normalizedMessage: `提示：当前模型不支持 image_size=${preset}，已自动改为 ${fallback}。`
+    }
+  }
+
+  return { imageSize, normalizedMessage: null }
 }
 
 class ImageStudioService {
@@ -418,12 +557,46 @@ class ImageStudioService {
     try {
       await this.appendLog(generationId, `提交任务到 ${providerConfig.name}`)
 
+      const baseUrlRaw = (providerConfig.baseUrl ?? '').trim()
+      if (!baseUrlRaw) {
+        throw new Error(`供应商 baseUrl 未配置：${providerConfig.name}`)
+      }
+
+      const normalizedBaseUrl = normalizeFalQueueBaseUrlInput(baseUrlRaw)
+      const baseUrl = normalizedBaseUrl.baseUrl.trim()
+      if (normalizedBaseUrl.normalizedFrom) {
+        await this.appendLog(generationId, `提示：Base URL 已自动转换为 queue endpoint：${baseUrl}`)
+      }
+
+      let parsedBaseUrl: URL
+      try {
+        parsedBaseUrl = new URL(baseUrl)
+      } catch {
+        throw new Error(`供应商 baseUrl 无效：${baseUrlRaw}`)
+      }
+      if (parsedBaseUrl.hostname.toLowerCase() !== FAL_QUEUE_HOST) {
+        throw new Error(`供应商 baseUrl 必须指向 https://${FAL_QUEUE_HOST}/...（当前：${parsedBaseUrl.origin}）`)
+      }
+
+      await this.appendLog(generationId, `使用 endpoint：${baseUrl}`)
+
+      const endpointKind = inferSeedreamEndpointKind(baseUrl)
+      const normalizedSize = normalizeSeedreamImageSizeForEndpoint(endpointKind, options.imageSize)
+      if (normalizedSize.normalizedMessage) {
+        await this.appendLog(generationId, normalizedSize.normalizedMessage)
+      }
+
+      const optionsForSubmit: Required<FalSeedreamEditOptions> = {
+        ...options,
+        imageSize: normalizedSize.imageSize
+      }
+
       const queue = await context.provider.submit({
         prompt,
         imageUrls,
-        options,
+        options: optionsForSubmit,
         apiKey: context.apiKey,
-        baseUrl: providerConfig.baseUrl ?? 'https://queue.fal.run/fal-ai/bytedance/seedream/v4.5/edit',
+        baseUrl,
         signal: context.abortController.signal
       })
 
@@ -596,6 +769,12 @@ class ImageStudioService {
         return { success: false, error: `请先填写 ${providerConfig.name} 的 API Key。` }
       }
 
+      // 允许 renderer 临时传入 baseUrl（仅用于本次请求），避免“已切换 endpoint 但配置尚未同步”导致用错模型。
+      const baseUrlFromRequest = typeof request.baseUrl === 'string' ? request.baseUrl.trim() : ''
+      const providerConfigForJob: ImageStudioProviderConfig = baseUrlFromRequest
+        ? { ...providerConfig, baseUrl: baseUrlFromRequest }
+        : providerConfig
+
       const config = await loadConfig()
       const options = mergeFalOptions(config.imageStudio, request.falSeedreamEditOptions)
       const inputSources = request.inputs ?? []
@@ -641,7 +820,7 @@ class ImageStudioService {
       void this.runJob({
         generationId,
         context,
-        providerConfig,
+        providerConfig: providerConfigForJob,
         prompt,
         imageUrls,
         options

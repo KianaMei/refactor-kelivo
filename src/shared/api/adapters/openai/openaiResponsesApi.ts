@@ -21,30 +21,10 @@ import {
   readErrorBody,
   joinUrl
 } from '../../../streamingHttpClient'
-import type { UserImage } from '../../chatApiService'
+import type { SendStreamParams } from '../../adapterParams'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../responsesOptions'
 import * as helper from '../../../chatApiHelper'
 import { buildResponsesInputPayload } from './openaiMessageFormat'
-
-/** 发送流式请求的参数 */
-export interface SendStreamParams {
-  config: ProviderConfigV2
-  modelId: string
-  messages: ChatMessage[]
-  userImages?: UserImage[]
-  thinkingBudget?: number
-  responsesReasoningSummary?: ResponsesReasoningSummary
-  responsesTextVerbosity?: ResponsesTextVerbosity
-  temperature?: number
-  topP?: number
-  maxTokens?: number
-  maxToolLoopIterations?: number
-  tools?: ToolDefinition[]
-  onToolCall?: OnToolCallFn
-  extraHeaders?: Record<string, string>
-  extraBody?: Record<string, unknown>
-  signal?: AbortSignal
-}
 
 /**
  * OpenAI Responses API 流式请求处理器

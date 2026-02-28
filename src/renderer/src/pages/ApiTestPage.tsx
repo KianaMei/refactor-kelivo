@@ -23,6 +23,7 @@ import {
 import { CustomSelect } from '../components/ui/CustomSelect'
 import { BrandAvatar } from './settings/providers/components/BrandAvatar'
 import type { AppConfig, ProviderConfigV2, ApiTestConfig } from '../../../shared/types'
+import { useConfig } from '../contexts/ConfigContext'
 import { useDeleteConfirm } from '../hooks/useDeleteConfirm'
 import { rendererSendMessageStream, type ChatMessage } from '../lib/chatService'
 import { MessageBubble } from './chat/MessageBubble'
@@ -50,23 +51,22 @@ const PROVIDER_PRESETS: Record<string, { name: string; defaultUrl: string }> = {
 
 
 interface Props {
-  config: AppConfig
-  onSave: (next: AppConfig) => Promise<void>
   onOpenSettings?: (pane?: string) => void
 }
 
 export function ApiTestPage(props: Props) {
+  const { config, updateConfig } = useConfig()
   // 多配置管理
-  const configs = props.config.apiTestConfigs || []
-  const activeConfigId = props.config.apiTestActiveConfigId
+  const configs = config.apiTestConfigs || []
+  const activeConfigId = config.apiTestActiveConfigId
 
   const setConfigs = (updater: ApiTestConfig[] | ((prev: ApiTestConfig[]) => ApiTestConfig[])) => {
-    const nextConfigs = typeof updater === 'function' ? updater(props.config.apiTestConfigs) : updater
-    props.onSave({ ...props.config, apiTestConfigs: nextConfigs })
+    const nextConfigs = typeof updater === 'function' ? updater(config.apiTestConfigs) : updater
+    updateConfig({ ...config, apiTestConfigs: nextConfigs })
   }
 
   const setActiveConfigId = (nextId: string) => {
-    props.onSave({ ...props.config, apiTestActiveConfigId: nextId })
+    updateConfig({ ...config, apiTestActiveConfigId: nextId })
   }
 
   // 当前配置
@@ -291,7 +291,7 @@ export function ApiTestPage(props: Props) {
       : [...Object.keys(latestConfig.providerConfigs), newProvider.id]
 
     // 更新到 AppConfig
-    await props.onSave({
+    await updateConfig({
       ...latestConfig,
       providerConfigs: {
         ...latestConfig.providerConfigs,
@@ -409,7 +409,7 @@ export function ApiTestPage(props: Props) {
     abortControllerRef.current = abortController
 
     // 从全局配置读取工具相关参数（对齐 reference 的 _sendMessage）
-    const appConfig = props.config
+    const appConfig = config
     const searchEnabled = appConfig.searchConfig?.global?.enabled ?? false
     const searchServiceId = appConfig.searchConfig?.global?.defaultServiceId ?? undefined
 

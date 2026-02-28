@@ -2,8 +2,6 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState, typ
 import {
   BookmarkPlus,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
   Copy,
   Download,
@@ -14,17 +12,18 @@ import {
   Loader2,
   Maximize2,
   Play,
+  RotateCcw,
   Save,
   ScrollText,
   Square,
   Trash2,
-  Upload,
   Wand2,
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import type { AppConfig } from '../../../shared/types'
+import { useConfig } from '../contexts/ConfigContext'
 import { useConfirm } from '../hooks/useConfirm'
 import { usePromptLibrary } from '../hooks/usePromptLibrary'
 import { CustomSelect } from '../components/ui/CustomSelect'
@@ -37,275 +36,62 @@ import {
   type FalSeedreamImageSizePreset,
   type ImageInputSource,
   type ImageStudioJob,
-  type ImageStudioJobStatus,
   type ImageStudioOutput
 } from '../../../shared/imageStudio'
+import {
+  clampNumber,
+  readStoredNumber,
+  writeStoredNumber,
+  IMAGE_SIZE_LABELS,
+  IMAGE_SIZE_PRESETS_SEEDREAM_V45,
+  IMAGE_SIZE_PRESETS_SEEDREAM_V5_LITE,
+  inferSeedreamEndpointPresetSet,
+  defaultBaseUrlForImageStudioProvider,
+  formatSeedreamModelMeta,
+  normalizeFalQueueBaseUrlInput,
+  readFileAsDataUrl,
+  statusLabel,
+  kelivoFileUrl,
+  outputSrc,
+  outputName,
+  initialImageState,
+  briefPrompt,
+  inputPreviewSrc,
+  ensureFileHasImageExtension,
+  MAX_INPUT_IMAGES,
+  MAX_TOTAL_IMAGES,
+  REF_DOCK_WIDTH_STORAGE_KEY,
+  HISTORY_WIDTH_STORAGE_KEY,
+  REF_DOCK_MIN_WIDTH,
+  REF_DOCK_MAX_WIDTH,
+  HISTORY_MIN_WIDTH,
+  HISTORY_MAX_WIDTH,
+  FAL_QUEUE_HOST,
+  type InputDraft
+} from './imageStudio/helpers'
+import { HistoryRail } from './imageStudio/HistoryRail'
 
-interface Props {
-  config: AppConfig
-  onSave: (next: AppConfig) => Promise<void>
-}
-
-type InputDraft = ImageInputSource & { previewUrl?: string }
-
-const MAX_INPUT_IMAGES = 10
-const MAX_TOTAL_IMAGES = 15
-const HISTORY_COLLAPSED_STORAGE_KEY = 'kelivo:imageStudio:historyCollapsed'
-const REF_DOCK_WIDTH_STORAGE_KEY = 'kelivo:imageStudio:refDockWidth'
-const HISTORY_WIDTH_STORAGE_KEY = 'kelivo:imageStudio:historyWidth'
-
-const REF_DOCK_MIN_WIDTH = 140
-const REF_DOCK_MAX_WIDTH = 520
-const HISTORY_MIN_WIDTH = 44
-const HISTORY_MAX_WIDTH = 360
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (Number.isNaN(value)) return min
-  return Math.min(max, Math.max(min, value))
-}
-
-function readStoredNumber(key: string): number | null {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const value = Number.parseFloat(raw)
-    if (!Number.isFinite(value)) return null
-    return value
-  } catch {
-    return null
-  }
-}
-
-function writeStoredNumber(key: string, value: number) {
-  try {
-    localStorage.setItem(key, String(Math.round(value)))
-  } catch {
-    // ignore
-  }
-}
-
-const IMAGE_SIZE_LABELS: Record<FalSeedreamImageSizePreset, string> = {
-  square_hd: 'square_hd',
-  square: 'square',
-  portrait_4_3: 'portrait_4_3',
-  portrait_16_9: 'portrait_16_9',
-  landscape_4_3: 'landscape_4_3',
-  landscape_16_9: 'landscape_16_9',
-  auto_2K: 'auto_2K',
-  auto_4K: 'auto_4K'
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'))
-    reader.readAsDataURL(file)
-  })
-}
-
-function statusLabel(status: ImageStudioJobStatus): string {
-  if (status === 'queued') return '排队中'
-  if (status === 'in_progress') return '执行中'
-  if (status === 'completed') return '已完成'
-  if (status === 'failed') return '失败'
-  return '已取消'
-}
-
-function statusClassName(status: ImageStudioJobStatus): string {
-  if (status === 'queued') return 'imageStudioStatus--queued'
-  if (status === 'in_progress') return 'imageStudioStatus--inProgress'
-  if (status === 'completed') return 'imageStudioStatus--completed'
-  if (status === 'failed') return 'imageStudioStatus--failed'
-  return 'imageStudioStatus--cancelled'
-}
-
-function kelivoFileUrl(localPath: string): string {
-  return `kelivo-file:///${encodeURI(localPath.replace(/\\/g, '/'))}`
-}
-
-function outputSrc(output: ImageStudioOutput): string | null {
-  if (output.localPath) return kelivoFileUrl(output.localPath)
-  if (output.remoteUrl) return output.remoteUrl
-  return null
-}
-
-function outputName(output: ImageStudioOutput): string {
-  if (output.localPath) {
-    const parts = output.localPath.replace(/\\/g, '/').split('/')
-    return parts[parts.length - 1] ?? `${output.generationId}_${output.outputIndex}.png`
-  }
-  if (!output.remoteUrl) return `${output.generationId}_${output.outputIndex}.png`
-
-  try {
-    const url = new URL(output.remoteUrl)
-    return url.pathname.split('/').pop() ?? `${output.generationId}_${output.outputIndex}.png`
-  } catch {
-    return `${output.generationId}_${output.outputIndex}.png`
-  }
-}
-
-function initialImageState(options: Required<FalSeedreamEditOptions>) {
-  if (typeof options.imageSize === 'string') {
-    return { mode: 'preset' as const, preset: options.imageSize, width: 2560, height: 1440 }
-  }
-
-  return {
-    mode: 'custom' as const,
-    preset: 'landscape_16_9' as FalSeedreamImageSizePreset,
-    width: Math.max(1, Math.round(options.imageSize.width)),
-    height: Math.max(1, Math.round(options.imageSize.height))
-  }
-}
-
-function briefPrompt(prompt: string): string {
-  const value = prompt.trim()
-  return value || '(空 Prompt)'
-}
-
-function inputPreviewSrc(input: ImageInputSource): string | null {
-  if (input.preparedDataUrl && input.preparedDataUrl.startsWith('data:')) return input.preparedDataUrl
-  if (input.type === 'url') return input.value
-  if (input.type === 'localPath' && input.value) {
-    // 兼容历史记录里 value 可能就是 data/http（主进程存储时会剥离 preparedDataUrl）。
-    if (input.value.startsWith('data:') || input.value.startsWith('http://') || input.value.startsWith('https://')) {
-      return input.value
-    }
-    return kelivoFileUrl(input.value)
-  }
-  return null
-}
-
-function jobThumbSrc(job: ImageStudioJob): string | null {
-  const output = job.outputs[0]
-  if (!output) return null
-  return outputSrc(output)
-}
-
-function ensureFileHasImageExtension(fileName: string): string {
-  const trimmed = fileName.trim()
-  let base = trimmed
-
-  // Lightbox 里 title 可能是 URL；优先取最后一段路径作为文件名。
-  try {
-    const u = new URL(trimmed)
-    base = u.pathname.split('/').pop() || u.hostname
-  } catch {
-    // ignore
-  }
-
-  base = base
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (!base) base = 'image'
-  if (base.length > 120) base = base.slice(0, 120)
-
-  if (/\.(png|jpg|jpeg|webp|gif|bmp|svg)$/i.test(base)) return base
-  return `${base}.png`
-}
-
-type HistoryRailProps = {
-  rightJobs: ImageStudioJob[]
-  currentJobId: string | null
-  historyLoading: boolean
-  isRunning: boolean
-  onNew: () => void
-  onSelect: (job: ImageStudioJob) => void
-  onDelete: (job: ImageStudioJob) => void
-}
-
-function HistoryRail(props: HistoryRailProps) {
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(HISTORY_COLLAPSED_STORAGE_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(HISTORY_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0')
-    } catch {
-      // ignore
-    }
-  }, [collapsed])
-
-  return (
-    <aside className={`csPaintingsList ${collapsed ? 'is-collapsed' : ''}`} aria-label="历史缩略图">
-      <div className="csHistoryHeader" aria-label="历史栏">
-        <button className="csHistoryToggleBtn" type="button" onClick={() => setCollapsed((prev) => !prev)} title={collapsed ? '展开' : '收起'}>
-          {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-        </button>
-
-        <button className="csHistoryNewBtn" type="button" onClick={props.onNew} title="新建">
-          +
-        </button>
-      </div>
-
-      <div className="csPaintingsListBody" aria-hidden={collapsed}>
-        <div className="csThumbList">
-          {props.rightJobs.length === 0 ? (
-            <div className="csThumbEmpty">{props.historyLoading ? '加载中...' : '暂无'}</div>
-          ) : (
-            props.rightJobs.map((job) => {
-              const src = jobThumbSrc(job)
-              const selected = props.currentJobId === job.id
-              return (
-                <div key={job.id} className="csThumbWrap">
-                  <button
-                    type="button"
-                    className={`csThumb ${selected ? 'selected' : ''}`}
-                    onClick={() => {
-                      if (collapsed) return
-                      if (props.isRunning) return
-                      if (props.currentJobId === job.id) return
-                      props.onSelect(job)
-                    }}
-                    title={`${briefPrompt(job.prompt)} · ${statusLabel(job.status)}`}>
-                    {src ? (
-                      <img className="csThumbImg" src={src} alt={briefPrompt(job.prompt)} loading="lazy" decoding="async" />
-                    ) : null}
-                  </button>
-
-                  <button
-                    className="csThumbDelete csTip"
-                    data-tip="删除"
-                    type="button"
-                    onClick={(event) => {
-                      if (collapsed) return
-                      event.stopPropagation()
-                      props.onDelete(job)
-                    }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </div>
-    </aside>
-  )
-}
-
-export function ImageStudioPage(props: Props) {
+export function ImageStudioPage() {
+  const { config, updateConfig } = useConfig()
   const confirm = useConfirm()
   const promptLib = usePromptLibrary()
   const paintContainerRef = useRef<HTMLDivElement | null>(null)
-  const providers = props.config.imageStudio.providers
-  const defaultProviderId = props.config.imageStudio.defaultProviderId
-  const defaultOptions = normalizeFalSeedreamEditOptions(props.config.imageStudio.uiDefaults.falSeedreamEditOptions)
+  const providers = config.imageStudio.providers
+  const defaultProviderId = config.imageStudio.defaultProviderId
+  const defaultOptions = normalizeFalSeedreamEditOptions(config.imageStudio.uiDefaults.falSeedreamEditOptions)
   const defaultImage = initialImageState(defaultOptions)
-  const defaultPrompt = props.config.imageStudio.uiDefaults.prompt
+  const defaultPrompt = config.imageStudio.uiDefaults.prompt
+
+  const initialProvider = providers.find((provider) => provider.id === defaultProviderId) ?? providers[0]
 
   const [providerId, setProviderId] = useState<string>(defaultProviderId)
   const [apiKeyDraft, setApiKeyDraft] = useState('')
   const [apiKeyDraftDirty, setApiKeyDraftDirty] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  const [baseUrlDraft, setBaseUrlDraft] = useState(initialProvider?.baseUrl ?? '')
+  const [baseUrlDraftDirty, setBaseUrlDraftDirty] = useState(false)
 
   const [prompt, setPrompt] = useState(defaultPrompt)
   const [inputs, setInputs] = useState<InputDraft[]>([])
@@ -355,6 +141,23 @@ export function ImageStudioPage(props: Props) {
   )
 
   const isPlaceholder = selectedProvider?.type === 'openrouter_seedream_placeholder'
+
+  const availableSizePresets = useMemo(() => {
+    const presetSet = inferSeedreamEndpointPresetSet(baseUrlDraft)
+    if (presetSet === 'seedream_v5_lite_edit') return IMAGE_SIZE_PRESETS_SEEDREAM_V5_LITE
+    if (presetSet === 'seedream_v45_edit') return IMAGE_SIZE_PRESETS_SEEDREAM_V45
+    return FAL_SEEDREAM_IMAGE_SIZE_PRESETS
+  }, [baseUrlDraft])
+
+  useEffect(() => {
+    if (sizeMode !== 'preset') return
+    if (availableSizePresets.includes(sizePreset)) return
+
+    const fallback: FalSeedreamImageSizePreset = availableSizePresets.includes('landscape_16_9')
+      ? 'landscape_16_9'
+      : (availableSizePresets[0] ?? 'landscape_16_9')
+    setSizePreset(fallback)
+  }, [availableSizePresets, sizeMode, sizePreset])
 
   const focusedOutput = useMemo(() => {
     if (!currentJob || currentJob.outputs.length === 0) return null
@@ -484,17 +287,26 @@ export function ImageStudioPage(props: Props) {
       apiKeyProviderIdRef.current = next.id
       setApiKeyDraft(next.apiKey ?? '')
       setApiKeyDraftDirty(false)
+
+      setBaseUrlDraft(next.baseUrl ?? '')
+      setBaseUrlDraftDirty(false)
       return
     }
 
-    if (apiKeyDraftDirty) return
-    const nextKey = next.apiKey ?? ''
-    setApiKeyDraft((prev) => (prev === nextKey ? prev : nextKey))
-  }, [providers, providerId, apiKeyDraftDirty])
+    if (!apiKeyDraftDirty) {
+      const nextKey = next.apiKey ?? ''
+      setApiKeyDraft((prev) => (prev === nextKey ? prev : nextKey))
+    }
+
+    if (!baseUrlDraftDirty) {
+      const nextUrl = next.baseUrl ?? ''
+      setBaseUrlDraft((prev) => (prev === nextUrl ? prev : nextUrl))
+    }
+  }, [providers, providerId, apiKeyDraftDirty, baseUrlDraftDirty])
 
   useEffect(() => {
-    setProviderId(props.config.imageStudio.defaultProviderId)
-  }, [props.config.imageStudio.defaultProviderId])
+    setProviderId(config.imageStudio.defaultProviderId)
+  }, [config.imageStudio.defaultProviderId])
 
   useEffect(() => {
     if (!settingsOpen) return
@@ -602,25 +414,25 @@ export function ImageStudioPage(props: Props) {
 
   const persistImageStudio = useCallback(
     async (patch: Partial<AppConfig['imageStudio']>) => {
-      await props.onSave({
-        ...props.config,
+      await updateConfig({
+        ...config,
         imageStudio: {
-          ...props.config.imageStudio,
+          ...config.imageStudio,
           ...patch
         }
       })
     },
-    [props]
+    [config, updateConfig]
   )
 
   const saveProviderPatch = useCallback(
     async (targetId: string, patch: Partial<AppConfig['imageStudio']['providers'][number]>) => {
-      const nextProviders = props.config.imageStudio.providers.map((provider) =>
+      const nextProviders = config.imageStudio.providers.map((provider) =>
         provider.id === targetId ? { ...provider, ...patch } : provider
       )
       await persistImageStudio({ providers: nextProviders })
     },
-    [persistImageStudio, props.config.imageStudio.providers]
+    [persistImageStudio, config.imageStudio.providers]
   )
 
   const loadHistory = useCallback(async () => {
@@ -806,6 +618,53 @@ export function ImageStudioPage(props: Props) {
     }
   }
 
+  async function persistBaseUrl(showToast: boolean, overrideBaseUrl?: string): Promise<boolean> {
+    if (!selectedProvider) return false
+
+    const raw = (overrideBaseUrl ?? baseUrlDraft).trim()
+    const baseUrlCandidate = raw || defaultBaseUrlForImageStudioProvider(selectedProvider.id)
+    if (!baseUrlCandidate) {
+      toast.error('Base URL 不能为空')
+      return false
+    }
+
+    const normalized = normalizeFalQueueBaseUrlInput(baseUrlCandidate)
+    const nextBaseUrl = normalized.baseUrl
+
+    let url: URL
+    try {
+      url = new URL(nextBaseUrl)
+    } catch {
+      toast.error('Base URL 不是合法 URL')
+      return false
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      toast.error('Base URL 必须以 http:// 或 https:// 开头')
+      return false
+    }
+
+    // fal provider 会带 Authorization: Key ...；这里限制到官方 queue 域名，避免 Key 意外发往第三方。
+    if (selectedProvider.type === 'fal_seedream_edit' && url.hostname.toLowerCase() !== FAL_QUEUE_HOST) {
+      toast.error(`Base URL 必须指向 https://${FAL_QUEUE_HOST}/...（你也可以粘贴 fal.ai/models/...，会自动转换）`)
+      return false
+    }
+
+    try {
+      await saveProviderPatch(selectedProvider.id, { baseUrl: nextBaseUrl })
+      setBaseUrlDraftDirty(false)
+      setBaseUrlDraft(nextBaseUrl)
+
+      if (showToast) {
+        toast.success(normalized.normalizedFrom ? '已转换为 Queue URL 并保存' : 'Base URL 已保存')
+      }
+      return true
+    } catch (error) {
+      toast.error(String(error))
+      return false
+    }
+  }
+
   function addUrl() {
     const value = urlInput.trim()
     if (!value) return
@@ -946,6 +805,12 @@ export function ImageStudioPage(props: Props) {
       return
     }
 
+    // Base URL 决定模型/版本：若用户正在编辑但未保存，为避免“以为切了模型但实际没生效”，这里强制先落盘。
+    if (baseUrlDraftDirty) {
+      const ok = await persistBaseUrl(false)
+      if (!ok) return
+    }
+
     const nextOptions = normalizeFalSeedreamEditOptions({ ...options, imageSize: buildImageSize() })
     const maxPossibleOutputs = nextOptions.numImages * nextOptions.maxImages
     const maxPossibleTotal = inputs.length + maxPossibleOutputs
@@ -976,7 +841,7 @@ export function ImageStudioPage(props: Props) {
       // 不阻塞生成：默认参数保存失败不影响本次提交。
       void persistImageStudio({
         uiDefaults: {
-          ...props.config.imageStudio.uiDefaults,
+          ...config.imageStudio.uiDefaults,
           prompt,
           falSeedreamEditOptions: nextOptions
         }
@@ -993,6 +858,7 @@ export function ImageStudioPage(props: Props) {
       const res = await window.api.imageStudio.submit({
         providerId: selectedProvider.id,
         ...(apiKeyFromDraft ? { apiKey: apiKeyFromDraft } : {}),
+        ...(selectedProvider.type === 'fal_seedream_edit' && baseUrlDraft.trim() ? { baseUrl: baseUrlDraft.trim() } : {}),
         prompt,
         inputs: payloadInputs,
         falSeedreamEditOptions: nextOptions
@@ -1338,16 +1204,77 @@ export function ImageStudioPage(props: Props) {
                             </button>
                           </div>
                           <div className="csHint">失焦也会自动保存。</div>
+
+                          {selectedProvider?.type === 'fal_seedream_edit' ? (
+                            <>
+                              <div className="csLabel">Base URL</div>
+                              <div className="csRow">
+                                <input
+                                  className="csControl csGrow"
+                                  type="text"
+                                  value={baseUrlDraft}
+                                  onChange={(event) => {
+                                    setBaseUrlDraftDirty(true)
+                                    setBaseUrlDraft(event.target.value)
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault()
+                                      void persistBaseUrl(true)
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    if (!baseUrlDraftDirty) return
+                                    void persistBaseUrl(false)
+                                  }}
+                                  placeholder={`https://${FAL_QUEUE_HOST}/fal-ai/bytedance/seedream/v4.5/edit`}
+                                />
+                                <button
+                                  className="csIconBtn csTip"
+                                  data-tip="重置"
+                                  type="button"
+                                  onClick={() => {
+                                    if (!selectedProvider) return
+                                    setBaseUrlDraftDirty(true)
+                                    const next = defaultBaseUrlForImageStudioProvider(selectedProvider.id)
+                                    setBaseUrlDraft(next)
+                                    void persistBaseUrl(true, next)
+                                  }}>
+                                  <RotateCcw size={16} />
+                                </button>
+                                <button
+                                  className="csIconBtn csTip"
+                                  data-tip="保存 URL"
+                                  type="button"
+                                  onClick={() => void persistBaseUrl(true)}>
+                                  <Save size={16} />
+                                </button>
+                              </div>
+                              <div className="csHint">
+                                提示：这里必须是 queue endpoint（`https://queue.fal.run/...`）。也可以直接粘贴 `https://fal.ai/models/...`
+                                （含 `/api` 也行），会自动转换。
+                              </div>
+                              <div
+                                className="csHint csHintBlock"
+                                title="fal 的模型/版本由 endpoint 决定（体现在 URL 路径上，例如 seedream/v4.5/edit 或 seedream/v5/lite/edit）。">
+                                当前模型：{formatSeedreamModelMeta(baseUrlDraft)}
+                              </div>
+                            </>
+                          ) : null}
                         </div>
                       </section>
 
                       <section className="csSettingsGroup is-grow" aria-label="fal 参数">
                         <div className="csSettingsGroupHeader">
                           <div className="csSettingsGroupTitle">fal 参数</div>
-                          <div className="csSettingsGroupMeta">Seedream v4.5</div>
+                          <div className="csSettingsGroupMeta">
+                            {selectedProvider?.type === 'openrouter_seedream_placeholder'
+                              ? '占位'
+                              : formatSeedreamModelMeta(baseUrlDraftDirty ? baseUrlDraft : selectedProvider?.baseUrl)}
+                          </div>
                         </div>
                         <div className="csSettingsGroupBody">
-                          <div className="csLabel">image_size</div>
+                          <div className="csLabel csParamKey">image_size</div>
                           <div className="csGrid2">
                             <CustomSelect
                               className="csControl csSelectTrigger"
@@ -1363,7 +1290,7 @@ export function ImageStudioPage(props: Props) {
                               <CustomSelect
                                 className="csControl csSelectTrigger"
                                 value={sizePreset}
-                                options={FAL_SEEDREAM_IMAGE_SIZE_PRESETS.map((preset) => ({
+                                options={availableSizePresets.map((preset) => ({
                                   value: preset,
                                   label: IMAGE_SIZE_LABELS[preset]
                                 }))}
@@ -1393,7 +1320,7 @@ export function ImageStudioPage(props: Props) {
 
                           <div className="csField">
                             <div className="csLabelRow">
-                              <span className="csLabelInline">num_images</span>
+                              <span className="csLabelInline csParamKey">num_images</span>
                               <span className="csHint">{options.numImages}</span>
                             </div>
                             <input
@@ -1415,7 +1342,7 @@ export function ImageStudioPage(props: Props) {
                             <div className="csField">
                               <div className="csLabelRow">
                                 <span
-                                  className="csLabelInline"
+                                  className="csLabelInline csParamKey"
                                   title="max_images > 1 时启用多图生成：每次 generation 可能返回 1~max_images 张；总共执行 num_images 次 generation；总输出范围 num_images~(num_images*max_images)。总图量限制按最大可能输出计算。">
                                   max_images
                                 </span>
@@ -1437,7 +1364,7 @@ export function ImageStudioPage(props: Props) {
                             </div>
 
                             <div className="csField">
-                              <div className="csLabelInline">seed</div>
+                              <div className="csLabelInline csParamKey">seed</div>
                               <div className="csRow">
                                 <input
                                   className="csControl csGrow"
@@ -1467,7 +1394,7 @@ export function ImageStudioPage(props: Props) {
                           </div>
 
                           <div className="csField">
-                            <div className="csLabel">enhance_prompt_mode</div>
+                            <div className="csLabel csParamKey">enhance_prompt_mode</div>
                             <CustomSelect
                               className="csControl csSelectTrigger"
                               value={options.enhancePromptMode}
@@ -1485,7 +1412,7 @@ export function ImageStudioPage(props: Props) {
                           </div>
 
                           <div className="csSwitchRow">
-                            <span className="csLabelInline">sync_mode</span>
+                            <span className="csLabelInline csParamKey">sync_mode</span>
                             <input
                               type="checkbox"
                               className="csToggle"
@@ -1495,7 +1422,7 @@ export function ImageStudioPage(props: Props) {
                           </div>
 
                           <div className="csSwitchRow csSwitchRowAccent">
-                            <span className="csLabelInline">enable_safety_checker</span>
+                            <span className="csLabelInline csParamKey">enable_safety_checker</span>
                             <input
                               type="checkbox"
                               className="csToggle"

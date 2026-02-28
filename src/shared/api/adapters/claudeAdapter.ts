@@ -21,26 +21,10 @@ import {
   readErrorBody,
   joinUrl
 } from '../../streamingHttpClient'
-import type { UserImage } from '../chatApiService'
+import type { SendStreamParams, UserImage } from '../adapterParams'
 import * as helper from '../../chatApiHelper'
 
-/** 发送流式请求的参数 */
-export interface SendStreamParams {
-  config: ProviderConfigV2
-  modelId: string
-  messages: ChatMessage[]
-  userImages?: UserImage[]
-  thinkingBudget?: number
-  temperature?: number
-  topP?: number
-  maxTokens?: number
-  maxToolLoopIterations?: number
-  tools?: ToolDefinition[]
-  onToolCall?: OnToolCallFn
-  extraHeaders?: Record<string, string>
-  extraBody?: Record<string, unknown>
-  signal?: AbortSignal
-}
+export type { SendStreamParams }
 
 /**
  * Claude API 流式请求处理器

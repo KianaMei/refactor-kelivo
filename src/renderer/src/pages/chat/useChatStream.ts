@@ -158,12 +158,10 @@ export function useChatStream(deps: Deps) {
   }
 
   function clearInputAttachments() {
-    setAttachments((prev) => {
-      for (const a of prev) {
-        try { URL.revokeObjectURL(a.url) } catch { /* ignore */ }
-      }
-      return []
-    })
+    // NOTE: 附件发送后会被写入 message.attachments（用于聊天历史展示）。
+    // 如果这里 revoke 掉 object URL，会导致消息气泡里的图片立刻变成“裂图”。
+    // 仅清空输入栏状态，object URL 的生命周期由“聊天历史仍在显示”决定。
+    setAttachments([])
   }
 
   function handleAddAttachment(files: FileList) {

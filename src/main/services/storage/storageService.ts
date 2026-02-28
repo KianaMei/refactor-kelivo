@@ -99,11 +99,11 @@ export async function getStorageReport(): Promise<StorageReport> {
     } catch { }
 
     // 统计记录数
-    const msgCount = (db.prepare('SELECT COUNT(*) as c FROM messages').get() as any).c
-    const convCount = (db.prepare('SELECT COUNT(*) as c FROM conversations').get() as any).c
+    const msgCount = (db.prepare('SELECT COUNT(*) as c FROM messages').get() as { c: number }).c
+    const convCount = (db.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }).c
 
     // 检查 migrations 发现 assistant_memories 表存在
-    const memoryCount = (db.prepare('SELECT COUNT(*) as c FROM assistant_memories').get() as any).c
+    const memoryCount = (db.prepare('SELECT COUNT(*) as c FROM assistant_memories').get() as { c: number }).c
 
     // 2. 文件统计
     const avatarDir = join(userData, 'avatars')

@@ -102,12 +102,15 @@ function modelSupportsTools(
     return false
   }
 
+  // modelOverrides 优先：用户可通过 abilities 显式控制
   const ov = (modelOverrides ?? {})[modelId] as { abilities?: unknown } | undefined
   const abilities = (ov?.abilities as unknown[] | undefined) ?? undefined
-  if (Array.isArray(abilities) && abilities.some((x) => String(x).toLowerCase() === 'tool')) {
-    return true
+  if (Array.isArray(abilities)) {
+    if (abilities.some((x) => String(x).toLowerCase() === 'no-tool')) return false
+    if (abilities.some((x) => String(x).toLowerCase() === 'tool')) return true
   }
 
+  // Fallback：按模型名称模式匹配（已知支持 function calling 的系列）
   return (
     id.includes('gpt-4') ||
     id.includes('gpt-3.5') ||
