@@ -191,6 +191,7 @@ export function createDefaultDisplaySettings(): DisplaySettings {
     desktopNarrowWidth: 800,
     appFontFamily: '',
     codeFontFamily: '',
+    uiFontSize: 14,
     globalFontScale: 1.0,
     chatFontSize: 14,
     hideAllAvatars: false,
@@ -281,31 +282,6 @@ export function createDefaultConfig(): AppConfigV2 {
     ocrModelProvider: null,
     ocrModelId: null,
     ocrEnabled: false,
-    assistantsOrder: ['default', 'sample', 'ocr'],
-    assistantConfigs: {
-      default: createDefaultAssistantConfig('default', '默认助手', {
-        avatar: '🤖',
-        systemPrompt: '',
-        isDefault: true,
-        deletable: false,
-        temperature: 0.6,
-        topP: 1.0,
-      }),
-      sample: createDefaultAssistantConfig('sample', '示例助手', {
-        avatar: '🧩',
-        systemPrompt: DEFAULT_ASSISTANT_SAMPLE_SYSTEM_PROMPT,
-        deletable: false,
-        temperature: 0.6,
-        topP: 1.0,
-      }),
-      ocr: createDefaultAssistantConfig('ocr', 'OCR 助手', {
-        avatar: '🔍',
-        systemPrompt: DEFAULT_ASSISTANT_OCR_SYSTEM_PROMPT,
-        deletable: false,
-        temperature: 0.6,
-        topP: 1.0,
-      })
-    },
     agentsOrder: ['default'],
     agentConfigs: {
       default: createDefaultAgentConfig('default', '默认 Agent', {
@@ -331,6 +307,7 @@ export function createDefaultConfig(): AppConfigV2 {
     proxyPort: '8080',
     proxyUsername: '',
     proxyPassword: '',
+    proxyBypass: 'localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1',
     searchConfig: createDefaultSearchConfig(),
     backupConfig: createDefaultBackupConfig(),
     imageStudio: createDefaultImageStudioConfig(),

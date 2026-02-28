@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppConfig, AssistantConfig } from '../../../../shared/types'
+import type { AppConfig } from '../../../../shared/types'
+import type { DbAssistant } from '../../../../shared/db-types'
 import type { ChatMessageInput } from '../../../../shared/chat'
 import type { ChatMessage as ChatStreamMessage, ChatStreamChunk } from '../../../../shared/chatStream'
 import type { Conversation } from './ConversationSidebar'
@@ -23,7 +24,7 @@ function modelSupportsImageInput(config: AppConfig, providerId: string, modelId:
 interface MentionSendQueue {
   convId: string
   assistantId: string | null
-  assistantSnapshot: AssistantConfig | null
+  assistantSnapshot: DbAssistant | null
   userInput: string
   history: ChatMessage[]
   models: MentionedModel[]
@@ -42,7 +43,7 @@ interface Deps {
   config: AppConfig
   activeConvId: string
   activeConversation: Conversation | undefined
-  activeAssistant: AssistantConfig | null
+  activeAssistant: DbAssistant | null
   activeAssistantId: string | null
   activeMessages: ChatMessage[]
   selectedVersions: Record<string, number>
@@ -109,6 +110,7 @@ export function useChatStream(deps: Deps) {
     modelId: string
     messages: ChatMessageInput[]
     assistantId?: string | null
+    assistantSnapshot?: DbAssistant | null
     enableSearchTool?: boolean
     enableMemory?: boolean
     thinkingBudget?: number
@@ -125,10 +127,7 @@ export function useChatStream(deps: Deps) {
     const appConfig = await window.api.config.get()
     const providerConfig = appConfig.providerConfigs[params.providerId]
     if (!providerConfig) throw new Error(`Provider ${params.providerId} not configured`)
-    const assistantSnapshot =
-      params.assistantId && appConfig.assistantConfigs[params.assistantId]
-        ? appConfig.assistantConfigs[params.assistantId]
-        : null
+    const assistantSnapshot = params.assistantSnapshot ?? null
 
     const ac = new AbortController()
     abortControllerRef.current = ac
@@ -305,6 +304,7 @@ export function useChatStream(deps: Deps) {
         modelId,
         messages: reqMessages,
         assistantId: queue.assistantId,
+        assistantSnapshot: assistant,
         enableSearchTool: queue.enableSearchTool,
         enableMemory: queue.assistantSnapshot?.enableMemory,
         thinkingBudget: queue.thinkingBudget,
@@ -516,6 +516,7 @@ export function useChatStream(deps: Deps) {
           modelId,
           messages: reqMessages,
           assistantId: assistantIdForTools,
+          assistantSnapshot: assistant,
           enableSearchTool,
           enableMemory: assistant?.enableMemory,
           thinkingBudget,

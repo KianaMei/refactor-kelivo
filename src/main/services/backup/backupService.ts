@@ -6,6 +6,14 @@ import { Readable } from 'stream'
 import AdmZip from 'adm-zip'
 import { loadConfig, saveConfig } from '../../configStore'
 import type { WebDavConfig, BackupFileItem, RestoreMode, AppConfig, BackupWebdavProgress } from '../../../shared/types'
+import type { DbAssistant } from '../../../shared/db-types'
+import {
+  createAssistant,
+  deleteAssistant,
+  listAssistants,
+  reorderAssistants,
+  setDefaultAssistant
+} from '../../db/repositories/assistantRepo'
 
 // ================== 备份文件名生成 ==================
 
@@ -54,6 +62,105 @@ function getUploadDir(): string {
 
 function getImagesDir(): string {
   return join(getDataPath(), 'images')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeAssistantSnapshot(input: unknown): DbAssistant[] {
+  if (!Array.isArray(input)) return []
+  const out: DbAssistant[] = []
+  for (const item of input) {
+    if (!isRecord(item)) continue
+    if (typeof item.id !== 'string' || !item.id.trim()) continue
+    if (typeof item.name !== 'string' || !item.name.trim()) continue
+    if (typeof item.avatar !== 'string') continue
+    if (item.avatarType !== 'emoji' && item.avatarType !== 'image') continue
+    if (typeof item.systemPrompt !== 'string') continue
+    if (typeof item.messageTemplate !== 'string') continue
+    if (typeof item.isDefault !== 'boolean') continue
+    if (typeof item.deletable !== 'boolean') continue
+    if (typeof item.streamOutput !== 'boolean') continue
+    if (typeof item.contextMessageSize !== 'number') continue
+    if (typeof item.limitContextMessages !== 'boolean') continue
+    if (typeof item.maxToolLoopIterations !== 'number') continue
+    if (!Array.isArray(item.mcpServerIds)) continue
+    if (!Array.isArray(item.customHeaders)) continue
+    if (!Array.isArray(item.customBody)) continue
+    if (typeof item.enableMemory !== 'boolean') continue
+    if (typeof item.enableRecentChatsReference !== 'boolean') continue
+    if (!Array.isArray(item.presetMessages)) continue
+    if (!Array.isArray(item.regexRules)) continue
+    if (typeof item.sortIndex !== 'number') continue
+    if (typeof item.createdAt !== 'string') continue
+    if (typeof item.updatedAt !== 'string') continue
+
+    out.push({
+      id: item.id as string,
+      name: item.name as string,
+      avatar: item.avatar as string,
+      avatarType: item.avatarType as 'emoji' | 'image',
+      useAssistantAvatar: item.useAssistantAvatar === true,
+      systemPrompt: item.systemPrompt as string,
+      messageTemplate: item.messageTemplate as string,
+      isDefault: item.isDefault === true,
+      deletable: item.deletable === true,
+      boundModelProvider: typeof item.boundModelProvider === 'string' ? item.boundModelProvider : null,
+      boundModelId: typeof item.boundModelId === 'string' ? item.boundModelId : null,
+      temperature: typeof item.temperature === 'number' ? item.temperature : undefined,
+      topP: typeof item.topP === 'number' ? item.topP : undefined,
+      maxTokens: typeof item.maxTokens === 'number' ? item.maxTokens : undefined,
+      streamOutput: item.streamOutput === true,
+      contextMessageSize: item.contextMessageSize as number,
+      limitContextMessages: item.limitContextMessages === true,
+      maxToolLoopIterations: item.maxToolLoopIterations as number,
+      mcpServerIds: (item.mcpServerIds as unknown[]).filter((x): x is string => typeof x === 'string'),
+      background: typeof item.background === 'string' ? item.background : null,
+      customHeaders: item.customHeaders as DbAssistant['customHeaders'],
+      customBody: item.customBody as DbAssistant['customBody'],
+      enableMemory: item.enableMemory === true,
+      enableRecentChatsReference: item.enableRecentChatsReference === true,
+      presetMessages: item.presetMessages as DbAssistant['presetMessages'],
+      regexRules: item.regexRules as DbAssistant['regexRules'],
+      sortIndex: item.sortIndex as number,
+      createdAt: item.createdAt as string,
+      updatedAt: item.updatedAt as string
+    })
+  }
+  return out
+}
+
+function restoreAssistantsFromSnapshot(snapshot: DbAssistant[], mode: RestoreMode): void {
+  if (snapshot.length === 0) return
+  const ordered = [...snapshot].sort((a, b) => a.sortIndex - b.sortIndex)
+
+  if (mode === 'overwrite') {
+    const current = listAssistants()
+    for (const ast of current) {
+      deleteAssistant(ast.id)
+    }
+    for (const ast of ordered) {
+      createAssistant(ast)
+    }
+    reorderAssistants(ordered.map((a) => a.id))
+    const defaultId = ordered.find((a) => a.isDefault)?.id ?? ordered[0]?.id
+    if (defaultId) setDefaultAssistant(defaultId)
+    return
+  }
+
+  const current = listAssistants()
+  const existingIds = new Set(current.map((a) => a.id))
+  const appendedIds: string[] = []
+  for (const ast of ordered) {
+    if (existingIds.has(ast.id)) continue
+    createAssistant({ ...ast, isDefault: false })
+    appendedIds.push(ast.id)
+  }
+
+  if (appendedIds.length > 0) {
+    reorderAssistants([...current.map((a) => a.id), ...appendedIds])
+  }
 }
 
 // ================== WebDAV 工具函数 ==================
@@ -157,6 +264,10 @@ export async function exportLocalBackup(
     zip.addLocalFile(configPath, '', 'config.json')
   }
 
+  // 助手预设快照（避免 includeChats=false 时遗漏 assistants 表）
+  const assistantsSnapshot = listAssistants()
+  zip.addFile('assistants.json', Buffer.from(JSON.stringify(assistantsSnapshot, null, 2), 'utf-8'))
+
   // 添加数据库
   if (includeChats) {
     const dbPath = getDbPath()
@@ -232,6 +343,14 @@ export async function importLocalBackup(
         }
         // 合并模式的数据库合并较复杂，暂时跳过
       }
+    }
+
+    // 恢复助手预设快照（独立于 includeChats）
+    const assistantsSrc = join(extractDir, 'assistants.json')
+    if (existsSync(assistantsSrc)) {
+      const parsed = JSON.parse(await readFile(assistantsSrc, 'utf-8')) as unknown
+      const snapshot = normalizeAssistantSnapshot(parsed)
+      restoreAssistantsFromSnapshot(snapshot, mode)
     }
 
     // 恢复附件
@@ -313,19 +432,6 @@ function mergeConfigs(current: AppConfig, imported: Partial<AppConfig>): AppConf
         merged.providerConfigs[id] = config
         if (!merged.providersOrder.includes(id)) {
           merged.providersOrder.push(id)
-        }
-      }
-    }
-  }
-
-  // 合并助手配置
-  if (imported.assistantConfigs) {
-    merged.assistantConfigs = { ...current.assistantConfigs }
-    for (const [id, config] of Object.entries(imported.assistantConfigs)) {
-      if (!merged.assistantConfigs[id]) {
-        merged.assistantConfigs[id] = config
-        if (!merged.assistantsOrder.includes(id)) {
-          merged.assistantsOrder.push(id)
         }
       }
     }

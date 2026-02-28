@@ -3,6 +3,7 @@ import { Plus, Trash2, Star } from 'lucide-react'
 
 import type { AppConfig, AssistantConfig } from '../../../../../shared/types'
 import { createDefaultAssistantConfig } from '../../../../../shared/types'
+import type { AssistantUpdateInput, DbAssistant } from '../../../../../shared/db-types'
 import { Badge } from '../../../components/ui/badge'
 import { Button } from '../../../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../../components/ui/dialog'
@@ -17,6 +18,7 @@ export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConf
   const { config, onSave } = props
   const confirm = useConfirm()
 
+  const [assistantList, setAssistantList] = useState<DbAssistant[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
@@ -35,30 +37,43 @@ export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConf
     return list.filter((p) => p.enabled)
   }, [config.providerConfigs, config.providersOrder])
 
+  const reloadAssistants = useCallback(async () => {
+    const list = await window.api.db.assistants.list()
+    setAssistantList(list)
+    return list
+  }, [])
+
+  useEffect(() => {
+    void reloadAssistants().catch((err) => console.error('[AssistantPane] load assistants failed:', err))
+  }, [reloadAssistants])
+
   const assistants = useMemo(() => {
-    const order = tempOrder ?? config.assistantsOrder
-    return order.map((id) => config.assistantConfigs[id]).filter(Boolean)
-  }, [config.assistantConfigs, config.assistantsOrder, tempOrder])
+    const order = tempOrder ?? assistantList.map((a) => a.id)
+    const map = new Map(assistantList.map((a) => [a.id, a]))
+    const sorted = order.map((id) => map.get(id)).filter(Boolean) as DbAssistant[]
+    for (const ast of assistantList) {
+      if (!sorted.some((x) => x.id === ast.id)) sorted.push(ast)
+    }
+    return sorted
+  }, [assistantList, tempOrder])
 
   useEffect(() => {
     if (!editingId) return
-    if (!config.assistantConfigs[editingId]) setEditingId(null)
-  }, [config.assistantConfigs, editingId])
+    if (!assistantList.some((a) => a.id === editingId)) setEditingId(null)
+  }, [assistantList, editingId])
 
-  const editingAssistant: AssistantConfig | null = editingId ? (config.assistantConfigs[editingId] ?? null) : null
+  const editingAssistant: AssistantConfig | null = editingId
+    ? (assistantList.find((a) => a.id === editingId) ?? null)
+    : null
 
   const handleDragStart = useCallback(
     (id: string, e: React.DragEvent) => {
       setDraggedId(id)
-      const currentOrder = [...config.assistantsOrder]
-      for (const aid of Object.keys(config.assistantConfigs)) {
-        if (!currentOrder.includes(aid)) currentOrder.push(aid)
-      }
-      setTempOrder(currentOrder)
+      setTempOrder(assistantList.map((a) => a.id))
       e.dataTransfer.effectAllowed = 'move'
       e.dataTransfer.setData('text/plain', id)
     },
-    [config.assistantsOrder, config.assistantConfigs]
+    [assistantList]
   )
 
   const handleDragOver = useCallback(
@@ -93,39 +108,33 @@ export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConf
         handleDragEnd()
         return
       }
-      await onSave({ ...config, assistantsOrder: tempOrder })
+      const next = await window.api.db.assistants.reorder(tempOrder)
+      setAssistantList(next)
       handleDragEnd()
     },
-    [config, draggedId, handleDragEnd, onSave, tempOrder]
+    [draggedId, handleDragEnd, tempOrder]
   )
 
   async function addAssistant(name: string) {
     const id = safeUuid()
     const now = new Date().toISOString()
     const newAssistant = createDefaultAssistantConfig(id, name, { temperature: 0.6, topP: 1.0, createdAt: now, updatedAt: now })
-    const nextConfigs = { ...config.assistantConfigs, [id]: newAssistant }
-    const nextOrder = [id, ...config.assistantsOrder]
-    await onSave({ ...config, assistantConfigs: nextConfigs, assistantsOrder: nextOrder })
+    await window.api.db.assistants.create({
+      ...newAssistant,
+      sortIndex: 0
+    })
+    const next = await window.api.db.assistants.reorder([id, ...assistants.map((a) => a.id)])
+    setAssistantList(next)
   }
 
-  async function updateAssistant(id: string, patch: Partial<AssistantConfig>) {
-    const existing = config.assistantConfigs[id]
-    if (!existing) return
-    const updated: AssistantConfig = {
-      ...existing,
-      ...patch,
-      updatedAt: new Date().toISOString()
-    }
-    await onSave({ ...config, assistantConfigs: { ...config.assistantConfigs, [id]: updated } })
+  async function updateAssistant(id: string, patch: AssistantUpdateInput) {
+    await window.api.db.assistants.update(id, patch)
+    await reloadAssistants()
   }
 
   async function setDefault(id: string) {
-    const nextConfigs: Record<string, AssistantConfig> = { ...config.assistantConfigs }
-    const now = new Date().toISOString()
-    for (const [key, ast] of Object.entries(nextConfigs)) {
-      nextConfigs[key] = { ...ast, isDefault: key === id, updatedAt: now }
-    }
-    await onSave({ ...config, assistantConfigs: nextConfigs })
+    await window.api.db.assistants.setDefault(id)
+    await reloadAssistants()
   }
 
   function requestDelete(id: string) {
@@ -133,9 +142,9 @@ export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConf
   }
 
   async function deleteAssistant(id: string) {
-    const current = config.assistantConfigs[id]
+    const current = assistantList.find((a) => a.id === id)
     if (!current) return
-    if (Object.keys(config.assistantConfigs).length <= 1) {
+    if (assistantList.length <= 1) {
       await confirm({
         title: '无法删除',
         message: '至少保留一个助手。',
@@ -151,33 +160,20 @@ export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConf
       await window.api.avatar.delete(`assistantBg_${id}`)
     } catch {}
 
-    const { [id]: _, ...rest } = config.assistantConfigs
-    const nextOrder = config.assistantsOrder.filter((i) => i !== id)
+    await window.api.db.assistants.delete(id)
 
-    // 删除默认助手时：自动把第一个助手设为默认
-    let nextConfigs: Record<string, AssistantConfig> = { ...rest }
-    if (current.isDefault) {
-      const fallbackId = nextOrder.find((x) => nextConfigs[x]) ?? Object.keys(nextConfigs)[0]
-      if (fallbackId) {
-        const now = new Date().toISOString()
-        for (const [k, v] of Object.entries(nextConfigs)) {
-          nextConfigs[k] = { ...v, isDefault: k === fallbackId, updatedAt: now }
-        }
-      }
-    }
-
-    // 同步清理：助手专属快捷短语 / 记忆
+    // 同步清理：助手专属快捷短语 / 记忆（快捷短语仍在 config）
     const nextQuickPhrases = (config.quickPhrases ?? []).filter((p) => p.isGlobal || p.assistantId !== id)
     const nextMemories = (config.assistantMemories ?? []).filter((m) => m.assistantId !== id)
 
     await onSave({
       ...config,
-      assistantConfigs: nextConfigs,
-      assistantsOrder: nextOrder,
       quickPhrases: nextQuickPhrases,
       assistantMemories: nextMemories
     })
 
+    await window.api.db.memories.deleteByAssistant(id)
+    await reloadAssistants()
     if (editingId === id) setEditingId(null)
   }
 

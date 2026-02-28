@@ -6,14 +6,14 @@
  * - 右键菜单为玻璃质感（带删除二次确认）
  * - 重命名使用对话框（不做列表内联编辑）
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Edit2, History, Pin, RotateCw, Search, Trash2, X } from 'lucide-react'
+import { Check, Edit2, FolderOpen, History, Pin, RotateCw, Search, Trash2, X } from 'lucide-react'
 
-import type { AssistantConfig } from '../../../../shared/types'
 import { useDialogClose } from '../../hooks/useDialogClose'
 import { MessageSearchDialog } from './MessageSearchDialog'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
+import type { DbWorkspace } from '../../../../shared/db-types'
 
 export interface Conversation {
   id: string
@@ -37,11 +37,11 @@ export interface Conversation {
 interface Props {
   conversations: Conversation[]
   activeConvId: string
+  activeWorkspaceId?: string | null
   /** 发消息时的 loading（显示波浪线） */
   loadingConversationIds?: Set<string>
   /** 生成标题时的 loading（显示转圈） */
   titleGeneratingIds?: Set<string>
-  assistantConfigs?: Record<string, AssistantConfig>
   showChatListDate?: boolean
   onSelect: (id: string) => void
   onNew: () => void
@@ -50,6 +50,9 @@ interface Props {
   onTogglePin: (id: string) => void
   onRegenerateTitle?: (id: string) => void
   onSearchSelect?: (conversationId: string, messageId: string) => void
+  workspaceSelector?: ReactNode
+  workspaces?: DbWorkspace[]
+  onMoveToWorkspace?: (conversationId: string, workspaceId: string | null) => void
 }
 
 interface MenuState {
@@ -114,6 +117,7 @@ export function ConversationSidebar(props: Props) {
   const {
     conversations,
     activeConvId,
+    activeWorkspaceId = null,
     loadingConversationIds = new Set(),
     titleGeneratingIds = new Set(),
     onSearchSelect,
@@ -136,6 +140,12 @@ export function ConversationSidebar(props: Props) {
 
   const [renameDialog, setRenameDialog] = useState<RenameState>({ open: false, id: '', title: '' })
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const hasWorkspaceSection = !!(props.onMoveToWorkspace && props.workspaces && props.workspaces.length > 0)
+  const isSearching = query.trim().length > 0
+  const workspaceNameMap = useMemo(
+    () => new Map((props.workspaces ?? []).map((ws) => [ws.id, ws.name])),
+    [props.workspaces]
+  )
 
   const closeMenu = useCallback(() => {
     setMenu((m) => ({ ...m, open: false }))
@@ -159,17 +169,24 @@ export function ConversationSidebar(props: Props) {
 
   // 过滤（搜索）后再分组：对齐 Flutter 逻辑
   const { pinnedList, groups } = useMemo(() => {
+    const q = query.toLowerCase().trim()
     let list = [...conversations]
-    if (query.trim()) {
-      const q = query.toLowerCase().trim()
+    if (q) {
       list = list.filter((c) => c.title.toLowerCase().includes(q))
+    } else if (activeWorkspaceId !== null) {
+      list = list.filter((c) => (c.workspaceId ?? 'default') === activeWorkspaceId)
     }
 
     const pinned = list.filter((c) => !!c.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
     const rest = list.filter((c) => !c.pinned)
 
     return { pinnedList: pinned, groups: groupByDate(rest) }
-  }, [conversations, query])
+  }, [conversations, query, activeWorkspaceId])
+
+  function getWorkspaceName(workspaceId?: string | null): string {
+    const id = workspaceId ?? 'default'
+    return workspaceNameMap.get(id) ?? '默认工作区'
+  }
 
   function getConv(id: string | null): Conversation | null {
     if (!id) return null
@@ -258,6 +275,13 @@ export function ConversationSidebar(props: Props) {
     props.onDelete(id)
   }
 
+  function handleMoveToWorkspace(workspaceId: string | null) {
+    const id = menu.convId
+    closeMenu()
+    if (!id || !props.onMoveToWorkspace) return
+    props.onMoveToWorkspace(id, workspaceId)
+  }
+
   return (
     <div className="chatSidebar frosted">
       {/* 顶部：搜索框 + 历史按钮（对齐 Flutter） */}
@@ -280,6 +304,7 @@ export function ConversationSidebar(props: Props) {
             </button>
           )}
         </div>
+        {props.workspaceSelector ? <div className="chatSidebarWorkspaceSlot">{props.workspaceSelector}</div> : null}
       </div>
 
       {/* 会话列表（置顶 + 日期分组） */}
@@ -319,8 +344,13 @@ export function ConversationSidebar(props: Props) {
                           {isTitleGenerating && <span className="chatConvSpinner" />}
                         </div>
                         <div className="chatConvMeta">
-                          <span className="chatConvMetaTime">{formatTime(c.updatedAt)}</span>
-                          {count > 0 && <span className="chatConvMetaCount">{count} 条消息</span>}
+                          <div className="chatConvMetaLeft">
+                            {isSearching && <span className="chatConvWorkspaceTag">{getWorkspaceName(c.workspaceId)}</span>}
+                          </div>
+                          <div className="chatConvMetaRight">
+                            <span className="chatConvMetaTime">{formatTime(c.updatedAt)}</span>
+                            {count > 0 && <span className="chatConvMetaCount">{count} 条消息</span>}
+                          </div>
                         </div>
                       </div>
                     )
@@ -359,8 +389,13 @@ export function ConversationSidebar(props: Props) {
                           {isTitleGenerating && <span className="chatConvSpinner" />}
                         </div>
                         <div className="chatConvMeta">
-                          <span className="chatConvMetaTime">{formatTime(c.updatedAt)}</span>
-                          {count > 0 && <span className="chatConvMetaCount">{count} 条消息</span>}
+                          <div className="chatConvMetaLeft">
+                            {isSearching && <span className="chatConvWorkspaceTag">{getWorkspaceName(c.workspaceId)}</span>}
+                          </div>
+                          <div className="chatConvMetaRight">
+                            <span className="chatConvMetaTime">{formatTime(c.updatedAt)}</span>
+                            {count > 0 && <span className="chatConvMetaCount">{count} 条消息</span>}
+                          </div>
                         </div>
                       </div>
                     )
@@ -390,7 +425,7 @@ export function ConversationSidebar(props: Props) {
         >
           <div
             ref={menuRef}
-            className="contextMenu"
+            className="contextMenu conversationContextMenu"
             style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 10001 }}
             onMouseDown={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
@@ -408,6 +443,32 @@ export function ConversationSidebar(props: Props) {
                 <RotateCw size={18} />
                 <span>重新生成标题</span>
               </button>
+            )}
+
+            {hasWorkspaceSection && (
+              <>
+                <div className="contextMenuDivider" />
+                <div className="contextMenuSectionTitle">移动到文件夹</div>
+                <div className="contextMenuWorkspaceList">
+                  {props.workspaces!.map((ws) => {
+                    const currentWorkspaceId = getConv(menu.convId)?.workspaceId ?? 'default'
+                    const isCurrent = currentWorkspaceId === ws.id
+                    return (
+                      <button
+                        key={ws.id}
+                        type="button"
+                        className={`contextMenuItem contextMenuWorkspaceItem ${isCurrent ? 'is-active' : ''}`}
+                        onClick={() => handleMoveToWorkspace(ws.id)}
+                      >
+                        <FolderOpen size={16} />
+                        <span className="contextMenuWorkspaceName">{ws.name}</span>
+                        {isCurrent && <Check size={14} className="contextMenuWorkspaceCheck" />}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="contextMenuDivider" />
+              </>
             )}
 
             {confirmDelete ? (

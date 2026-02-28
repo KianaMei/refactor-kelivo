@@ -18,6 +18,9 @@ import type { ProviderConfigV2 } from '../../../shared/types'
 import { getBrandColor } from '../utils/brandAssets'
 import { BrandAvatar } from '../pages/settings/providers/components/BrandAvatar'
 
+const INITIAL_MODEL_RENDER_COUNT = 80
+const MODEL_RENDER_BATCH = 80
+
 // 模糊匹配算法 (Subsequence Match)
 // 允许 "gt" 匹配 "gpt"
 function fuzzyMatch(text: string, query: string) {
@@ -110,6 +113,8 @@ export function ModelSelectPopover(props: Props) {
   const [selectedProviderId, setSelectedProviderId] = useState(currentProviderId || providers[0]?.id || '')
   const [searchQuery, setSearchQuery] = useState('')
   const [pinnedModels, setPinnedModels] = useState<Set<string>>(new Set())
+  const [showHeavyContent, setShowHeavyContent] = useState(false)
+  const [visibleModelCount, setVisibleModelCount] = useState(INITIAL_MODEL_RENDER_COUNT)
 
   // 拖拽滚动状态
   const [isDragging, setIsDragging] = useState(false)
@@ -117,6 +122,14 @@ export function ModelSelectPopover(props: Props) {
   const [scrollLeft, setScrollLeft] = useState(0)
 
   const tabsRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // 先显示弹层壳体，重内容延后一帧渲染，避免点击后“整块晚出现”
+  useEffect(() => {
+    setShowHeavyContent(false)
+    const raf = requestAnimationFrame(() => setShowHeavyContent(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
 
   // 自动滚动到选中的供应商
   useEffect(() => {
@@ -125,8 +138,16 @@ export function ModelSelectPopover(props: Props) {
       if (activeBtn) {
         activeBtn.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
       }
+      // 强制保持供应商横向滚动区不产生垂直偏移（防止 chip 被上裁切）
+      tabsRef.current.scrollTop = 0
     }
   }, [selectedProviderId])
+
+  // 切换供应商/搜索词时，重置列表渲染窗口与滚动位置
+  useEffect(() => {
+    setVisibleModelCount(INITIAL_MODEL_RENDER_COUNT)
+    if (listRef.current) listRef.current.scrollTop = 0
+  }, [selectedProviderId, searchQuery])
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId)
 
@@ -167,6 +188,10 @@ export function ModelSelectPopover(props: Props) {
   const regularModels = useMemo(() => {
     return filteredModels.filter((m: string) => !pinnedModels.has(`${selectedProviderId}::${m}`))
   }, [filteredModels, pinnedModels, selectedProviderId])
+  const visibleRegularModels = useMemo(() => {
+    return regularModels.slice(0, visibleModelCount)
+  }, [regularModels, visibleModelCount])
+  const hasMoreRegularModels = visibleRegularModels.length < regularModels.length
 
   function handleSelectModel(modelId: string) {
     onSelect(selectedProviderId, modelId)
@@ -187,9 +212,23 @@ export function ModelSelectPopover(props: Props) {
     })
   }
 
+  function handleListScroll(e: React.UIEvent<HTMLDivElement>) {
+    if (searchResults) return
+    if (visibleModelCount >= regularModels.length) return
+    const el = e.currentTarget
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 140) {
+      setVisibleModelCount((prev) => Math.min(prev + MODEL_RENDER_BATCH, regularModels.length))
+    }
+  }
+
   // 滚轮切换供应商
   const wheelAccumulator = useRef(0)
   function handleWheel(e: React.WheelEvent) {
+    // 这里滚轮只用于“切换供应商”，禁止触发容器原生滚动，避免 chip 被垂直滚偏移裁切
+    e.preventDefault()
+    e.stopPropagation()
+    if (tabsRef.current) tabsRef.current.scrollTop = 0
+
     // 累积滚动距离
     wheelAccumulator.current += e.deltaY
 
@@ -362,7 +401,7 @@ export function ModelSelectPopover(props: Props) {
 
       {/* 搜索模式：显示分组列表 */}
       {searchResults ? (
-        <div className="modelSelectList">
+        <div ref={listRef} className="modelSelectList">
           {searchResults.length === 0 ? (
             <div className="modelSelectEmpty">无匹配模型</div>
           ) : (
@@ -424,8 +463,10 @@ export function ModelSelectPopover(props: Props) {
           </div>
 
           {/* 模型列表 (当前供应商) */}
-          <div className="modelSelectList">
-            {models.length === 0 ? (
+          <div ref={listRef} className="modelSelectList" onScroll={handleListScroll}>
+            {!showHeavyContent ? (
+              <div className="modelSelectLoading">加载模型中...</div>
+            ) : models.length === 0 ? (
               <div className="modelSelectEmpty">无可用模型</div>
             ) : (
               <>
@@ -448,7 +489,12 @@ export function ModelSelectPopover(props: Props) {
                         <span>全部</span>
                       </div>
                     )}
-                    {regularModels.map(m => renderModelItem(m))}
+                    {visibleRegularModels.map(m => renderModelItem(m))}
+                    {hasMoreRegularModels && (
+                      <div className="modelSelectEmpty" style={{ padding: '10px 0 6px' }}>
+                        向下滚动加载更多（{visibleRegularModels.length}/{regularModels.length}）
+                      </div>
+                    )}
                   </div>
                 )}
               </>

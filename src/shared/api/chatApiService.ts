@@ -11,7 +11,7 @@ import type {
   ToolDefinition,
   OnToolCallFn
 } from '../chatStream'
-import { classifyProviderKind, isXAIEndpoint } from '../chatApiHelper'
+import { builtInTools, classifyProviderKind, isXAIEndpoint } from '../chatApiHelper'
 import * as openaiAdapter from './adapters/openai/openaiAdapter'
 import * as claudeAdapter from './adapters/claudeAdapter'
 import * as googleAdapter from './adapters/googleAdapter'
@@ -33,11 +33,14 @@ export async function* sendMessageStream(
   // 确定 provider 类型
   const kind = classifyProviderKind(config.id, config.providerType)
 
-  // 检查是否是 xAI 端点 (需要特殊处理)
+  // 检查是否是 xAI 端点（优先对齐 xAI Agent Tools 新方案）
   if (isXAIEndpoint(config)) {
-    // xAI 使用 OpenAI 兼容 API (Chat Completions)
+    // 当模型启用了内置 search 工具时，强制走 Responses API（tools: web_search）
+    const builtIns = builtInTools(config, modelId)
+    const shouldUseResponsesApi = config.useResponseApi === true || builtIns.has('search')
+
     yield* openaiAdapter.sendStream({
-      config: { ...config, useResponseApi: false }, // xAI 不支持 Responses API
+      config: { ...config, useResponseApi: shouldUseResponsesApi },
       modelId,
       ...rest
     })

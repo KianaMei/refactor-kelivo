@@ -6,12 +6,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 
-import type { AssistantConfig } from '../../../shared/types'
 import { useConfig } from '../contexts/ConfigContext'
-import { ConversationSidebar, type Conversation } from './chat/ConversationSidebar'
+import { ConversationSidebar } from './chat/ConversationSidebar'
 import { WorkspaceSelector } from './chat/WorkspaceSelector'
 import { MessageBubble, type ChatMessage } from './chat/MessageBubble'
-import { ChatInputBar, type Attachment, type MentionedModel } from './chat/ChatInputBar'
+import { ChatInputBar } from './chat/ChatInputBar'
 import { getEffectiveAssistant, applyAssistantRegex } from './chat/assistantChat'
 import { ChatTopBar } from '../components/ChatTopBar'
 import { MessageAnchorLine } from '../components/MessageAnchorLine'
@@ -26,6 +25,7 @@ import { useChatActions } from './chat/useChatActions'
 import type { EffortValue } from '../components/ReasoningBudgetPopover'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../shared/responsesOptions'
 import { supportsResponsesXHighEffort } from '../../../shared/chatApiHelper'
+import type { AssistantUpdateInput } from '../../../shared/db-types'
 
 
 function sliceAfterTruncate(messages: ChatMessage[], truncateIndex: number | undefined): ChatMessage[] {
@@ -71,18 +71,19 @@ export function ChatPage(props: Props) {
   const {
     conversations, setConversations, activeConvId, setActiveConvId,
     workspaces, activeWorkspaceId, setActiveWorkspaceId,
+    assistants, reloadAssistants,
     dbReady,
     loadingConversationIds, setLoadingConversationIds,
     titleGeneratingConversationIds,
     messagesByConv, setMessagesByConv,
     defaultAssistantId, activeConversation,
-    sidebarLoadingConversationIds, filteredConversations,
     handleNewConversation, handleRenameConversation, handleDeleteConversation,
     handleTogglePinConversation, handleRegenerateConversationTitle,
     setConversationThinkingBudget,
     setConversationResponsesReasoningSummary,
     setConversationResponsesTextVerbosity,
     clearConversationContext,
+    handleMoveConversationToWorkspace,
     handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace,
   } = useConversationManager({ config, onOpenDefaultModelSettings: props.onOpenDefaultModelSettings })
 
@@ -124,13 +125,8 @@ export function ChatPage(props: Props) {
     return list.filter((p) => p.enabled && p.models && p.models.length > 0)
   }, [config.providerConfigs, config.providersOrder])
 
-  const assistants = useMemo(() => {
-    const order = config.assistantsOrder ?? []
-    return order.map((id) => config.assistantConfigs[id]).filter(Boolean)
-  }, [config.assistantConfigs, config.assistantsOrder])
-
   const activeAssistantId = activeConversation?.assistantId ?? defaultAssistantId
-  const activeAssistant = getEffectiveAssistant(config, activeAssistantId)
+  const activeAssistant = getEffectiveAssistant(assistants, activeAssistantId)
 
   const effectiveProviderId = activeAssistant?.boundModelProvider ?? config.currentModelProvider
   const effectiveModelId = activeAssistant?.boundModelId ?? config.currentModelId
@@ -324,22 +320,10 @@ export function ChatPage(props: Props) {
     })
   }
 
-  async function patchActiveAssistant(patch: Partial<AssistantConfig>) {
+  async function patchActiveAssistant(patch: AssistantUpdateInput) {
     if (!activeAssistant) return
-    const existing = config.assistantConfigs[activeAssistant.id]
-    if (!existing) return
-
-    await onSave({
-      ...config,
-      assistantConfigs: {
-        ...config.assistantConfigs,
-        [existing.id]: {
-          ...existing,
-          ...patch,
-          updatedAt: new Date().toISOString()
-        }
-      }
-    })
+    await window.api.db.assistants.update(activeAssistant.id, patch)
+    await reloadAssistants()
   }
 
   // 朗读消息 (TTS)
@@ -352,24 +336,10 @@ export function ChatPage(props: Props) {
   // MCP：切换当前助手绑定的 serverIds（与 Flutter 的“助手 MCP”行为对齐）
   async function toggleAssistantMcpServer(serverId: string) {
     if (!activeAssistant) return
-    const existing = config.assistantConfigs[activeAssistant.id]
-    if (!existing) return
-
-    const set = new Set(existing.mcpServerIds ?? [])
+    const set = new Set(activeAssistant.mcpServerIds ?? [])
     if (set.has(serverId)) set.delete(serverId)
     else set.add(serverId)
-
-    await onSave({
-      ...config,
-      assistantConfigs: {
-        ...config.assistantConfigs,
-        [existing.id]: {
-          ...existing,
-          mcpServerIds: Array.from(set),
-          updatedAt: new Date().toISOString()
-        }
-      }
-    })
+    await patchActiveAssistant({ mcpServerIds: Array.from(set) })
   }
 
   async function setMcpToolCallMode(mode: 'native' | 'prompt') {
@@ -381,33 +351,46 @@ export function ChatPage(props: Props) {
     setSidebarWidth((prev) => Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, prev + delta)))
   }
 
+  function handleSelectConversation(conversationId: string) {
+    const targetConversation = conversations.find((c) => c.id === conversationId)
+    if (targetConversation && activeWorkspaceId !== null) {
+      const targetWorkspaceId = targetConversation.workspaceId ?? 'default'
+      if (targetWorkspaceId !== activeWorkspaceId) {
+        setActiveWorkspaceId(targetWorkspaceId)
+      }
+    }
+    setActiveConvId(conversationId)
+  }
+
   // 渲染侧边栏内容
   const sidebarContent = (
     <div style={{ width: sidebarWidth, height: '100%', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-      <WorkspaceSelector
-        workspaces={workspaces}
+      <ConversationSidebar
+        conversations={conversations}
+        activeConvId={activeConvId}
         activeWorkspaceId={activeWorkspaceId}
-        onSelect={setActiveWorkspaceId}
-        onCreate={handleCreateWorkspace}
-        onRename={handleRenameWorkspace}
-        onDelete={handleDeleteWorkspace}
+        loadingConversationIds={loadingConversationIds}
+        titleGeneratingIds={titleGeneratingConversationIds}
+        showChatListDate={config.display?.showChatListDate ?? true}
+        onSelect={handleSelectConversation}
+        onNew={handleNewConversation}
+        onRename={handleRenameConversation}
+        onDelete={handleDeleteConversation}
+        onTogglePin={handleTogglePinConversation}
+        onRegenerateTitle={handleRegenerateConversationTitle}
+        workspaceSelector={(
+          <WorkspaceSelector
+            workspaces={workspaces}
+            activeWorkspaceId={activeWorkspaceId}
+            onSelect={setActiveWorkspaceId}
+            onCreate={handleCreateWorkspace}
+            onRename={handleRenameWorkspace}
+            onDelete={handleDeleteWorkspace}
+          />
+        )}
+        workspaces={workspaces}
+        onMoveToWorkspace={(conversationId, workspaceId) => void handleMoveConversationToWorkspace(conversationId, workspaceId)}
       />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <ConversationSidebar
-          conversations={filteredConversations}
-          activeConvId={activeConvId}
-          loadingConversationIds={loadingConversationIds}
-          titleGeneratingIds={titleGeneratingConversationIds}
-          assistantConfigs={config.assistantConfigs}
-          showChatListDate={config.display?.showChatListDate ?? true}
-          onSelect={setActiveConvId}
-          onNew={handleNewConversation}
-          onRename={handleRenameConversation}
-          onDelete={handleDeleteConversation}
-          onTogglePin={handleTogglePinConversation}
-          onRegenerateTitle={handleRegenerateConversationTitle}
-        />
-      </div>
     </div>
   )
 

@@ -1,18 +1,28 @@
-import type { AppConfig, AssistantConfig, AssistantMemory, AssistantRegexRule } from '../../../../shared/types'
+import type { AssistantConfig, AssistantMemory, AssistantRegexRule } from '../../../../shared/types'
+import type { DbAssistant } from '../../../../shared/db-types'
 import type { ChatMessageInput } from '../../../../shared/chat'
 import type { ChatMessage } from './MessageBubble'
 
-export function getDefaultAssistantId(config: AppConfig): string | null {
-  for (const id of config.assistantsOrder ?? []) {
-    if (config.assistantConfigs?.[id]?.isDefault) return id
-  }
-  return (config.assistantsOrder?.[0] ?? Object.keys(config.assistantConfigs ?? {})[0] ?? null)
+export type RuntimeAssistant = AssistantConfig | DbAssistant
+
+export function getDefaultAssistantId<T extends RuntimeAssistant>(assistants: T[]): string | null {
+  const defaultAssistant = assistants.find((a) => a.isDefault)
+  if (defaultAssistant) return defaultAssistant.id
+  return assistants[0]?.id ?? null
 }
 
-export function getEffectiveAssistant(config: AppConfig, assistantId?: string | null): AssistantConfig | null {
-  if (assistantId && config.assistantConfigs?.[assistantId]) return config.assistantConfigs[assistantId]
-  const defId = getDefaultAssistantId(config)
-  if (defId && config.assistantConfigs?.[defId]) return config.assistantConfigs[defId]
+export function getEffectiveAssistant<T extends RuntimeAssistant>(
+  assistants: T[],
+  assistantId?: string | null
+): T | null {
+  if (assistantId) {
+    const direct = assistants.find((a) => a.id === assistantId)
+    if (direct) return direct
+  }
+  const defId = getDefaultAssistantId(assistants)
+  if (defId) {
+    return assistants.find((a) => a.id === defId) ?? null
+  }
   return null
 }
 
@@ -49,7 +59,7 @@ export function applyAssistantRegex(
 }
 
 export function buildChatRequestMessages(args: {
-  assistant: AssistantConfig | null
+  assistant: RuntimeAssistant | null
   history: ChatMessage[]
   userInput: string
   memories?: AssistantMemory[]
@@ -137,7 +147,7 @@ export function buildRecentChatsPrompt(chats: Array<{ title: string; timestamp?:
   return buf.join('\n')
 }
 
-export function buildCustomHeaders(assistant: AssistantConfig | null): Record<string, string> | undefined {
+export function buildCustomHeaders(assistant: RuntimeAssistant | null): Record<string, string> | undefined {
   const list = assistant?.customHeaders ?? []
   const out: Record<string, string> = {}
   for (const h of list) {
@@ -149,7 +159,7 @@ export function buildCustomHeaders(assistant: AssistantConfig | null): Record<st
   return Object.keys(out).length ? out : undefined
 }
 
-export function buildCustomBody(assistant: AssistantConfig | null): Record<string, unknown> | undefined {
+export function buildCustomBody(assistant: RuntimeAssistant | null): Record<string, unknown> | undefined {
   const list = assistant?.customBody ?? []
   const out: Record<string, unknown> = {}
   for (const kv of list) {

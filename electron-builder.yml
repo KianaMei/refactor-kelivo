@@ -18,6 +18,7 @@ files:
   - "!**/*.md"
   - "!tasks/**"
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
   artifactName: ${productName}-${version}-${arch}-setup.${ext}

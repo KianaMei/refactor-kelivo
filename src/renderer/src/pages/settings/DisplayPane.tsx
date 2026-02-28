@@ -149,6 +149,15 @@ export function DisplayPane(props: { config: AppConfig; onSave: (next: AppConfig
         />
         <RowDivider />
         <SliderRow
+          label="界面字号"
+          value={display.uiFontSize}
+          min={12}
+          max={20}
+          suffix="px"
+          onChange={(v) => updateDisplay({ uiFontSize: v })}
+        />
+        <RowDivider />
+        <SliderRow
           label="对话字号"
           value={display.chatFontSize}
           min={12}

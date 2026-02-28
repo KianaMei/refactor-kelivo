@@ -439,15 +439,15 @@ export function ChatInputBar(props: Props) {
           <button type="button" className={`btn-compact ${isContextCleared ? 'btn-active' : ''}`} onClick={onClearContext} disabled={disabled} title={isContextCleared ? '取消清除上下文' : '清除上下文'}>
             <Eraser size={20} />
           </button>
-          <button ref={quickPhraseBtnRef} type="button" className="btn-compact" onClick={() => setQuickPhraseOpen(!quickPhraseOpen)} disabled={disabled} title="快捷短语">
-            <Zap size={20} />
-          </button>
           <button type="button" className="btn-compact" onClick={() => setExtrasExpanded(!extrasExpanded)} title={extrasExpanded ? '收起' : '展开更多'}>
             {extrasExpanded ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
           </button>
 
           {extrasExpanded && (
             <>
+              <button ref={quickPhraseBtnRef} type="button" className="btn-compact" onClick={() => setQuickPhraseOpen(!quickPhraseOpen)} disabled={disabled} title="快捷短语">
+                <Zap size={20} />
+              </button>
               <button type="button" className="btn-compact" onClick={() => imageInputRef.current?.click()} disabled={disabled} title="添加图片">
                 <Image size={20} />
               </button>

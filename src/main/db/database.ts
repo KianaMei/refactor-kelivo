@@ -11,13 +11,24 @@ import * as migration005 from './migrations/005_image_studio'
 import * as migration006 from './migrations/006_message_timing'
 import * as migration007 from './migrations/007_prompt_library'
 import * as migration008 from './migrations/008_conversation_responses_options'
+import * as migration009 from './migrations/009_assistants'
 
 interface Migration {
   version: number
   up: (db: Database.Database) => void
 }
 
-const migrations: Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006, migration007, migration008]
+const migrations: Migration[] = [
+  migration001,
+  migration002,
+  migration003,
+  migration004,
+  migration005,
+  migration006,
+  migration007,
+  migration008,
+  migration009
+]
 
 let db: Database.Database | null = null
 

@@ -11,6 +11,7 @@ import { registerProviderBundleIpc } from './providerBundleIpc'
 import { registerConversationIpc } from './conversationIpc'
 import { registerMessageIpc } from './messageIpc'
 import { registerWorkspaceIpc } from './workspaceIpc'
+import { registerAssistantIpc } from './assistantIpc'
 import { registerMemoryIpc } from './memoryIpc'
 import { registerAgentSessionIpc } from './agentSessionIpc'
 import { registerAgentMessageIpc } from './agentMessageIpc'
@@ -27,19 +28,29 @@ import { registerPromptLibraryIpc } from './promptLibraryIpc'
 import { IpcChannel } from '../shared/ipc'
 import { initDatabase, closeDatabase } from './db/database'
 import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
+import {
+  createAssistant,
+  ensureBuiltinAssistants,
+  getAssistantCount,
+  setDefaultAssistant
+} from './db/repositories/assistantRepo'
 import { getMemoryCount, bulkInsertMemories } from './db/repositories/memoryRepo'
 import { loadConfig, saveConfig } from './configStore'
 import { applyProxyConfig } from './proxyManager'
 import { setPostJsonStream } from '../shared/streamingHttpClient'
 import { postJsonStream as proxyPostJsonStream } from './api/streamingHttpClient'
+import { normalizeAssistantConfig } from '../shared/types'
 
 // Main 进程注入代理版 HTTP 客户端，shared adapters 自动走代理
 setPostJsonStream(proxyPostJsonStream)
 
 function createMainWindow(): void {
+  const windowIcon = join(__dirname, '../renderer/icons/app_icon.ico')
+
   const mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
+    icon: windowIcon,
     show: false,
     autoHideMenuBar: true,
     frame: false, // 无边框窗口
@@ -108,7 +119,7 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // 注册 kelivo-file 协议用于加载本地图片
   protocol.handle('kelivo-file', async (request) => {
     try {
@@ -165,6 +176,7 @@ app.whenReady().then(() => {
   try {
     initDatabase()
     ensureDefaultWorkspace()
+    await migrateAssistantsFromConfig()
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[db] init failed:', err)
@@ -192,6 +204,7 @@ app.whenReady().then(() => {
   registerConversationIpc()
   registerMessageIpc()
   registerWorkspaceIpc()
+  registerAssistantIpc()
   registerMemoryIpc()
   registerAgentSessionIpc()
   registerAgentMessageIpc()
@@ -243,6 +256,92 @@ app.on('window-all-closed', () => {
   closeDatabase()
   if (process.platform !== 'darwin') app.quit()
 })
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+// ── 助手迁移（config.json → SQLite）────────────────────────────
+async function migrateAssistantsFromConfig(): Promise<void> {
+  try {
+    // 只在 assistants 表为空时从 config 导入，避免重复迁移。
+    if (getAssistantCount() > 0) {
+      ensureBuiltinAssistants()
+      return
+    }
+
+    const configPath = join(app.getPath('userData'), 'config.json')
+    let rawConfig: Record<string, unknown> | null = null
+
+    try {
+      const rawText = await readFile(configPath, 'utf-8')
+      const parsed = JSON.parse(rawText) as unknown
+      rawConfig = isRecord(parsed) ? parsed : null
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        ensureBuiltinAssistants()
+        return
+      }
+      throw err
+    }
+
+    const assistantConfigsRaw = rawConfig && isRecord(rawConfig['assistantConfigs'])
+      ? (rawConfig['assistantConfigs'] as Record<string, unknown>)
+      : null
+
+    if (!assistantConfigsRaw || Object.keys(assistantConfigsRaw).length === 0) {
+      ensureBuiltinAssistants()
+      return
+    }
+
+    const orderRaw = Array.isArray(rawConfig?.['assistantsOrder'])
+      ? (rawConfig?.['assistantsOrder'] as unknown[])
+      : []
+    const seen = new Set<string>()
+    const orderedIds: string[] = []
+
+    for (const item of orderRaw) {
+      if (typeof item !== 'string' || !assistantConfigsRaw[item] || seen.has(item)) continue
+      seen.add(item)
+      orderedIds.push(item)
+    }
+    for (const id of Object.keys(assistantConfigsRaw)) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      orderedIds.push(id)
+    }
+
+    let sortIndex = 0
+    const defaultCandidates: string[] = []
+    for (const id of orderedIds) {
+      const normalized = normalizeAssistantConfig(id, assistantConfigsRaw[id])
+      if (!normalized) continue
+
+      createAssistant({
+        ...normalized,
+        sortIndex
+      })
+      if (normalized.isDefault) defaultCandidates.push(id)
+      sortIndex += 1
+    }
+
+    // 保底内置助手 + 默认助手唯一性
+    ensureBuiltinAssistants()
+    if (defaultCandidates.length > 0) {
+      setDefaultAssistant(defaultCandidates[0])
+    }
+
+    // 迁移后回写 config，移除 legacy 助手字段
+    const normalizedConfig = await loadConfig()
+    await saveConfig(normalizedConfig)
+
+    console.log(`[Migration] Migrated ${sortIndex} assistants from config.json to SQLite`)
+  } catch (err) {
+    // 迁移失败时仍保证可用助手存在，避免主流程受阻。
+    ensureBuiltinAssistants()
+    console.error('[Migration] Failed to migrate assistants:', err)
+  }
+}
 
 // ── 记忆迁移（config.json → SQLite）────────────────────────────
 async function migrateMemoriesFromConfig(): Promise<void> {

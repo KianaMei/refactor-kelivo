@@ -106,8 +106,10 @@ export default function App() {
     // 应用全局缩放
     // globalFontScale 的单位是倍数（0.8 - 1.5），不是百分比；这里直接使用即可。
     const scale = display.globalFontScale ?? 1
+    const uiFontSize = display.uiFontSize ?? 14
     el.style.setProperty('--global-font-scale', String(scale))
-    document.body.style.fontSize = `${14 * scale}px`
+    el.style.setProperty('--ui-font-size', `${uiFontSize}px`)
+    document.body.style.fontSize = `${uiFontSize * scale}px`
 
     // 应用聊天字体大小
     el.style.setProperty('--chat-font-size', `${display.chatFontSize ?? 14}px`)

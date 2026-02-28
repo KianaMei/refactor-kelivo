@@ -62,6 +62,15 @@ export const IpcChannel = {
   DbConversationMessageCount: 'db:conversation:messageCount',
   DbConversationAssistantCount: 'db:conversation:assistantCount',
 
+  // Database — Assistants
+  DbAssistantList: 'db:assistant:list',
+  DbAssistantGet: 'db:assistant:get',
+  DbAssistantCreate: 'db:assistant:create',
+  DbAssistantUpdate: 'db:assistant:update',
+  DbAssistantDelete: 'db:assistant:delete',
+  DbAssistantSetDefault: 'db:assistant:setDefault',
+  DbAssistantReorder: 'db:assistant:reorder',
+
   // Database — Messages
   DbMessageList: 'db:message:list',
   DbMessageCreate: 'db:message:create',
@@ -141,5 +150,8 @@ export const IpcChannel = {
   PromptLibraryUpdate: 'promptLibrary:update',
   PromptLibraryGet: 'promptLibrary:get',
   PromptLibraryDelete: 'promptLibrary:delete',
-  PromptLibraryClear: 'promptLibrary:clear'
+  PromptLibraryClear: 'promptLibrary:clear',
+
+  // Proxy
+  ProxyTest: 'proxy:test'
 } as const

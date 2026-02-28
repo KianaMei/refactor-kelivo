@@ -41,6 +41,10 @@ const CATEGORY_CONFIG: Record<StorageCategoryKey, { name: string; icon: React.Re
   other: { name: '其他', icon: <Box size={16} />, color: '#888888' }
 }
 
+// 重启后回到聊天数据；同一次应用运行内记住上次选择
+const DEFAULT_STORAGE_CATEGORY: StorageCategoryKey = 'chatData'
+let sessionStorageCategory: StorageCategoryKey = DEFAULT_STORAGE_CATEGORY
+
 function formatBytes(bytes: number): string {
   const kb = 1024
   const mb = kb * 1024
@@ -355,7 +359,7 @@ export function StoragePage(props: Props) {
   const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState<string | null>(null) // categoryKey or itemId
   const [report, setReport] = useState<StorageReport | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<StorageCategoryKey>('images')
+  const [selectedCategory, setSelectedCategory] = useState<StorageCategoryKey>(() => sessionStorageCategory)
   const [confirmClear, setConfirmClear] = useState<{ open: boolean; categoryKey: StorageCategoryKey | null; itemId: string | null; isBulk?: boolean }>({
     open: false,
     categoryKey: null,
@@ -394,6 +398,15 @@ export function StoragePage(props: Props) {
     loadReport()
   }, [])
 
+  useEffect(() => {
+    if (!report) return
+    const categoryExists = report.categories.some((c) => c.key === selectedCategory)
+    if (categoryExists) return
+    const fallbackCategory = (report.categories[0]?.key as StorageCategoryKey | undefined) ?? DEFAULT_STORAGE_CATEGORY
+    sessionStorageCategory = fallbackCategory
+    setSelectedCategory(fallbackCategory)
+  }, [report, selectedCategory])
+
   // 切换分类时加载详情
   useEffect(() => {
     setSelection(new Set())
@@ -425,6 +438,11 @@ export function StoragePage(props: Props) {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  function handleSelectCategory(nextCategory: StorageCategoryKey) {
+    sessionStorageCategory = nextCategory
+    setSelectedCategory(nextCategory)
   }
 
   const selectedCategoryData = useMemo(() => {
@@ -719,7 +737,7 @@ export function StoragePage(props: Props) {
                 key={cat.key}
                 type="button"
                 className={`storageCategoryItem ${selectedCategory === cat.key ? 'storageCategoryItemActive' : ''}`}
-                onClick={() => setSelectedCategory(cat.key as StorageCategoryKey)}
+                onClick={() => handleSelectCategory(cat.key as StorageCategoryKey)}
               >
                 <span className="storageCategoryIcon" style={{ color: conf.color }}>
                   {conf.icon}

@@ -323,6 +323,7 @@ export interface DisplaySettings {
   // 字体
   appFontFamily: string
   codeFontFamily: string
+  uiFontSize: number // 12-20
   globalFontScale: number // 0.8-1.5
   chatFontSize: number // 12-24
   // 消息显示
@@ -410,9 +411,6 @@ export interface AppConfigV2 {
   ocrModelProvider?: string | null
   ocrModelId?: string | null
   ocrEnabled?: boolean
-  // 助手配置
-  assistantsOrder: string[]
-  assistantConfigs: Record<string, AssistantConfig>
   // Agent（用于 Agent Tab；仅存 name/prompt，运行时再选 provider/model/权限）
   agentsOrder: string[]
   agentConfigs: Record<string, AgentConfig>
@@ -433,6 +431,7 @@ export interface AppConfigV2 {
   proxyPort?: string
   proxyUsername?: string
   proxyPassword?: string
+  proxyBypass?: string
   // 备份配置
   backupConfig: BackupConfig
   imageStudio: ImageStudioConfig

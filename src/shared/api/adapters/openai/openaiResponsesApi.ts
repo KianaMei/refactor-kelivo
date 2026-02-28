@@ -602,7 +602,8 @@ function buildToolList(
     }
   }
 
-  if (isResponsesWebSearchSupported(modelId)) {
+  // OpenAI Responses 支持模型 + xAI 端点（Agent Tools）
+  if (isResponsesWebSearchSupported(modelId) || helper.isXAIEndpoint(config)) {
     const builtIns = helper.builtInTools(config, modelId)
     if (builtIns.has('search')) {
       const ov = helper.modelOverride(config, modelId)

@@ -115,66 +115,6 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
   const ui = normalizeUi(cfg['ui'], def.ui)
   const display = normalizeDisplaySettings(cfg['display'], def.display)
 
-  // 处理助手配置
-  let assistantsOrder = Array.isArray(cfg['assistantsOrder'])
-    ? (cfg['assistantsOrder'].filter((x) => typeof x === 'string') as string[])
-    : def.assistantsOrder
-
-  const assistantConfigsRaw = cfg['assistantConfigs']
-  let assistantConfigs: Record<string, AssistantConfig> = {}
-  if (isRecord(assistantConfigsRaw)) {
-    for (const [key, value] of Object.entries(assistantConfigsRaw)) {
-      const norm = normalizeAssistantConfig(key, value)
-      if (norm) assistantConfigs[key] = norm
-    }
-  }
-
-  // assistantConfigs 为空时，注入内置默认助手
-  if (Object.keys(assistantConfigs).length === 0) {
-    assistantConfigs = def.assistantConfigs
-    assistantsOrder = def.assistantsOrder
-  }
-
-  // 版本升级兼容：补齐内置助手（只在缺失时注入，不覆盖用户同名 id）
-  for (const [id, builtin] of Object.entries(def.assistantConfigs)) {
-    if (!assistantConfigs[id]) assistantConfigs[id] = builtin
-  }
-
-  // 规范化 assistantsOrder：去重 + 过滤不存在 + 补齐缺失
-  {
-    const seen = new Set<string>()
-    assistantsOrder = assistantsOrder.filter((id) => {
-      if (!assistantConfigs[id]) return false
-      if (seen.has(id)) return false
-      seen.add(id)
-      return true
-    })
-    for (const id of Object.keys(assistantConfigs)) {
-      if (!seen.has(id)) assistantsOrder.push(id)
-    }
-  }
-
-  // 规范化默认助手：保证至少且仅有一个 isDefault=true
-  {
-    const defaultIds = assistantsOrder.filter((id) => assistantConfigs[id]?.isDefault)
-    const fallbackId = assistantsOrder[0] ?? Object.keys(assistantConfigs)[0]
-
-    if (defaultIds.length === 0 && fallbackId && assistantConfigs[fallbackId]) {
-      assistantConfigs = {
-        ...assistantConfigs,
-        [fallbackId]: { ...assistantConfigs[fallbackId], isDefault: true, updatedAt: nowIso() }
-      }
-    } else if (defaultIds.length > 1) {
-      const keepId = defaultIds[0]
-      const next: Record<string, AssistantConfig> = { ...assistantConfigs }
-      for (const id of defaultIds) {
-        if (id === keepId) continue
-        next[id] = { ...next[id], isDefault: false, updatedAt: nowIso() }
-      }
-      assistantConfigs = next
-    }
-  }
-
   // Agent（Claude/Codex）模板
   let agentsOrder = Array.isArray(cfg['agentsOrder'])
     ? (cfg['agentsOrder'].filter((x) => typeof x === 'string') as string[])
@@ -368,8 +308,6 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
     ocrModelProvider: typeof cfg['ocrModelProvider'] === 'string' ? (cfg['ocrModelProvider'] as string) : null,
     ocrModelId: typeof cfg['ocrModelId'] === 'string' ? (cfg['ocrModelId'] as string) : null,
     ocrEnabled: typeof cfg['ocrEnabled'] === 'boolean' ? (cfg['ocrEnabled'] as boolean) : false,
-    assistantsOrder: assistantsOrder.length ? assistantsOrder : Object.keys(assistantConfigs),
-    assistantConfigs,
     agentsOrder: agentsOrder.length ? agentsOrder : Object.keys(agentConfigs),
     agentConfigs,
     agentRuntime,
@@ -385,6 +323,7 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
     proxyPort: typeof cfg['proxyPort'] === 'string' ? (cfg['proxyPort'] as string) : def.proxyPort,
     proxyUsername: typeof cfg['proxyUsername'] === 'string' ? (cfg['proxyUsername'] as string) : def.proxyUsername,
     proxyPassword: typeof cfg['proxyPassword'] === 'string' ? (cfg['proxyPassword'] as string) : def.proxyPassword,
+    proxyBypass: typeof cfg['proxyBypass'] === 'string' ? (cfg['proxyBypass'] as string) : def.proxyBypass,
     searchConfig,
     backupConfig,
     imageStudio,
@@ -489,7 +428,7 @@ function normalizeAgentRuntime(
   }
 }
 
-function normalizeAssistantConfig(id: string, input: unknown): AssistantConfig | null {
+export function normalizeAssistantConfig(id: string, input: unknown): AssistantConfig | null {
   if (!isRecord(input)) return null
 
   const name = typeof input['name'] === 'string' && input['name'].trim() ? (input['name'] as string) : id
@@ -685,6 +624,7 @@ function normalizeDisplaySettings(input: unknown, fallback: DisplaySettings): Di
     desktopNarrowWidth: cfgNum(input['desktopNarrowWidth'], fallback.desktopNarrowWidth, 400, 1200),
     appFontFamily: cfgStr(input['appFontFamily'], fallback.appFontFamily),
     codeFontFamily: cfgStr(input['codeFontFamily'], fallback.codeFontFamily),
+    uiFontSize: cfgNum(input['uiFontSize'], fallback.uiFontSize, 12, 20),
     globalFontScale: cfgNum(input['globalFontScale'], fallback.globalFontScale, 0.8, 1.5),
     chatFontSize: cfgNum(input['chatFontSize'], fallback.chatFontSize, 12, 24),
     hideAllAvatars: cfgBool(input['hideAllAvatars'], fallback.hideAllAvatars),

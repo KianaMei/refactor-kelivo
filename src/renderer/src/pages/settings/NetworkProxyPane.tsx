@@ -10,6 +10,7 @@ export interface ProxySettings {
   port: string
   username: string
   password: string
+  bypass: string
 }
 
 export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppConfig) => Promise<void> }) {
@@ -20,6 +21,7 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
     port: props.config.proxyPort ?? '8080',
     username: props.config.proxyUsername ?? '',
     password: props.config.proxyPassword ?? '',
+    bypass: props.config.proxyBypass ?? 'localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1',
   }))
 
   const [testUrl, setTestUrl] = useState('https://www.google.com')
@@ -37,18 +39,33 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
         proxyPort: next.port,
         proxyUsername: next.username,
         proxyPassword: next.password,
+        proxyBypass: next.bypass,
       }).catch(err => console.error('[NetworkProxyPane] save failed:', err))
       return next
     })
   }
 
   async function testConnection() {
+    if (!proxy.host.trim() || !proxy.port.trim()) {
+      setTestResult({ ok: false, message: '请填写服务器地址和端口' })
+      return
+    }
     setTesting(true)
     setTestResult(null)
     try {
-      // 模拟测试，实际通过主进程发起带代理的请求
-      await new Promise((r) => setTimeout(r, 1000))
-      setTestResult({ ok: true, message: '连接成功' })
+      const result = await window.api.proxy.test(
+        {
+          enabled: true,
+          type: proxy.type,
+          host: proxy.host.trim(),
+          port: proxy.port.trim(),
+          username: proxy.username.trim(),
+          password: proxy.password,
+          bypass: proxy.bypass,
+        },
+        testUrl.trim() || 'https://www.google.com'
+      )
+      setTestResult({ ok: result.ok, message: result.message })
     } catch (e) {
       setTestResult({ ok: false, message: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -142,6 +159,21 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
             onChange={(e) => updateProxy({ password: e.target.value })}
           />
         </div>
+        <div style={s.divider} />
+
+        <div style={s.labeledRow}>
+          <span style={s.rowLabel}>绕过代理</span>
+          <input
+            className="input"
+            style={{ width: 340 }}
+            placeholder="localhost,127.0.0.1,10.0.0.0/8"
+            value={proxy.bypass}
+            onChange={(e) => updateProxy({ bypass: e.target.value })}
+          />
+        </div>
+        <div style={s.bypassHint}>
+          逗号分隔的地址列表，匹配的请求将不经过代理直连
+        </div>
       </div>
 
       {/* 测试连接 */}
@@ -186,10 +218,9 @@ export function NetworkProxyPane(props: { config: AppConfig; onSave: (next: AppC
       <div className="settingsCard">
         <div style={s.cardTitle}>说明</div>
         <div style={s.hint}>
-          <p>全局代理会应用于所有 AI API 请求。</p>
-          <p>你也可以在每个供应商单独配置代理，优先级高于全局代理。</p>
-          <p>HTTP 代理仅代理 HTTP 请求，HTTPS 代理可代理加密连接。</p>
-          <p>SOCKS5 代理支持 TCP 连接，适用于大多数场景。</p>
+          <p>全局代理会应用于所有 AI API 请求。供应商单独配置的代理优先级更高。</p>
+          <p>HTTP 代理适用于大多数场景；SOCKS5 代理支持 TCP 连接。</p>
+          <p>绕过代理列表中的地址将直连，不经过代理服务器。</p>
         </div>
       </div>
     </div>
@@ -210,4 +241,5 @@ const s: Record<string, React.CSSProperties> = {
   rowLabel: { fontSize: 14, flex: 1 },
   divider: { height: 1, background: 'var(--border)', margin: '4px 0', opacity: 0.5 },
   hint: { fontSize: 12, lineHeight: 1.7, color: 'var(--text-secondary)', marginTop: 8 },
+  bypassHint: { fontSize: 11, color: 'var(--text-tertiary)', padding: '2px 0 4px', opacity: 0.7 },
 }

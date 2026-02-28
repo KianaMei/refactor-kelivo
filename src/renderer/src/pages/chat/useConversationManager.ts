@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppConfig } from '../../../../shared/types'
-import type { DbConversation, DbMessage, DbWorkspace } from '../../../../shared/db-types'
+import type { DbAssistant, DbConversation, DbMessage, DbWorkspace } from '../../../../shared/db-types'
 import type { Conversation } from './ConversationSidebar'
 import type { ChatMessage } from './MessageBubble'
 import { getDefaultAssistantId, getEffectiveAssistant } from './assistantChat'
@@ -69,6 +69,7 @@ export function useConversationManager(deps: Deps) {
   const { config, onOpenDefaultModelSettings } = deps
 
   const [workspaces, setWorkspaces] = useState<DbWorkspace[]>([])
+  const [assistants, setAssistants] = useState<DbAssistant[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvId, setActiveConvId] = useState<string>('')
@@ -77,8 +78,14 @@ export function useConversationManager(deps: Deps) {
   const [dbReady, setDbReady] = useState(false)
   const [messagesByConv, setMessagesByConv] = useState<Record<string, ChatMessage[]>>({})
 
-  const defaultAssistantId = getDefaultAssistantId(config)
+  const defaultAssistantId = getDefaultAssistantId(assistants)
   const activeConversation = conversations.find((c) => c.id === activeConvId)
+
+  const reloadAssistants = useCallback(async () => {
+    const list = await window.api.db.assistants.list()
+    setAssistants(list)
+    return list
+  }, [])
 
   const sidebarLoadingConversationIds = useMemo(() => {
     if (titleGeneratingConversationIds.size === 0) return loadingConversationIds
@@ -96,6 +103,7 @@ export function useConversationManager(deps: Deps) {
   useEffect(() => {
     void (async () => {
       const wsList = await window.api.db.workspaces.list()
+      await reloadAssistants()
       setWorkspaces(wsList)
       const result = await window.api.db.conversations.list()
       if (result.items.length === 0) {
@@ -112,7 +120,7 @@ export function useConversationManager(deps: Deps) {
       setActiveConvId(convs[0].id)
       setDbReady(true)
     })().catch(err => console.error('[useConversationManager] initial db load failed:', err))
-  }, [])
+  }, [reloadAssistants])
 
   // DB: 空数据库时自动创建第一个对话
   useEffect(() => {
@@ -139,7 +147,7 @@ export function useConversationManager(deps: Deps) {
   // 会话操作
   function handleNewConversation() {
     const id = safeUuid()
-    const assistant = getEffectiveAssistant(config, defaultAssistantId)
+    const assistant = getEffectiveAssistant(assistants, defaultAssistantId)
     const preset = assistant?.presetMessages ?? []
     const inheritedThinkingBudget = activeConversation?.thinkingBudget ?? null
     const inheritedResponsesReasoningSummary = activeConversation?.responsesReasoningSummary ?? null
@@ -285,6 +293,14 @@ export function useConversationManager(deps: Deps) {
     await window.api.db.conversations.update(activeConvId, { truncateIndex })
   }
 
+  async function handleMoveConversationToWorkspace(id: string, workspaceId: string | null) {
+    const targetWorkspaceId = workspaceId ?? 'default'
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, workspaceId: targetWorkspaceId } : c))
+    )
+    await window.api.db.conversations.update(id, { workspaceId: targetWorkspaceId })
+  }
+
   // 工作区操作
   function handleCreateWorkspace(name: string) {
     const id = safeUuid()
@@ -320,6 +336,7 @@ export function useConversationManager(deps: Deps) {
     // State
     conversations, setConversations, activeConvId, setActiveConvId,
     workspaces, activeWorkspaceId, setActiveWorkspaceId,
+    assistants, reloadAssistants,
     dbReady,
     loadingConversationIds, setLoadingConversationIds,
     titleGeneratingConversationIds,
@@ -334,6 +351,7 @@ export function useConversationManager(deps: Deps) {
     setConversationResponsesReasoningSummary,
     setConversationResponsesTextVerbosity,
     clearConversationContext,
+    handleMoveConversationToWorkspace,
     // Workspace handlers
     handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace,
   }

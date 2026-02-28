@@ -87,16 +87,47 @@ async function clearDir(dirPath: string, exclude: string[] = []): Promise<void> 
     }
 }
 
+async function getFileSize(filePath: string): Promise<number> {
+    try {
+        return (await stat(filePath)).size
+    } catch {
+        return 0
+    }
+}
+
+function getDbObjectSizeMap(db: ReturnType<typeof getDb>): Map<string, number> {
+    const sizeByObject = new Map<string, number>()
+    try {
+        // dbstat 为 SQLite 内置虚拟表，可用于按对象统计实际页占用
+        const rows = db.prepare('SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name').all() as Array<{ name: string; bytes: number | null }>
+        for (const row of rows) {
+            if (!row?.name) continue
+            sizeByObject.set(row.name, Number(row.bytes ?? 0))
+        }
+    } catch {
+        // 某些 SQLite 构建可能不含 dbstat，调用方会回退到兜底逻辑
+    }
+    return sizeByObject
+}
+
+function sumDbObjectBytes(sizeByObject: Map<string, number>, predicate: (name: string) => boolean): number {
+    let total = 0
+    for (const [name, bytes] of sizeByObject) {
+        if (predicate(name)) total += bytes
+    }
+    return total
+}
+
 export async function getStorageReport(): Promise<StorageReport> {
     const userData = app.getPath('userData')
     const db = getDb()
 
     // 1. 数据库统计
     const dbPath = join(userData, 'kelivo.db')
-    let dbSize = 0
-    try {
-        dbSize = (await stat(dbPath)).size
-    } catch { }
+    const dbSize = await getFileSize(dbPath)
+    const dbWalSize = await getFileSize(`${dbPath}-wal`)
+    const dbShmSize = await getFileSize(`${dbPath}-shm`)
+    const chatDbTotalSize = dbSize + dbWalSize + dbShmSize
 
     // 统计记录数
     const msgCount = (db.prepare('SELECT COUNT(*) as c FROM messages').get() as { c: number }).c
@@ -104,6 +135,40 @@ export async function getStorageReport(): Promise<StorageReport> {
 
     // 检查 migrations 发现 assistant_memories 表存在
     const memoryCount = (db.prepare('SELECT COUNT(*) as c FROM assistant_memories').get() as { c: number }).c
+
+    // 通过 dbstat 统计聊天核心对象的实际占用（避免固定比例估算）
+    const dbObjectSizes = getDbObjectSizeMap(db)
+    const hasDbStat = dbObjectSizes.size > 0
+
+    let messagesBytes = 0
+    let conversationsBytes = 0
+    let otherDbBytes = 0
+
+    if (hasDbStat) {
+        messagesBytes = sumDbObjectBytes(
+            dbObjectSizes,
+            (name) =>
+                name === 'messages' ||
+                name.startsWith('idx_messages_') ||
+                name.startsWith('sqlite_autoindex_messages_') ||
+                name.startsWith('messages_fts')
+        )
+
+        conversationsBytes = sumDbObjectBytes(
+            dbObjectSizes,
+            (name) =>
+                name === 'conversations' ||
+                name.startsWith('idx_conversations_') ||
+                name.startsWith('sqlite_autoindex_conversations_')
+        )
+
+        otherDbBytes = Math.max(0, dbSize - messagesBytes - conversationsBytes)
+    } else {
+        // 兜底：dbstat 不可用时仍展示可读分项
+        messagesBytes = Math.round(dbSize * 0.8)
+        conversationsBytes = Math.round(dbSize * 0.1)
+        otherDbBytes = Math.max(0, dbSize - messagesBytes - conversationsBytes)
+    }
 
     // 2. 文件统计
     const avatarDir = join(userData, 'avatars')
@@ -129,11 +194,14 @@ export async function getStorageReport(): Promise<StorageReport> {
         {
             key: 'chatData',
             name: '聊天数据',
-            size: dbSize, // 简单地将数据库大小归为聊天数据（虽然也包含其他配置）
+            size: chatDbTotalSize,
             items: [
-                { id: 'messages', name: '消息记录', size: dbSize * 0.8, count: msgCount }, // 估算占比
-                { id: 'conversations', name: '对话列表', size: dbSize * 0.1, count: convCount },
-                { id: 'db_file', name: '数据库文件', size: dbSize, clearable: false }
+                { id: 'messages', name: hasDbStat ? '消息记录（含索引）' : '消息记录（估算）', size: messagesBytes, count: msgCount },
+                { id: 'conversations', name: hasDbStat ? '对话列表（含索引）' : '对话列表（估算）', size: conversationsBytes, count: convCount },
+                { id: 'other_db', name: '其他数据库对象', size: otherDbBytes },
+                { id: 'db_file', name: '数据库主文件', size: dbSize, clearable: false },
+                ...(dbWalSize > 0 ? [{ id: 'db_wal', name: '数据库 WAL 文件', size: dbWalSize, clearable: false } as StorageItem] : []),
+                ...(dbShmSize > 0 ? [{ id: 'db_shm', name: '数据库 SHM 文件', size: dbShmSize, clearable: false } as StorageItem] : [])
             ]
         },
         {

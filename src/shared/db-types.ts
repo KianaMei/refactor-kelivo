@@ -8,6 +8,7 @@
 
 import type { TokenUsage } from './chatStream'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from './responsesOptions'
+import type { AssistantConfig } from './types'
 export type { TokenUsage }
 
 // ── Conversation ─────────────────────────────────────────────
@@ -64,6 +65,19 @@ export interface ConversationListResult {
   items: DbConversation[]
   total: number
 }
+
+// ── Assistant ───────────────────────────────────────────────
+
+export interface DbAssistant extends AssistantConfig {
+  sortIndex: number
+}
+
+export type AssistantCreateInput =
+  Pick<DbAssistant, 'id'> &
+  Partial<Omit<DbAssistant, 'id'>>
+
+export type AssistantUpdateInput =
+  Partial<Omit<DbAssistant, 'id' | 'createdAt' | 'sortIndex'>>
 
 // ── Message ──────────────────────────────────────────────────
 

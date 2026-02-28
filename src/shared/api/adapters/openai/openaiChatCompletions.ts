@@ -102,12 +102,8 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     body['stream_options'] = { include_usage: true }
   }
 
-  if (isGrok) {
-    const builtIns = helper.builtInTools(config, modelId)
-    if (builtIns.has('search')) {
-      body['search_parameters'] = { mode: 'auto', return_citations: true }
-    }
-  }
+  // xAI 已废弃 Chat Completions 的 legacy live search 参数（search_parameters）。
+  // 搜索能力请走 Responses API 的 tools(web_search) 路径。
 
   const extraBodyCfg = helper.customBody(config, modelId)
   Object.assign(body, extraBodyCfg)

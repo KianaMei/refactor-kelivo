@@ -5,6 +5,7 @@
  */
 
 import { sendMessageStream } from '../../../shared/api/chatApiService'
+import { sendPromptToolStream } from '../../../shared/api/adapters/promptToolAdapter'
 import type { UserImage } from '../../../shared/api/chatApiService'
 import type { ChatStreamChunk, ChatMessage, ToolDefinition, OnToolCallFn } from '../../../shared/chatStream'
 import type { ProviderConfigV2, McpServerConfig, McpToolCallMode } from '../../../shared/types'
@@ -88,7 +89,6 @@ type McpRuntimeTool = {
 type PreparedMcpTools = {
   nativeTools: ToolDefinition[]
   runtimeTools: Map<string, McpRuntimeTool>
-  promptHint?: string
 }
 
 // ========== Helpers ==========
@@ -190,20 +190,9 @@ function resolveEnabledMcpToolNames(server: McpServerConfig): Set<string> | null
   return enabled
 }
 
-function buildPromptModeHint(lines: string[]): string | undefined {
-  if (lines.length === 0) return undefined
-  return [
-    'MCP tools are configured in prompt mode (native tool calls are disabled).',
-    'If MCP is needed, describe which MCP tool should be used and with what arguments.',
-    'Available MCP tools:',
-    ...lines.map((line) => `- ${line}`)
-  ].join('\n')
-}
-
 async function prepareMcpTools(params: {
   serverIds?: string[]
   mcpServers?: McpServerConfig[]
-  toolCallMode?: McpToolCallMode
 }): Promise<PreparedMcpTools> {
   const serverIds = Array.from(new Set((params.serverIds ?? []).filter((id) => typeof id === 'string' && id.trim())))
   if (serverIds.length === 0) {
@@ -213,9 +202,7 @@ async function prepareMcpTools(params: {
   const serverMap = new Map((params.mcpServers ?? []).map((s) => [s.id, s] as const))
   const runtimeTools = new Map<string, McpRuntimeTool>()
   const nativeTools: ToolDefinition[] = []
-  const promptLines: string[] = []
   const usedNames = new Set<string>()
-  const mode: McpToolCallMode = params.toolCallMode === 'prompt' ? 'prompt' : 'native'
 
   for (const serverId of serverIds) {
     const server = serverMap.get(serverId)
@@ -240,11 +227,6 @@ async function prepareMcpTools(params: {
       : remoteTools
 
     for (const tool of filteredTools) {
-      const summaryLine = `${server.name || serverId} / ${tool.name}${tool.description ? `: ${tool.description}` : ''}`
-      promptLines.push(summaryLine)
-
-      if (mode !== 'native') continue
-
       const nativeName = buildMcpNativeToolName(serverId, tool.name, usedNames)
       nativeTools.push({
         type: 'function',
@@ -265,8 +247,7 @@ async function prepareMcpTools(params: {
 
   return {
     nativeTools,
-    runtimeTools,
-    promptHint: mode === 'prompt' ? buildPromptModeHint(promptLines) : undefined
+    runtimeTools
   }
 }
 
@@ -401,7 +382,7 @@ export async function* rendererSendMessageStream(
 
   const tools: ToolDefinition[] = []
   let mcpRuntimeTools = new Map<string, McpRuntimeTool>()
-  let promptModeHint: string | undefined
+  const isPromptMode = mcpToolCallMode === 'prompt'
   const supportsTools = modelSupportsTools(
     modelId,
     config.modelOverrides as Record<string, unknown> | undefined
@@ -414,26 +395,20 @@ export async function* rendererSendMessageStream(
   ) {
     const preparedMcp = await prepareMcpTools({
       serverIds: mcpServerIds,
-      mcpServers,
-      toolCallMode: mcpToolCallMode
+      mcpServers
     })
     if (preparedMcp.nativeTools.length > 0) {
       tools.push(...preparedMcp.nativeTools)
       mcpRuntimeTools = preparedMcp.runtimeTools
     }
-    promptModeHint = preparedMcp.promptHint
   }
 
-  if (supportsTools && enableSearchTool) {
+  if ((supportsTools || isPromptMode) && enableSearchTool) {
     tools.push(SEARCH_TOOL_DEFINITION)
   }
-  if (supportsTools && enableMemory) {
+  if ((supportsTools || isPromptMode) && enableMemory) {
     tools.push(...MEMORY_TOOL_DEFINITIONS)
   }
-
-  const finalMessages: ChatMessage[] = promptModeHint
-    ? [{ role: 'system', content: promptModeHint }, ...messages]
-    : messages
 
   const onToolCall =
     tools.length > 0
@@ -445,10 +420,32 @@ export async function* rendererSendMessageStream(
         })
       : undefined
 
+  // Prompt 模式：通过 XML 提示词注入 + 流式解析实现工具调用
+  if (isPromptMode && tools.length > 0 && onToolCall) {
+    yield* sendPromptToolStream({
+      config,
+      modelId,
+      messages,
+      userImages,
+      thinkingBudget,
+      temperature,
+      topP,
+      maxTokens,
+      maxToolLoopIterations,
+      tools,
+      onToolCall,
+      extraHeaders: customHeaders,
+      extraBody: customBody,
+      signal
+    })
+    return
+  }
+
+  // Native 模式：通过原生 function calling 实现工具调用
   yield* sendMessageStream({
     config,
     modelId,
-    messages: finalMessages,
+    messages,
     userImages,
     thinkingBudget,
     responsesReasoningSummary,

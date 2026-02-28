@@ -3,6 +3,9 @@ import type { ElectronAPI } from '@electron-toolkit/preload'
 import type { AppConfig, ProviderConfigV2, WebDavConfig, BackupFileItem, RestoreMode, BackupWebdavProgress, McpCallToolRequest, McpCallToolResponse, StorageReport } from '../../../shared/types'
 import type { ModelsListResult } from '../../../shared/models'
 import type {
+  DbAssistant,
+  AssistantCreateInput,
+  AssistantUpdateInput,
   DbConversation,
   ConversationCreateInput,
   ConversationUpdateInput,
@@ -101,6 +104,15 @@ declare global {
         writeFile: (filePath: string, data: Buffer) => Promise<void>
       }
       db: {
+        assistants: {
+          list: () => Promise<DbAssistant[]>
+          get: (id: string) => Promise<DbAssistant | null>
+          create: (input: AssistantCreateInput) => Promise<DbAssistant>
+          update: (id: string, input: AssistantUpdateInput) => Promise<DbAssistant | null>
+          delete: (id: string) => Promise<void>
+          setDefault: (id: string) => Promise<DbAssistant | null>
+          reorder: (ids: string[]) => Promise<DbAssistant[]>
+        }
         conversations: {
           list: (params?: ConversationListParams) => Promise<ConversationListResult>
           get: (id: string) => Promise<DbConversation | null>
@@ -223,6 +235,9 @@ declare global {
         outputDelete: (request: ImageStudioOutputDeleteRequest) => Promise<ImageStudioOutputDeleteResult>
         historyRetry: (request: ImageStudioRetryRequest) => Promise<ImageStudioSubmitResult>
         onEvent: (fn: (event: ImageStudioEvent) => void) => () => void
+      }
+      proxy: {
+        test: (proxyConfig: { enabled: boolean; type: string; host: string; port: string; username: string; password: string; bypass: string }, testUrl: string) => Promise<{ ok: boolean; message: string; statusCode?: number; elapsed?: number }>
       }
       promptLibrary: {
         list: (request: PromptLibraryListRequest) => Promise<PromptLibraryListResult>

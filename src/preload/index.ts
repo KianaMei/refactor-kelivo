@@ -52,6 +52,9 @@ import type { DepsInstallParams, DepsProgressEvent, DepsStatusResult, DepsUninst
 import type { PreprocessImageParams, PreprocessImageResult } from '../main/chatPreprocessIpc'
 // import type { SearchServiceConfigUnion } from '../main/services/search'
 import type {
+  DbAssistant,
+  AssistantCreateInput,
+  AssistantUpdateInput,
   DbConversation,
   ConversationCreateInput,
   ConversationUpdateInput,
@@ -115,6 +118,22 @@ const api = {
       ipcRenderer.invoke(IpcChannel.DialogWriteFile, filePath, data) as Promise<void>
   },
   db: {
+    assistants: {
+      list: () =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantList) as Promise<DbAssistant[]>,
+      get: (id: string) =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantGet, id) as Promise<DbAssistant | null>,
+      create: (input: AssistantCreateInput) =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantCreate, input) as Promise<DbAssistant>,
+      update: (id: string, input: AssistantUpdateInput) =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantUpdate, id, input) as Promise<DbAssistant | null>,
+      delete: (id: string) =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantDelete, id) as Promise<void>,
+      setDefault: (id: string) =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantSetDefault, id) as Promise<DbAssistant | null>,
+      reorder: (ids: string[]) =>
+        ipcRenderer.invoke(IpcChannel.DbAssistantReorder, ids) as Promise<DbAssistant[]>
+    },
     conversations: {
       list: (params?: ConversationListParams) =>
         ipcRenderer.invoke(IpcChannel.DbConversationList, params ?? {}) as Promise<ConversationListResult>,
@@ -323,6 +342,10 @@ const api = {
       ipcRenderer.invoke(IpcChannel.StorageGetCategoryItems, categoryKey) as Promise<StorageItemDetail[]>,
     deleteItems: (paths: string[]) =>
       ipcRenderer.invoke(IpcChannel.StorageDeleteItems, paths) as Promise<void>
+  },
+  proxy: {
+    test: (proxyConfig: { enabled: boolean; type: string; host: string; port: string; username: string; password: string; bypass: string }, testUrl: string) =>
+      ipcRenderer.invoke(IpcChannel.ProxyTest, proxyConfig, testUrl) as Promise<{ ok: boolean; message: string; statusCode?: number; elapsed?: number }>
   },
   promptLibrary: {
     list: (request: PromptLibraryListRequest) =>

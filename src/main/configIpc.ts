@@ -3,7 +3,8 @@ import { ipcMain, session } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import type { AppConfig } from '../shared/types'
 import { loadConfig, saveConfigAndReturn } from './configStore'
-import { applyProxyConfig } from './proxyManager'
+import { applyProxyConfig, testProxyConnection } from './proxyManager'
+import type { GlobalProxyConfig } from './proxyManager'
 
 export function registerConfigIpc(): void {
   ipcMain.handle(IpcChannel.ConfigGet, async () => {
@@ -17,5 +18,9 @@ export function registerConfigIpc(): void {
       console.warn('[ProxyManager] Failed to update proxy:', err)
     )
     return saved
+  })
+
+  ipcMain.handle(IpcChannel.ProxyTest, async (_event, proxyConfig: GlobalProxyConfig, testUrl: string) => {
+    return testProxyConnection(proxyConfig, testUrl)
   })
 }
