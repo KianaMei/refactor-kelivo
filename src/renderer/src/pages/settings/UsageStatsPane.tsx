@@ -557,26 +557,6 @@ function TokenTrend(props: { rows: MessageTokenDay[]; maxValue: number }) {
   return (
     <div style={styles.trendBlock}>
       <div style={styles.trendViewportWrap}>
-        {hoveredRow && (
-          <div style={{ ...styles.trendTooltip, left: tooltipLeft }}>
-            <div style={styles.trendTooltipArrowUp} />
-            <div style={styles.trendTooltipDate}>{hoveredRow.day}</div>
-            <div style={styles.trendTooltipRow}>
-              <i style={{ ...styles.dot, background: 'color-mix(in srgb, var(--primary) 86%, var(--surface-3))' }} />
-              输入 {formatTokenCount(hoveredRow.promptTokens)}
-            </div>
-            <div style={styles.trendTooltipRow}>
-              <i style={{ ...styles.dot, background: 'color-mix(in srgb, #60a5fa 82%, var(--surface-3))' }} />
-              输出 {formatTokenCount(hoveredRow.completionTokens)}
-            </div>
-            <div style={styles.trendTooltipRow}>
-              <i style={{ ...styles.dot, background: 'color-mix(in srgb, #f59e0b 86%, var(--surface-3))' }} />
-              缓存 {formatTokenCount(hoveredRow.cachedTokens)}
-            </div>
-            <div style={styles.trendTooltipTotal}>总计 {formatTokenCount(hoveredRow.totalTokens)}</div>
-          </div>
-        )}
-
         <div
           ref={scrollRef}
           className="usageTrendScroll"
@@ -698,6 +678,28 @@ function TokenTrend(props: { rows: MessageTokenDay[]; maxValue: number }) {
         <div style={{ ...styles.trendEdge, ...styles.trendEdgeRight, opacity: canScrollRight ? 1 : 0 }} />
       </div>
 
+      <div style={styles.trendTooltipSlot}>
+        {hoveredRow && (
+          <div style={{ ...styles.trendTooltip, left: tooltipLeft }}>
+            <div style={styles.trendTooltipArrowUp} />
+            <div style={styles.trendTooltipDate}>{hoveredRow.day}</div>
+            <div style={styles.trendTooltipRow}>
+              <i style={{ ...styles.dot, background: 'color-mix(in srgb, var(--primary) 86%, var(--surface-3))' }} />
+              输入 {formatTokenCount(hoveredRow.promptTokens)}
+            </div>
+            <div style={styles.trendTooltipRow}>
+              <i style={{ ...styles.dot, background: 'color-mix(in srgb, #60a5fa 82%, var(--surface-3))' }} />
+              输出 {formatTokenCount(hoveredRow.completionTokens)}
+            </div>
+            <div style={styles.trendTooltipRow}>
+              <i style={{ ...styles.dot, background: 'color-mix(in srgb, #f59e0b 86%, var(--surface-3))' }} />
+              缓存 {formatTokenCount(hoveredRow.cachedTokens)}
+            </div>
+            <div style={styles.trendTooltipTotal}>总计 {formatTokenCount(hoveredRow.totalTokens)}</div>
+          </div>
+        )}
+      </div>
+
       <div style={styles.trendLegend}>
         <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, var(--primary) 82%, var(--surface-3))' }} />输入</span>
         <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, #60a5fa 78%, var(--surface-3))' }} />输出</span>
@@ -806,9 +808,13 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'relative',
     minWidth: TOKEN_TREND_DAYS * 32
   },
+  trendTooltipSlot: {
+    position: 'relative',
+    height: 176
+  },
   trendTooltip: {
     position: 'absolute',
-    top: 'calc(100% + 8px)',
+    top: 8,
     transform: 'translateX(-50%)',
     pointerEvents: 'none',
     zIndex: 12,
