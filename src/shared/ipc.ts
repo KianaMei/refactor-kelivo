@@ -80,6 +80,7 @@ export const IpcChannel = {
   DbMessageVersions: 'db:message:versions',
   DbMessageSearch: 'db:message:search',
   DbMessageNextSortOrder: 'db:message:nextSortOrder',
+  DbMessageUsageStats: 'db:message:usageStats',
 
   // Database — Workspaces
   DbWorkspaceList: 'db:workspace:list',

@@ -147,6 +147,34 @@ export interface MessageSearchResult {
   conversationTitle: string
 }
 
+export interface MessageDayCount {
+  day: string
+  count: number
+}
+
+export interface MessageTokenDay {
+  day: string
+  promptTokens: number
+  completionTokens: number
+  cachedTokens: number
+  totalTokens: number
+}
+
+export interface MessageUsageStats {
+  totalConversations: number
+  totalMessages: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCachedTokens: number
+  userMessagesPerDay: MessageDayCount[]
+  tokenUsagePerDay: MessageTokenDay[]
+}
+
+export interface MessageUsageStatsParams {
+  startDay?: string
+  trendStartDay?: string
+}
+
 // ── Workspace ────────────────────────────────────────────────
 
 export interface DbWorkspace {

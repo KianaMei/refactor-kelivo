@@ -72,6 +72,7 @@ export function isSettingsMenuKey(v: string): v is SettingsMenuKey {
     v === 'networkProxy' ||
     v === 'backup' ||
     v === 'dependencies' ||
+    v === 'usageStats' ||
     v === 'data' ||
     v === 'about'
   )

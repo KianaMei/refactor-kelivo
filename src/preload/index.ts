@@ -62,6 +62,8 @@ import type {
   ConversationListResult,
   DbMessage,
   MessageCreateInput,
+  MessageUsageStats,
+  MessageUsageStatsParams,
   MessageUpdateInput,
   MessageSearchResult,
   DbWorkspace,
@@ -170,7 +172,9 @@ const api = {
       search: (query: string) =>
         ipcRenderer.invoke(IpcChannel.DbMessageSearch, query) as Promise<MessageSearchResult[]>,
       nextSortOrder: (conversationId: string) =>
-        ipcRenderer.invoke(IpcChannel.DbMessageNextSortOrder, conversationId) as Promise<number>
+        ipcRenderer.invoke(IpcChannel.DbMessageNextSortOrder, conversationId) as Promise<number>,
+      usageStats: (params?: MessageUsageStatsParams) =>
+        ipcRenderer.invoke(IpcChannel.DbMessageUsageStats, params ?? {}) as Promise<MessageUsageStats>
     },
     workspaces: {
       list: () =>

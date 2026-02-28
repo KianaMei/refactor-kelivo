@@ -3,6 +3,7 @@ import { IpcChannel } from '../shared/ipc'
 import * as repo from './db/repositories/messageRepo'
 import type {
   MessageCreateInput,
+  MessageUsageStatsParams,
   MessageUpdateInput
 } from '../shared/db-types'
 
@@ -37,5 +38,9 @@ export function registerMessageIpc(): void {
 
   ipcMain.handle(IpcChannel.DbMessageNextSortOrder, (_e, conversationId: string) => {
     return repo.getNextSortOrder(conversationId)
+  })
+
+  ipcMain.handle(IpcChannel.DbMessageUsageStats, (_e, params?: MessageUsageStatsParams) => {
+    return repo.getMessageUsageStats(params)
   })
 }

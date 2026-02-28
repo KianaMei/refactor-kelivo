@@ -104,6 +104,7 @@ export type SettingsMenuKey =
   | 'networkProxy'
   | 'backup'
   | 'dependencies'
+  | 'usageStats'
   | 'data'
   | 'about'
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { AppConfig, SettingsMenuKey } from '../../../../shared/types'
 import { useConfig } from '../../contexts/ConfigContext'
-import { BadgeInfo, Bot, Boxes, Cpu, Database, Earth, Globe, Heart, Monitor, Terminal, Volume2, Zap } from 'lucide-react'
+import { BadgeInfo, BarChart3, Bot, Boxes, Cpu, Database, Earth, Globe, Heart, Monitor, Terminal, Volume2, Zap } from 'lucide-react'
 
 import { ScrollArea } from '../../components/ui/scroll-area'
 import { cn } from '../../lib/utils'
@@ -20,6 +20,7 @@ import { ProvidersPane } from './ProvidersPane'
 import { QuickPhrasesPane } from './QuickPhrasesPane'
 import { SearchPane } from './SearchPane'
 import { TtsPane } from './TtsPane'
+import { UsageStatsPane } from './UsageStatsPane'
 
 const MENU_MIN_WIDTH = 200
 const MENU_MAX_WIDTH = 480
@@ -35,6 +36,7 @@ const menuItems: Array<{ key: SettingsMenuKey; icon: React.ReactNode; label: str
   { key: 'tts', icon: <Volume2 className="h-4 w-4" />, label: '语音合成' },
   { key: 'networkProxy', icon: <Globe className="h-4 w-4" />, label: '网络代理' },
   { key: 'backup', icon: <Database className="h-4 w-4" />, label: '备份' },
+  { key: 'usageStats', icon: <BarChart3 className="h-4 w-4" />, label: '使用统计' },
   { key: 'about', icon: <BadgeInfo className="h-4 w-4" />, label: '关于' }
   , { key: 'dependencies', icon: <Cpu className="h-4 w-4" />, label: 'Dependencies / SDK' }
 ]
@@ -67,13 +69,10 @@ export function SettingsPage() {
 
   useEffect(() => {
     const extMenu = config.ui.desktop.selectedSettingsMenu
-    if (extMenu) {
-      const targetMenu = extMenu === 'data' ? 'backup' : extMenu
-      if (targetMenu !== menu) {
-        setMenu(targetMenu as SettingsMenuKey)
-      }
-    }
-  }, [config.ui.desktop.selectedSettingsMenu, menu])
+    if (!extMenu) return
+    const targetMenu = (extMenu === 'data' ? 'backup' : extMenu) as SettingsMenuKey
+    setMenu((prev) => (prev === targetMenu ? prev : targetMenu))
+  }, [config.ui.desktop.selectedSettingsMenu])
 
   const handleMenuDrag = useCallback((dx: number) => {
     setMenuWidth((w) => Math.max(MENU_MIN_WIDTH, Math.min(MENU_MAX_WIDTH, w + dx)))
@@ -118,6 +117,8 @@ export function SettingsPage() {
         return <BackupPane config={config} onSave={updateConfig} />
       case 'dependencies':
         return <DependenciesPane config={config} onSave={updateConfig} />
+      case 'usageStats':
+        return <UsageStatsPane />
       case 'data':
         return <DataPane />
       case 'about':

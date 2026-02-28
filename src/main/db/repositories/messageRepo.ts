@@ -1,7 +1,11 @@
 import { getDb } from '../database'
 import type {
   DbMessage,
+  MessageDayCount,
   MessageCreateInput,
+  MessageTokenDay,
+  MessageUsageStats,
+  MessageUsageStatsParams,
   MessageUpdateInput,
   MessageSearchResult
 } from '../../../shared/db-types'
@@ -32,6 +36,14 @@ interface MessageRow {
   finished_at: number | null
   first_token_at: number | null
   created_at: number
+}
+
+interface MessageStatsRow {
+  totalConversations: number
+  totalMessages: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCachedTokens: number
 }
 
 function rowToMessage(row: MessageRow): DbMessage {
@@ -211,4 +223,58 @@ export function getNextSortOrder(conversationId: string): number {
     .prepare('SELECT MAX(sort_order) AS max_order FROM messages WHERE conversation_id = ?')
     .get(conversationId) as { max_order: number | null }
   return (row.max_order ?? -1) + 1
+}
+
+export function getMessageUsageStats(params: MessageUsageStatsParams = {}): MessageUsageStats {
+  const db = getDb()
+
+  const startDay = (params.startDay ?? '').trim()
+  const trendStartDay = (params.trendStartDay ?? '').trim()
+
+  const totals = db.prepare(
+    `SELECT
+        (SELECT COUNT(*) FROM conversations) AS totalConversations,
+        COUNT(*) AS totalMessages,
+        COALESCE(SUM(CAST(json_extract(token_usage, '$.promptTokens') AS INTEGER)), 0) AS totalPromptTokens,
+        COALESCE(SUM(CAST(json_extract(token_usage, '$.completionTokens') AS INTEGER)), 0) AS totalCompletionTokens,
+        COALESCE(SUM(CAST(json_extract(token_usage, '$.cachedTokens') AS INTEGER)), 0) AS totalCachedTokens
+      FROM messages`
+  ).get() as MessageStatsRow
+
+  const userMessagesPerDay = db.prepare(
+    `SELECT
+        date(created_at / 1000, 'unixepoch', 'localtime') AS day,
+        COUNT(*) AS count
+      FROM messages
+      WHERE role = 'user'
+        AND (? = '' OR date(created_at / 1000, 'unixepoch', 'localtime') >= date(?))
+      GROUP BY day
+      ORDER BY day ASC`
+  ).all(startDay, startDay) as MessageDayCount[]
+
+  const tokenUsagePerDay = db.prepare(
+    `SELECT
+        date(created_at / 1000, 'unixepoch', 'localtime') AS day,
+        COALESCE(SUM(CAST(json_extract(token_usage, '$.promptTokens') AS INTEGER)), 0) AS promptTokens,
+        COALESCE(SUM(CAST(json_extract(token_usage, '$.completionTokens') AS INTEGER)), 0) AS completionTokens,
+        COALESCE(SUM(CAST(json_extract(token_usage, '$.cachedTokens') AS INTEGER)), 0) AS cachedTokens
+      FROM messages
+      WHERE token_usage IS NOT NULL
+        AND (? = '' OR date(created_at / 1000, 'unixepoch', 'localtime') >= date(?))
+      GROUP BY day
+      ORDER BY day ASC`
+  ).all(trendStartDay, trendStartDay) as Array<Omit<MessageTokenDay, 'totalTokens'>>
+
+  return {
+    totalConversations: totals.totalConversations ?? 0,
+    totalMessages: totals.totalMessages ?? 0,
+    totalPromptTokens: totals.totalPromptTokens ?? 0,
+    totalCompletionTokens: totals.totalCompletionTokens ?? 0,
+    totalCachedTokens: totals.totalCachedTokens ?? 0,
+    userMessagesPerDay,
+    tokenUsagePerDay: tokenUsagePerDay.map((item) => ({
+      ...item,
+      totalTokens: (item.promptTokens ?? 0) + (item.completionTokens ?? 0) + (item.cachedTokens ?? 0)
+    }))
+  }
 }

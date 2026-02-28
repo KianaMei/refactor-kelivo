@@ -14,6 +14,8 @@ import type {
     ConversationListResult,
     DbMessage,
     MessageCreateInput,
+    MessageUsageStats,
+    MessageUsageStatsParams,
     MessageUpdateInput,
     MessageSearchResult,
     DbWorkspace,
@@ -134,6 +136,7 @@ declare global {
                     versions: (groupId: string) => Promise<DbMessage[]>
                     search: (query: string) => Promise<MessageSearchResult[]>
                     nextSortOrder: (conversationId: string) => Promise<number>
+                    usageStats: (params?: MessageUsageStatsParams) => Promise<MessageUsageStats>
                 }
                 workspaces: {
                     list: () => Promise<DbWorkspace[]>
