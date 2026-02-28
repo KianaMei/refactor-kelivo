@@ -3149,17 +3149,21 @@ code, pre, .mdCodeBlock {
   min-width: 0;
 }
 .chatConvMetaLeft {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   overflow: hidden;
 }
+.chatConvMetaLeft:empty {
+  display: none;
+}
 .chatConvMetaRight {
-  margin-left: auto;
+  margin-left: 0;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   white-space: nowrap;
 }
@@ -3180,6 +3184,9 @@ code, pre, .mdCodeBlock {
 }
 .chatConvMetaTime {
   opacity: 0.7;
+  display: inline-block;
+  min-width: 3.8em;
+  text-align: left;
 }
 .chatConvMetaCount {
   opacity: 0.6;
@@ -3670,6 +3677,17 @@ code, pre, .mdCodeBlock {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Usage stats trend: hide native horizontal scrollbar while keeping scroll behavior */
+.usageTrendScroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.usageTrendScroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 .searchResultArrow {
   opacity: 0;
