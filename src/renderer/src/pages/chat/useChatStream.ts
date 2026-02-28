@@ -9,7 +9,16 @@ import { buildChatRequestMessages, buildCustomBody, buildCustomHeaders } from '.
 import { rendererSendMessageStream } from '../../lib/chatService'
 import { useChatStreamEvents } from './useChatStreamEvents'
 import { safeUuid } from '../../../../shared/utils'
+import { wrapOcrBlock } from '../../../../shared/ocr'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../../shared/responsesOptions'
+
+/** 检查模型是否支持图像输入（modelOverrides.input 包含 'image'） */
+function modelSupportsImageInput(config: AppConfig, providerId: string, modelId: string): boolean {
+  const provider = config.providerConfigs[providerId]
+  if (!provider) return false
+  const ov = provider.modelOverrides?.[modelId] as { input?: string[] } | undefined
+  return Array.isArray(ov?.input) && ov.input.includes('image')
+}
 
 interface MentionSendQueue {
   convId: string
@@ -261,10 +270,32 @@ export function useChatStream(deps: Deps) {
     setLoadingConversationIds((prev) => new Set(prev).add(queue.convId))
 
     try {
+      let effectiveUserInput = queue.userInput
+      let effectiveImagePaths = queue.userImagePaths
+
+      // OCR: 多模型@提及场景，当目标模型不支持图像输入时走 OCR
+      if (
+        config.ocrEnabled &&
+        config.ocrModelProvider &&
+        config.ocrModelId &&
+        effectiveImagePaths.length > 0 &&
+        !modelSupportsImageInput(config, providerId, modelId)
+      ) {
+        try {
+          const ocrResult = await window.api.ocr.run({ imagePaths: effectiveImagePaths })
+          if (ocrResult.success && ocrResult.text) {
+            effectiveUserInput = wrapOcrBlock(ocrResult.text) + '\n' + effectiveUserInput
+            effectiveImagePaths = []
+          }
+        } catch (ocrErr) {
+          console.warn('[useChatStream] OCR failed in mention queue, falling back to direct image send:', ocrErr)
+        }
+      }
+
       const reqMessages: ChatMessageInput[] = buildChatRequestMessages({
         assistant,
         history: queue.history,
-        userInput: queue.userInput,
+        userInput: effectiveUserInput,
         memories: assistantMemories,
         recentChats
       })
@@ -280,7 +311,7 @@ export function useChatStream(deps: Deps) {
         responsesReasoningSummary: queue.responsesReasoningSummary,
         responsesTextVerbosity: queue.responsesTextVerbosity,
         maxToolLoopIterations: queue.maxToolLoopIterations,
-        userImagePaths: queue.userImagePaths,
+        userImagePaths: effectiveImagePaths,
         temperature: assistant?.temperature,
         topP: assistant?.topP,
         maxTokens: assistant?.maxTokens,
@@ -450,7 +481,27 @@ export function useChatStream(deps: Deps) {
           sliceAfterTruncate(activeMessages, activeConversation?.truncateIndex),
           selectedVersions
         )
-        const userInput = text || (hasAttachments ? '请根据我上传的附件进行分析。' : displayText)
+        let userInput = text || (hasAttachments ? '请根据我上传的附件进行分析。' : displayText)
+        let effectiveImagePaths = attachmentPayload.userImagePaths
+
+        // OCR: 当启用且已配置、有图片、且当前聊天模型不支持图像输入时，先用 OCR 模型提取图片文本
+        if (
+          config.ocrEnabled &&
+          config.ocrModelProvider &&
+          config.ocrModelId &&
+          effectiveImagePaths.length > 0 &&
+          !modelSupportsImageInput(config, providerId, modelId)
+        ) {
+          try {
+            const ocrResult = await window.api.ocr.run({ imagePaths: effectiveImagePaths })
+            if (ocrResult.success && ocrResult.text) {
+              userInput = wrapOcrBlock(ocrResult.text) + '\n' + userInput
+              effectiveImagePaths = []
+            }
+          } catch (ocrErr) {
+            console.warn('[useChatStream] OCR failed, falling back to direct image send:', ocrErr)
+          }
+        }
 
         const reqMessages: ChatMessageInput[] = buildChatRequestMessages({
           assistant,
@@ -471,7 +522,7 @@ export function useChatStream(deps: Deps) {
           responsesReasoningSummary,
           responsesTextVerbosity,
           maxToolLoopIterations,
-          userImagePaths: attachmentPayload.userImagePaths,
+          userImagePaths: effectiveImagePaths,
           temperature: assistant?.temperature,
           topP: assistant?.topP,
           maxTokens: assistant?.maxTokens,

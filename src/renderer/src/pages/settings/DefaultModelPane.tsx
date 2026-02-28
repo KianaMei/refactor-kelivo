@@ -11,7 +11,7 @@ export function DefaultModelPane(props: { config: AppConfig; onSave: (next: AppC
   const providers = useMemo(() => {
     const map = props.config.providerConfigs
     const order = props.config.providersOrder
-    return order.map((k) => map[k]).filter(Boolean)
+    return order.map((k) => map[k]).filter((p) => p && p.enabled)
   }, [props.config.providerConfigs, props.config.providersOrder])
 
   const currentModelDisplay = props.config.currentModelId || '未设置'

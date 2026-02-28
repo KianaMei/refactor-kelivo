@@ -5,6 +5,7 @@
 
 import { sendMessageStream } from '../api/chatApiService'
 import type { ProviderConfigV2 } from '../../shared/types'
+import { wrapOcrBlock as sharedWrapOcrBlock } from '../../shared/ocr'
 
 /** OCR 服务配置 */
 export interface OcrConfig {
@@ -95,13 +96,10 @@ export class OcrService {
 
   /**
    * 包装 OCR 文本为结构化块
+   * @deprecated 使用 shared/ocr.ts 的 wrapOcrBlock
    */
   static wrapOcrBlock(ocrText: string): string {
-    return `The image_file_ocr tag contains a description of an image that the user uploaded to you, not the user's prompt.
-<image_file_ocr>
-${ocrText.trim()}
-</image_file_ocr>
-`
+    return sharedWrapOcrBlock(ocrText)
   }
 
   /**

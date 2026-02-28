@@ -32,7 +32,7 @@ export function AssistantPane(props: { config: AppConfig; onSave: (next: AppConf
     for (const [k, v] of Object.entries(map)) {
       if (!order.includes(k)) list.push(v)
     }
-    return list
+    return list.filter((p) => p.enabled)
   }, [config.providerConfigs, config.providersOrder])
 
   const assistants = useMemo(() => {

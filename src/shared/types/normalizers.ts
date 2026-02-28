@@ -356,6 +356,7 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
     translateModelProvider:
       typeof cfg['translateModelProvider'] === 'string' ? (cfg['translateModelProvider'] as string) : null,
     translateModelId: typeof cfg['translateModelId'] === 'string' ? (cfg['translateModelId'] as string) : null,
+    translatePrompt: typeof cfg['translatePrompt'] === 'string' ? (cfg['translatePrompt'] as string) : def.translatePrompt,
     titleModelProvider:
       typeof cfg['titleModelProvider'] === 'string' ? (cfg['titleModelProvider'] as string) : null,
     titleModelId: typeof cfg['titleModelId'] === 'string' ? (cfg['titleModelId'] as string) : null,
@@ -364,6 +365,9 @@ export function normalizeConfig(input: unknown): AppConfigV2 {
       typeof cfg['summaryModelProvider'] === 'string' ? (cfg['summaryModelProvider'] as string) : null,
     summaryModelId: typeof cfg['summaryModelId'] === 'string' ? (cfg['summaryModelId'] as string) : null,
     summaryPrompt: typeof cfg['summaryPrompt'] === 'string' ? (cfg['summaryPrompt'] as string) : def.summaryPrompt,
+    ocrModelProvider: typeof cfg['ocrModelProvider'] === 'string' ? (cfg['ocrModelProvider'] as string) : null,
+    ocrModelId: typeof cfg['ocrModelId'] === 'string' ? (cfg['ocrModelId'] as string) : null,
+    ocrEnabled: typeof cfg['ocrEnabled'] === 'boolean' ? (cfg['ocrEnabled'] as boolean) : false,
     assistantsOrder: assistantsOrder.length ? assistantsOrder : Object.keys(assistantConfigs),
     assistantConfigs,
     agentsOrder: agentsOrder.length ? agentsOrder : Object.keys(agentConfigs),

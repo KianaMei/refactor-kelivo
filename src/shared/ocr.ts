@@ -35,3 +35,12 @@ export interface OcrRunResult {
     text?: string
     error?: string
 }
+
+/** 包装 OCR 文本为结构化块 */
+export function wrapOcrBlock(ocrText: string): string {
+    return `The image_file_ocr tag contains a description of an image that the user uploaded to you, not the user's prompt.
+<image_file_ocr>
+${ocrText.trim()}
+</image_file_ocr>
+`
+}

@@ -271,12 +271,16 @@ export function createDefaultConfig(): AppConfigV2 {
     currentModelId: null,
     translateModelProvider: null,
     translateModelId: null,
+    translatePrompt: DEFAULT_TRANSLATE_PROMPT,
     titleModelProvider: null,
     titleModelId: null,
     titlePrompt: DEFAULT_TITLE_PROMPT,
     summaryModelProvider: null,
     summaryModelId: null,
     summaryPrompt: DEFAULT_SUMMARY_PROMPT,
+    ocrModelProvider: null,
+    ocrModelId: null,
+    ocrEnabled: false,
     assistantsOrder: ['default', 'sample', 'ocr'],
     assistantConfigs: {
       default: createDefaultAssistantConfig('default', '默认助手', {

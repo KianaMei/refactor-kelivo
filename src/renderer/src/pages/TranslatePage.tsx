@@ -59,7 +59,7 @@ export function TranslatePage(props: {
 
   const providers = useMemo<ProviderConfigV2[]>(() => {
     return Object.values(config.providerConfigs).filter(
-      (p): p is ProviderConfigV2 => !!p && Array.isArray(p.models) && p.models.length > 0
+      (p): p is ProviderConfigV2 => !!p && p.enabled && Array.isArray(p.models) && p.models.length > 0
     )
   }, [config.providerConfigs])
 
