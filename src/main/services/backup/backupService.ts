@@ -1,11 +1,12 @@
 import { app } from 'electron'
 import { join, basename } from 'path'
-import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, readdirSync, statSync, copyFileSync } from 'fs'
 import { readFile, writeFile, mkdir, readdir, stat, copyFile } from 'fs/promises'
 import { Readable } from 'stream'
 import AdmZip from 'adm-zip'
 import { loadConfig, saveConfig } from '../../configStore'
 import { closeDatabase, initDatabase } from '../../db/database'
+import BetterSqlite3 from 'better-sqlite3'
 import type { WebDavConfig, BackupFileItem, RestoreMode, AppConfig, BackupWebdavProgress } from '../../../shared/types'
 import type { DbAssistant } from '../../../shared/db-types'
 import {
@@ -15,12 +16,22 @@ import {
   reorderAssistants,
   setDefaultAssistant
 } from '../../db/repositories/assistantRepo'
+import { listPromptLibraryItems, createPromptLibraryItem } from '../../db/repositories/promptLibraryRepo'
 
 // ================== 备份文件名生成 ==================
 
-function getBackupFileNameEpoch(): string {
-  const epoch = Date.now()
-  return `kelivo_backup_electron_${epoch}.zip`
+function getBackupFileNameEpoch(includeChats: boolean): string {
+  const now = new Date()
+  const ts = [
+    String(now.getFullYear()).slice(2),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0')
+  ].join('')
+  const suffix = includeChats ? '' : '_nochat'
+  return `kelivo_backup_electron_${ts}${suffix}.zip`
 }
 
 function tryParseBackupTimestamp(filename: string): Date | null {
@@ -35,6 +46,19 @@ function tryParseBackupTimestamp(filename: string): Date | null {
   if (epochMatch) {
     const epoch = parseInt(epochMatch[1], 10)
     if (!isNaN(epoch)) return new Date(epoch)
+  }
+  // 格式3: kelivo_backup_<platform>_yymmddhhmmss[_nochat].zip
+  const shortMatch = filename.match(/kelivo_backup_\w+_(\d{12})(?:_nochat)?\.zip/i)
+  if (shortMatch) {
+    const s = shortMatch[1]
+    const y = 2000 + parseInt(s.slice(0, 2), 10)
+    const mon = parseInt(s.slice(2, 4), 10) - 1
+    const d = parseInt(s.slice(4, 6), 10)
+    const h = parseInt(s.slice(6, 8), 10)
+    const min = parseInt(s.slice(8, 10), 10)
+    const sec = parseInt(s.slice(10, 12), 10)
+    const parsed = new Date(y, mon, d, h, min, sec)
+    if (!isNaN(parsed.getTime())) return parsed
   }
   return null
 }
@@ -277,6 +301,10 @@ export async function exportLocalBackup(
   const assistantsSnapshot = listAssistants()
   zip.addFile('assistants.json', Buffer.from(JSON.stringify(assistantsSnapshot, null, 2), 'utf-8'))
 
+  // 提示词库快照（始终备份，避免 includeChats=false 时遗漏）
+  const promptSnapshot = listPromptLibraryItems({ limit: 100000 })
+  zip.addFile('prompt_library.json', Buffer.from(JSON.stringify(promptSnapshot.items, null, 2), 'utf-8'))
+
   // 添加数据库
   if (includeChats) {
     // Ensure SQLite WAL content is flushed before snapshotting the db file.
@@ -284,7 +312,26 @@ export async function exportLocalBackup(
     dbNeedsReopen = true
     const dbPath = getDbPath()
     if (existsSync(dbPath)) {
-      zip.addLocalFile(dbPath, '', 'kelivo.db')
+      if (!includeGeneratedImages) {
+        // 剥离图片工作室历史任务表，仅保留设置/聊天/提示词
+        const tmpDbPath = join(app.getPath('temp'), `kelivo_backup_clean_${Date.now()}.db`)
+        try {
+          copyFileSync(dbPath, tmpDbPath)
+          const tmpDb = new BetterSqlite3(tmpDbPath)
+          try {
+            tmpDb.exec('DROP TABLE IF EXISTS image_generation_outputs')
+            tmpDb.exec('DROP TABLE IF EXISTS image_generations')
+            tmpDb.exec('VACUUM')
+          } finally {
+            tmpDb.close()
+          }
+          zip.addLocalFile(tmpDbPath, '', 'kelivo.db')
+        } finally {
+          try { rmSync(tmpDbPath, { force: true }) } catch { /* ignore */ }
+        }
+      } else {
+        zip.addLocalFile(dbPath, '', 'kelivo.db')
+      }
     }
   }
 
@@ -387,6 +434,26 @@ export async function importLocalBackup(
       const parsed = JSON.parse(await readFile(assistantsSrc, 'utf-8')) as unknown
       const snapshot = normalizeAssistantSnapshot(parsed)
       restoreAssistantsFromSnapshot(snapshot, mode)
+    }
+
+    // 恢复提示词库快照（独立于 includeChats）
+    const promptLibSrc = join(extractDir, 'prompt_library.json')
+    if (existsSync(promptLibSrc)) {
+      try {
+        const parsed = JSON.parse(await readFile(promptLibSrc, 'utf-8')) as unknown
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && typeof item === 'object' && typeof (item as any).prompt === 'string') {
+              createPromptLibraryItem({
+                prompt: (item as any).prompt,
+                isFavorite: (item as any).isFavorite ?? false
+              })
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Backup] Failed to restore prompt_library.json:', e)
+      }
     }
 
     // 恢复附件
@@ -533,7 +600,7 @@ export async function backupToWebDav(
   onProgress?.({ stage: 'ensureCollection', percent: 58, message: '远程目录就绪' })
 
   // 上传文件
-  const filename = getBackupFileNameEpoch()
+  const filename = getBackupFileNameEpoch(cfg.includeChats)
   const targetUrl = buildFileUri(cfg, filename)
   console.log(`[WebDAV Backup] Target URL: ${targetUrl}`)
 

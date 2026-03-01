@@ -70,7 +70,9 @@ export function useConversationManager(deps: Deps) {
 
   const [workspaces, setWorkspaces] = useState<DbWorkspace[]>([])
   const [assistants, setAssistants] = useState<DbAssistant[]>([])
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() => {
+    return localStorage.getItem('kelivo_activeWorkspaceId') ?? null
+  })
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvId, setActiveConvId] = useState<string>('')
   const [loadingConversationIds, setLoadingConversationIds] = useState<Set<string>>(new Set())
@@ -80,6 +82,14 @@ export function useConversationManager(deps: Deps) {
 
   const defaultAssistantId = getDefaultAssistantId(assistants)
   const activeConversation = conversations.find((c) => c.id === activeConvId)
+
+  useEffect(() => {
+    if (activeWorkspaceId === null) {
+      localStorage.removeItem('kelivo_activeWorkspaceId')
+    } else {
+      localStorage.setItem('kelivo_activeWorkspaceId', activeWorkspaceId)
+    }
+  }, [activeWorkspaceId])
 
   const reloadAssistants = useCallback(async () => {
     const list = await window.api.db.assistants.list()
@@ -102,23 +112,30 @@ export function useConversationManager(deps: Deps) {
   // DB: 初始加载
   useEffect(() => {
     void (async () => {
-      const wsList = await window.api.db.workspaces.list()
-      await reloadAssistants()
+      const [wsList, assistantList, result] = await Promise.all([
+        window.api.db.workspaces.list(),
+        window.api.db.assistants.list(),
+        window.api.db.conversations.list()
+      ])
       setWorkspaces(wsList)
-      const result = await window.api.db.conversations.list()
+      setAssistants(assistantList)
       if (result.items.length === 0) {
         setDbReady(true)
         return
       }
-      const convs: Conversation[] = await Promise.all(
-        result.items.map(async (c) => {
-          const count = await window.api.db.conversations.assistantCount(c.id)
-          return dbConvToConversation(c, count)
-        })
+      const convs: Conversation[] = result.items.map((c) =>
+        dbConvToConversation(c, 0)
       )
       setConversations(convs)
       setActiveConvId(convs[0].id)
       setDbReady(true)
+
+      // 异步填充 assistantCount（不阻塞 UI）
+      window.api.db.conversations.allAssistantCounts().then((allCounts) => {
+        setConversations((prev) =>
+          prev.map((c) => ({ ...c, assistantCount: allCounts[c.id] ?? c.assistantCount ?? 0 }))
+        )
+      }).catch(() => { /* 计数加载失败不影响功能 */ })
     })().catch(err => console.error('[useConversationManager] initial db load failed:', err))
   }, [reloadAssistants])
 

@@ -44,4 +44,8 @@ export function registerConversationIpc(): void {
   ipcMain.handle(IpcChannel.DbConversationAssistantCount, (_e, conversationId: string) => {
     return repo.getConversationAssistantMessageCount(conversationId)
   })
+
+  ipcMain.handle(IpcChannel.DbConversationAllAssistantCounts, () => {
+    return repo.getAllAssistantMessageCounts()
+  })
 }

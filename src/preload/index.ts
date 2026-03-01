@@ -154,7 +154,9 @@ const api = {
       messageCount: (conversationId: string) =>
         ipcRenderer.invoke(IpcChannel.DbConversationMessageCount, conversationId) as Promise<number>,
       assistantCount: (conversationId: string) =>
-        ipcRenderer.invoke(IpcChannel.DbConversationAssistantCount, conversationId) as Promise<number>
+        ipcRenderer.invoke(IpcChannel.DbConversationAssistantCount, conversationId) as Promise<number>,
+      allAssistantCounts: () =>
+        ipcRenderer.invoke(IpcChannel.DbConversationAllAssistantCounts) as Promise<Record<string, number>>
     },
     messages: {
       list: (conversationId: string) =>

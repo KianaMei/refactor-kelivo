@@ -196,6 +196,34 @@ export function getConversationMessageCount(conversationId: string): number {
  * - 以 groupId 折叠版本：每个 group 只计最后一个版本（max version）
  * - 仅统计 assistant 角色
  */
+export function getAllAssistantMessageCounts(): Record<string, number> {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `
+      SELECT m.conversation_id, COUNT(*) AS cnt
+      FROM (
+        SELECT conversation_id, COALESCE(group_id, id) AS gid, MAX(version) AS maxv
+        FROM messages
+        GROUP BY conversation_id, gid
+      ) g
+      JOIN messages m
+        ON m.conversation_id = g.conversation_id
+       AND COALESCE(m.group_id, m.id) = g.gid
+       AND m.version = g.maxv
+      WHERE m.role = 'assistant'
+      GROUP BY m.conversation_id
+      `
+    )
+    .all() as { conversation_id: string; cnt: number }[]
+
+  const result: Record<string, number> = {}
+  for (const row of rows) {
+    result[row.conversation_id] = row.cnt
+  }
+  return result
+}
+
 export function getConversationAssistantMessageCount(conversationId: string): number {
   const db = getDb()
 

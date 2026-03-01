@@ -452,7 +452,7 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
       if (result.success && result.data) {
         // 保存文件
         const saveResult = await window.api.dialog.saveFile({
-          defaultPath: `kelivo_backup_electron_${Date.now()}.zip`,
+          defaultPath: (() => { const n = new Date(); const ts = [String(n.getFullYear()).slice(2), String(n.getMonth()+1).padStart(2,'0'), String(n.getDate()).padStart(2,'0'), String(n.getHours()).padStart(2,'0'), String(n.getMinutes()).padStart(2,'0'), String(n.getSeconds()).padStart(2,'0')].join(''); return `kelivo_backup_electron_${ts}${(currentConfig?.includeChats ?? true) ? '' : '_nochat'}.zip`; })(),
           filters: [{ name: 'ZIP 文件', extensions: ['zip'] }]
         })
 
@@ -644,8 +644,8 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
             <div style={s.webdavEditSwitchRow}>
               <div style={s.webdavEditSwitchCard}>
                 <div>
-                  <div style={s.webdavEditSwitchTitle}>包含对话</div>
-                  <div style={s.webdavEditSwitchDesc}>备份对话记录和数据库。</div>
+                  <div style={s.webdavEditSwitchTitle}>备份聊天记录</div>
+                  <div style={s.webdavEditSwitchDesc}>关闭后仅备份各项设置，不备份聊天记录。</div>
                 </div>
                 <button
                   type="button"
@@ -670,8 +670,8 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
               </div>
               <div style={s.webdavEditSwitchCard}>
                 <div>
-                  <div style={s.webdavEditSwitchTitle}>包含生成图片</div>
-                  <div style={s.webdavEditSwitchDesc}>备份图片工作室生成目录。</div>
+                  <div style={s.webdavEditSwitchTitle}>备份图片工作室</div>
+                  <div style={s.webdavEditSwitchDesc}>关闭后仅保留供应商配置和提示词库，不备份历史任务与图片。</div>
                 </div>
                 <button
                   type="button"

@@ -125,6 +125,7 @@ declare global {
           search: (query: string, workspaceId?: string | null) => Promise<DbConversation[]>
           messageCount: (conversationId: string) => Promise<number>
           assistantCount: (conversationId: string) => Promise<number>
+          allAssistantCounts: () => Promise<Record<string, number>>
         }
         messages: {
           list: (conversationId: string) => Promise<DbMessage[]>

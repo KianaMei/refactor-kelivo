@@ -12,6 +12,7 @@ import * as migration006 from './migrations/006_message_timing'
 import * as migration007 from './migrations/007_prompt_library'
 import * as migration008 from './migrations/008_conversation_responses_options'
 import * as migration009 from './migrations/009_assistants'
+import * as migration010 from './migrations/010_messages_role_index'
 
 interface Migration {
   version: number
@@ -27,7 +28,8 @@ const migrations: Migration[] = [
   migration006,
   migration007,
   migration008,
-  migration009
+  migration009,
+  migration010
 ]
 
 let db: Database.Database | null = null

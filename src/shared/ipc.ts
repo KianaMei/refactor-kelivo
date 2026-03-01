@@ -61,6 +61,7 @@ export const IpcChannel = {
   DbConversationSearch: 'db:conversation:search',
   DbConversationMessageCount: 'db:conversation:messageCount',
   DbConversationAssistantCount: 'db:conversation:assistantCount',
+  DbConversationAllAssistantCounts: 'db:conversation:allAssistantCounts',
 
   // Database — Assistants
   DbAssistantList: 'db:assistant:list',
