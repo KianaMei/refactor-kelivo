@@ -89,10 +89,11 @@ export async function* sendPromptToolStream(
   ]
 
   let currentMessages = messagesWithPrompt
-  let iteration = 0
+  let totalToolCallCount = 0
 
-  while (iteration < maxToolLoopIterations) {
-    iteration++
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (totalToolCallCount >= maxToolLoopIterations) break
 
     const extractor = new XmlTagExtractor()
     let accumulatedContent = ''
@@ -103,7 +104,7 @@ export async function* sendPromptToolStream(
       config,
       modelId,
       messages: currentMessages,
-      userImages: iteration === 1 ? userImages : undefined,
+      userImages: totalToolCallCount === 0 ? userImages : undefined,
       thinkingBudget,
       temperature,
       topP,
@@ -172,6 +173,7 @@ export async function* sendPromptToolStream(
           ]
 
           // 重置状态，进入下一轮
+          totalToolCallCount++
           detectedToolCall = null
           accumulatedContent = ''
           break
@@ -224,13 +226,51 @@ export async function* sendPromptToolStream(
       }
     }
 
-    // 如果本轮没有检测到工具调用（且不是第一轮），结束
-    if (detectedToolCall === null && iteration > 1) {
+    // 如果本轮没有检测到工具调用，结束
+    if (detectedToolCall === null && totalToolCallCount > 0) {
       return
     }
   }
 
-  // 达到最大迭代次数
+  // 到达工具调用上限后，发一次不带工具定义的请求，让模型基于已有结果生成回复
+  const finalMessages: ChatMessage[] = [
+    { role: 'system', content: userSystemPrompt || '' },
+    ...currentMessages.filter(m => m.role !== 'system')
+  ]
+
+  const finalStream = sendMessageStream({
+    config,
+    modelId,
+    messages: finalMessages,
+    thinkingBudget,
+    temperature,
+    topP,
+    maxTokens,
+    maxToolLoopIterations,
+    tools: undefined,
+    onToolCall: undefined,
+    extraHeaders,
+    extraBody,
+    signal
+  })
+
+  try {
+    for await (const chunk of finalStream) {
+      if (chunk.content || chunk.reasoning) {
+        yield {
+          content: chunk.content,
+          reasoning: chunk.reasoning,
+          isDone: false,
+          totalTokens: chunk.totalTokens,
+          usage: chunk.usage
+        }
+      }
+      if (chunk.isDone) break
+    }
+  } catch {
+    // 最终请求失败时静默处理
+  }
+
   yield {
     content: '',
     isDone: true,

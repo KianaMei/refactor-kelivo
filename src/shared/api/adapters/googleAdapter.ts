@@ -530,10 +530,11 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
   let responseTextThoughtSigVal: unknown
   const responseImageThoughtSigs: Array<{ k: string; v: unknown }> = []
 
-  let iterations = 0
+  let totalToolCallCount = 0
 
-  while (iterations < maxToolLoopIterations) {
-    iterations++
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (totalToolCallCount >= maxToolLoopIterations) break
 
     const gen: Record<string, unknown> = {}
     if (temperature !== undefined) gen.temperature = temperature
@@ -655,6 +656,8 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
 
       yield { content: '', isDone: false, totalTokens, usage, toolResults: toolResultInfos }
 
+      totalToolCallCount += streamState.toolCalls.length
+
       // Add model response + tool results to conversation
       if (streamState.modelParts.length > 0) {
         convo.push({ role: 'model', parts: streamState.modelParts })
@@ -665,6 +668,89 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
 
     // No tool calls - done
     break
+  }
+
+  // 到达工具调用上限后，发一次不带 tools 的请求，让模型基于已有结果生成回复
+  if (totalToolCallCount >= maxToolLoopIterations) {
+    const finalGen: Record<string, unknown> = {}
+    if (temperature !== undefined) finalGen.temperature = temperature
+    if (topP !== undefined) finalGen.topP = topP
+    if (maxTokens && maxTokens > 0) finalGen.maxOutputTokens = maxTokens
+
+    const isReasoningFinal = upstreamModelId.toLowerCase().includes('-2.5-') ||
+      upstreamModelId.toLowerCase().includes('-3-')
+    if (isReasoningFinal) {
+      const thinkingConfig: Record<string, unknown> = { includeThoughts: !off }
+      if (isGemini3) {
+        thinkingConfig.thinkingLevel = budgetToThinkingLevel(thinkingBudget)
+      } else if (!off && resolvedBudget !== null && resolvedBudget !== 0) {
+        thinkingConfig.thinkingBudget = resolvedBudget
+      }
+      finalGen.thinkingConfig = thinkingConfig
+    }
+
+    const finalBody: Record<string, unknown> = { contents: convo }
+    if (Object.keys(finalGen).length > 0) finalBody.generationConfig = finalGen
+
+    const finalHdrs: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream'
+    }
+    if (config.vertexAI) {
+      const token = await maybeVertexAccessToken(config)
+      if (token) finalHdrs['Authorization'] = `Bearer ${token}`
+      const proj = (config.projectId ?? '').trim()
+      if (proj) finalHdrs['X-Goog-User-Project'] = proj
+    } else if (isOAuth && config.oauthData?.accessToken) {
+      finalHdrs['Authorization'] = `Bearer ${config.oauthData.accessToken}`
+    }
+    Object.assign(finalHdrs, customHeaders(config, modelId))
+    if (extraHeaders) Object.assign(finalHdrs, extraHeaders)
+
+    const finalExtraCfg = customBody(config, modelId)
+    Object.assign(finalBody, finalExtraCfg)
+    if (extraBody) {
+      for (const [k, v] of Object.entries(extraBody)) {
+        finalBody[k] = typeof v === 'string' ? parseOverrideValue(v) : v
+      }
+    }
+
+    try {
+      const finalResp = await postJsonStream({
+        url: url.toString(),
+        headers: finalHdrs,
+        body: finalBody,
+        config,
+        signal
+      })
+      if (finalResp.statusCode >= 200 && finalResp.statusCode < 300) {
+        const finalStreamState: GeminiStreamState = {
+          usage: emptyUsage(),
+          citations: [],
+          toolCalls: [],
+          modelParts: [],
+          imageThoughtSigs: [],
+          toolIdx: 0
+        }
+        yield* processGeminiStream({
+          lines: finalResp.lines,
+          persistGeminiThoughtSigs,
+          config,
+          signal,
+          state: finalStreamState
+        })
+        usage = mergeUsage(usage, finalStreamState.usage)
+        totalTokens = usage.totalTokens
+        builtinCitations.push(...finalStreamState.citations)
+        if (finalStreamState.textThoughtSigKey && responseTextThoughtSigKey === undefined) {
+          responseTextThoughtSigKey = finalStreamState.textThoughtSigKey
+          responseTextThoughtSigVal = finalStreamState.textThoughtSigVal
+        }
+        responseImageThoughtSigs.push(...finalStreamState.imageThoughtSigs)
+      }
+    } catch {
+      // 最终请求失败时静默处理
+    }
   }
 
   // Build final thought signature comment

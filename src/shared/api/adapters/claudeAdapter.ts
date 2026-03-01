@@ -125,8 +125,11 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   }
 
   let usage: TokenUsage | undefined
+  let totalToolCallCount = 0
 
-  for (let round = 0; round < maxToolLoopIterations; round++) {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (totalToolCallCount >= maxToolLoopIterations) break
     const body: Record<string, unknown> = {
       model: upstreamModelId,
       max_tokens: maxTokens ?? 64000,
@@ -244,6 +247,8 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
       }
       currentMessages.push({ role: 'user', content: userContent })
 
+      totalToolCallCount += streamState.toolCalls.length
+
       continue
     }
 
@@ -251,7 +256,57 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     return
   }
 
-  // 达到最大迭代次数
+  // 到达工具调用上限后，发一次不带 tools 的请求，让模型基于已有结果生成回复
+  const finalBody: Record<string, unknown> = {
+    model: upstreamModelId,
+    max_tokens: maxTokens ?? 64000,
+    messages: currentMessages,
+    stream: true,
+    ...(systemPrompt && {
+      system: [{ type: 'text', text: systemPrompt }]
+    }),
+    ...(temperature !== undefined && { temperature }),
+    ...(topP !== undefined && { top_p: topP }),
+    ...(isReasoning && {
+      thinking: {
+        type: reasoningEnabled ? 'enabled' : 'disabled',
+        ...(reasoningEnabled && actualBudget > 0 && { budget_tokens: actualBudget })
+      }
+    })
+  }
+
+  const finalExtraBodyCfg = helper.customBody(config, modelId)
+  Object.assign(finalBody, finalExtraBodyCfg)
+  if (extraBody) {
+    for (const [k, v] of Object.entries(extraBody)) {
+      finalBody[k] = typeof v === 'string' ? helper.parseOverrideValue(v) : v
+    }
+  }
+
+  try {
+    const finalResp = await postJsonStream({ url, headers, body: finalBody, config, signal })
+    if (finalResp.statusCode >= 200 && finalResp.statusCode < 300) {
+      const finalState: ClaudeStreamState = {
+        usage,
+        toolCalls: [],
+        textContent: '',
+        currentToolId: '',
+        currentToolName: '',
+        currentToolInput: ''
+      }
+      yield* processClaudeStream({
+        lines: finalResp.lines,
+        usage,
+        onToolCall: undefined,
+        isReasoning,
+        state: finalState
+      })
+      usage = finalState.usage
+    }
+  } catch {
+    // 最终请求失败时静默处理
+  }
+
   yield { content: '', isDone: true, totalTokens: usage?.totalTokens ?? 0, usage }
 }
 
