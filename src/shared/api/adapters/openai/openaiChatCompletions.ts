@@ -552,7 +552,11 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     })
   }
 
-  for (let round = 0; round < maxToolLoopIterations; round++) {
+  let totalToolCallCount = toolMsgs.length
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (totalToolCallCount >= maxToolLoopIterations) break
     const body2: Record<string, unknown> = {
       model: upstreamModelId,
       messages: currentMessages,
@@ -729,6 +733,8 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
         yield { content: '', isDone: false, totalTokens: usage?.totalTokens ?? 0, usage, toolResults: resultsInfo2 }
       }
 
+      totalToolCallCount += toolMsgs2.length
+
       currentMessages = [
         ...currentMessages,
         ...(contentAccum ? [{ role: 'assistant' as const, content: contentAccum }] : []),
@@ -747,7 +753,72 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     }
   }
 
-  // 达到最大迭代次数
+  // 到达工具调用上限后，发一次不带 tools 的请求，让模型基于已有结果生成回复
+  const finalBody: Record<string, unknown> = {
+    model: upstreamModelId,
+    messages: currentMessages,
+    stream: true,
+    ...(temperature !== undefined && { temperature }),
+    ...(topP !== undefined && { top_p: topP }),
+    ...(maxTokens !== undefined && maxTokens > 0 && { max_tokens: maxTokens }),
+    ...(isReasoning && effort !== 'off' && effort !== 'auto' && { reasoning_effort: effort })
+  }
+
+  helper.applyVendorReasoningConfig({
+    body: finalBody,
+    host,
+    modelId,
+    isReasoning,
+    thinkingBudget,
+    effort,
+    isGrokModel: isGrok
+  })
+
+  if (!host.includes('mistral.ai')) {
+    finalBody['stream_options'] = { include_usage: true }
+  }
+
+  const finalExtraBodyCfg = helper.customBody(config, modelId)
+  Object.assign(finalBody, finalExtraBodyCfg)
+  if (extraBody) {
+    for (const [k, v] of Object.entries(extraBody)) {
+      finalBody[k] = typeof v === 'string' ? helper.parseOverrideValue(v) : v
+    }
+  }
+
+  try {
+    const finalHeaders = { ...headers, ...extraHeaders }
+    const finalResp = await postJsonStream({ url, headers: finalHeaders, body: finalBody, signal })
+    if (finalResp.statusCode >= 200 && finalResp.statusCode < 300) {
+      for await (const line of finalResp.lines) {
+        const data = parseSSELine(line)
+        if (data === null) continue
+        try {
+          const o = JSON.parse(data)
+          const choices = o.choices as Array<Record<string, unknown>> | undefined
+          if (choices && choices.length > 0) {
+            const c0 = choices[0]
+            const delta = c0.delta as Record<string, unknown> | undefined
+            const txt = delta?.content as string | undefined
+            const rc = (delta?.reasoning_content ?? delta?.reasoning) as string | undefined
+            const u = o.usage as Record<string, unknown> | undefined
+            if (u) {
+              const prompt = (u.prompt_tokens as number) ?? 0
+              const completion = (u.completion_tokens as number) ?? 0
+              const details = u.prompt_tokens_details as Record<string, unknown> | undefined
+              const cached = (details?.cached_tokens as number) ?? 0
+              usage = mergeUsage(usage, { promptTokens: prompt, completionTokens: completion, cachedTokens: cached, totalTokens: prompt + completion })
+            }
+            if (rc) yield { content: '', reasoning: rc, isDone: false, totalTokens: 0, usage }
+            if (txt) yield { content: txt, isDone: false, totalTokens: 0, usage }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  } catch {
+    // 最终请求失败时静默处理，不影响已有结果
+  }
+
   yield { content: '', isDone: true, totalTokens: usage?.totalTokens ?? 0, usage }
 }
 

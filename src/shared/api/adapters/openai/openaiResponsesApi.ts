@@ -459,8 +459,11 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
   conversation.push(...toolOutputs)
 
   const isCodexLoop = config.providerType === 'codex_oauth'
+  let totalToolCallCount = msgs.length
 
-  for (let round = 0; round < maxToolLoopIterations; round++) {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (totalToolCallCount >= maxToolLoopIterations) break
     const body: Record<string, unknown> = {
       model: upstreamModelId,
       input: conversation,
@@ -616,6 +619,8 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
         yield { content: '', isDone: false, totalTokens, usage, toolResults: resultsInfo2 }
       }
 
+      totalToolCallCount += msgs2.length
+
       for (const m of msgs2) {
         conversation.push({ type: 'function_call', call_id: m.callId, name: m.name, arguments: JSON.stringify(m.args) })
       }
@@ -624,6 +629,69 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     } else {
       break
     }
+  }
+
+  // 到达工具调用上限后，发一次不带 tools 的请求，让模型基于已有结果生成回复
+  const finalBody: Record<string, unknown> = {
+    model: upstreamModelId,
+    input: conversation,
+    stream: true,
+    ...(isCodexLoop
+      ? { instructions: '', store: false }
+      : systemInstructions ? { instructions: systemInstructions } : {}),
+    ...(isCodexLoop
+      ? buildCodexReasoningConfig(effort)
+      : buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary })),
+    ...buildResponsesTextConfig(responsesTextVerbosity),
+    ...(!isCodexLoop && temperature !== undefined && { temperature }),
+    ...(!isCodexLoop && topP !== undefined && { top_p: topP }),
+    ...(!isCodexLoop && maxTokens !== undefined && maxTokens > 0 && { max_output_tokens: maxTokens })
+  }
+
+  if (isCodexLoop) {
+    finalBody['include'] = ['reasoning.encrypted_content']
+  }
+
+  const extraBodyCfg = helper.customBody(config, modelId)
+  Object.assign(finalBody, extraBodyCfg)
+  if (extraBody) {
+    for (const [k, v] of Object.entries(extraBody)) {
+      finalBody[k] = typeof v === 'string' ? helper.parseOverrideValue(v) : v
+    }
+  }
+
+  try {
+    const finalResp = await postJsonStream({ url, headers, body: finalBody, signal })
+    if (finalResp.statusCode >= 200 && finalResp.statusCode < 300) {
+      for await (const line of finalResp.lines) {
+        const data = parseSSELine(line)
+        if (data === null) {
+          if (line.startsWith('data:') && line.substring(5).trim() === '[DONE]') break
+          continue
+        }
+        try {
+          const json = JSON.parse(data)
+          const type = json.type as string
+          if (type === 'response.output_text.delta') {
+            const delta = json.delta as string | undefined
+            if (delta) yield { content: delta, isDone: false, totalTokens, usage }
+          } else if (type === 'response.reasoning_summary_text.delta') {
+            const delta = json.delta as string | undefined
+            if (delta) yield { content: '', reasoning: delta, isDone: false, totalTokens, usage }
+          } else if (type === 'response.completed') {
+            const u = (json.response as Record<string, unknown>)?.usage as Record<string, unknown> | undefined
+            if (u) {
+              const inTok = (u.input_tokens as number) ?? 0
+              const outTok = (u.output_tokens as number) ?? 0
+              usage = mergeUsage(usage, { promptTokens: inTok, completionTokens: outTok, totalTokens: inTok + outTok })
+              totalTokens = usage.totalTokens
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  } catch {
+    // 最终请求失败时静默处理，不影响已有结果
   }
 
   yield { content: '', isDone: true, totalTokens, usage }
