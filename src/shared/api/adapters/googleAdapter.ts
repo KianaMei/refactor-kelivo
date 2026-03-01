@@ -10,7 +10,8 @@ import type {
   ChatMessage,
   ToolDefinition,
   OnToolCallFn,
-  TokenUsage
+  TokenUsage,
+  RoundUsage
 } from '../../chatStream'
 import { emptyUsage, mergeUsage } from '../../chatStream'
 import { postJsonStream, readErrorBody } from '../../streamingHttpClient'
@@ -531,6 +532,7 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
   const responseImageThoughtSigs: Array<{ k: string; v: unknown }> = []
 
   let totalToolCallCount = 0
+  const roundUsages: RoundUsage[] = []
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -618,7 +620,15 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
     })
 
     // After stream completes, merge accumulated state
+    const roundU = streamState.usage
+    roundUsages.push({
+      promptTokens: roundU.promptTokens,
+      completionTokens: roundU.completionTokens,
+      cachedTokens: roundU.cachedTokens,
+      totalTokens: roundU.totalTokens
+    })
     usage = mergeUsage(usage, streamState.usage)
+    usage.roundUsages = roundUsages
     totalTokens = usage.totalTokens
 
     // Collect citations
@@ -739,7 +749,15 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
           signal,
           state: finalStreamState
         })
+        const finalRoundU = finalStreamState.usage
+        roundUsages.push({
+          promptTokens: finalRoundU.promptTokens,
+          completionTokens: finalRoundU.completionTokens,
+          cachedTokens: finalRoundU.cachedTokens,
+          totalTokens: finalRoundU.totalTokens
+        })
         usage = mergeUsage(usage, finalStreamState.usage)
+        usage.roundUsages = roundUsages
         totalTokens = usage.totalTokens
         builtinCitations.push(...finalStreamState.citations)
         if (finalStreamState.textThoughtSigKey && responseTextThoughtSigKey === undefined) {

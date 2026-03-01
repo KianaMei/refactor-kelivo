@@ -7,6 +7,7 @@
 import type {
   ChatStreamChunk,
   TokenUsage,
+  RoundUsage,
   ToolCallInfo,
   ToolResultInfo,
   ChatMessage,
@@ -59,8 +60,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   }
 
   const isReasoning = checkModelIsReasoning(modelId)
-  const rawEffort = helper.effortForBudget(thinkingBudget)
-  const effort = rawEffort === 'minimal' ? 'low' : rawEffort
+  const effort = helper.effortForBudget(thinkingBudget)
   const isGrok = helper.isGrokModel(config, modelId)
 
   const mm = buildChatCompletionsMessages(messages, userImages)
@@ -553,6 +553,17 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
   }
 
   let totalToolCallCount = toolMsgs.length
+  const roundUsages: RoundUsage[] = []
+
+  // Round 1: 初始请求的 usage
+  if (initialUsage) {
+    roundUsages.push({
+      promptTokens: initialUsage.promptTokens,
+      completionTokens: initialUsage.completionTokens,
+      cachedTokens: initialUsage.cachedTokens,
+      totalTokens: initialUsage.totalTokens
+    })
+  }
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -610,6 +621,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     const toolAcc2 = new Map<number, { id: string; name: string; args: string }>()
     let finishReason2: string | null = null
     let contentAccum = ''
+    let currentRoundUsage: RoundUsage | undefined
 
     for await (const line of resp2.lines) {
       const data = parseSSELine(line)
@@ -632,6 +644,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
             const completion = (u.completion_tokens as number) ?? 0
             const details = u.prompt_tokens_details as Record<string, unknown> | undefined
             const cached = (details?.cached_tokens as number) ?? 0
+            currentRoundUsage = { promptTokens: prompt, completionTokens: completion, cachedTokens: cached, totalTokens: prompt + completion }
             usage = mergeUsage(usage, {
               promptTokens: prompt,
               completionTokens: completion,
@@ -697,6 +710,9 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
         // ignore
       }
     }
+
+    if (currentRoundUsage) roundUsages.push(currentRoundUsage)
+    if (usage) usage.roundUsages = roundUsages
 
     if (finishReason2 === 'tool_calls' || toolAcc2.size > 0) {
       const calls2: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
@@ -807,7 +823,9 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
               const completion = (u.completion_tokens as number) ?? 0
               const details = u.prompt_tokens_details as Record<string, unknown> | undefined
               const cached = (details?.cached_tokens as number) ?? 0
+              roundUsages.push({ promptTokens: prompt, completionTokens: completion, cachedTokens: cached, totalTokens: prompt + completion })
               usage = mergeUsage(usage, { promptTokens: prompt, completionTokens: completion, cachedTokens: cached, totalTokens: prompt + completion })
+              if (usage) usage.roundUsages = roundUsages
             }
             if (rc) yield { content: '', reasoning: rc, isDone: false, totalTokens: 0, usage }
             if (txt) yield { content: txt, isDone: false, totalTokens: 0, usage }
@@ -819,6 +837,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     // 最终请求失败时静默处理，不影响已有结果
   }
 
+  if (usage) usage.roundUsages = roundUsages
   yield { content: '', isDone: true, totalTokens: usage?.totalTokens ?? 0, usage }
 }
 

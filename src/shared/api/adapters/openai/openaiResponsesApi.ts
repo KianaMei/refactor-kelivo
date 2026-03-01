@@ -8,6 +8,7 @@ import type { ProviderConfigV2 } from '../../../types'
 import type {
   ChatStreamChunk,
   TokenUsage,
+  RoundUsage,
   ToolCallInfo,
   ToolResultInfo,
   ChatMessage,
@@ -56,7 +57,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   const isReasoning = checkModelIsReasoning(modelId)
   const rawEffort = helper.effortForBudget(thinkingBudget)
   const xhighSupported = helper.supportsResponsesXHighEffort(upstreamModelId) || helper.supportsResponsesXHighEffort(modelId)
-  const effort = rawEffort === 'minimal' ? 'low' : (rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort)
+  const effort = rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort
 
   const { input, instructions } = buildResponsesInputPayload(messages, userImages)
   const isCodex = config.providerType === 'codex_oauth'
@@ -412,7 +413,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
   const isReasoning = checkModelIsReasoning(modelId)
   const rawEffort = helper.effortForBudget(thinkingBudget)
   const xhighSupported = helper.supportsResponsesXHighEffort(upstreamModelId) || helper.supportsResponsesXHighEffort(modelId)
-  const effort = rawEffort === 'minimal' ? 'low' : (rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort)
+  const effort = rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort
 
   const callInfos: ToolCallInfo[] = []
   const msgs: Array<{ id: string; name: string; args: Record<string, unknown>; callId: string }> = []
@@ -460,6 +461,17 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
 
   const isCodexLoop = config.providerType === 'codex_oauth'
   let totalToolCallCount = msgs.length
+  const roundUsages: RoundUsage[] = []
+
+  // Round 1: 初始请求的 usage
+  if (initialUsage) {
+    roundUsages.push({
+      promptTokens: initialUsage.promptTokens,
+      completionTokens: initialUsage.completionTokens,
+      cachedTokens: initialUsage.cachedTokens,
+      totalTokens: initialUsage.totalTokens
+    })
+  }
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -575,11 +587,13 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
             if (u) {
               const inTok = (u.input_tokens as number) ?? 0
               const outTok = (u.output_tokens as number) ?? 0
+              roundUsages.push({ promptTokens: inTok, completionTokens: outTok, totalTokens: inTok + outTok })
               usage = mergeUsage(usage, {
                 promptTokens: inTok,
                 completionTokens: outTok,
                 totalTokens: inTok + outTok
               })
+              if (usage) usage.roundUsages = roundUsages
               totalTokens = usage.totalTokens
             }
             responseCompleted = true
@@ -683,7 +697,9 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
             if (u) {
               const inTok = (u.input_tokens as number) ?? 0
               const outTok = (u.output_tokens as number) ?? 0
+              roundUsages.push({ promptTokens: inTok, completionTokens: outTok, totalTokens: inTok + outTok })
               usage = mergeUsage(usage, { promptTokens: inTok, completionTokens: outTok, totalTokens: inTok + outTok })
+              if (usage) usage.roundUsages = roundUsages
               totalTokens = usage.totalTokens
             }
           }
@@ -694,6 +710,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
     // 最终请求失败时静默处理，不影响已有结果
   }
 
+  if (usage) usage.roundUsages = roundUsages
   yield { content: '', isDone: true, totalTokens, usage }
 }
 
@@ -759,10 +776,7 @@ function buildResponsesReasoningConfig(params: {
   const { isReasoning, effort, summary } = params
   if (!isReasoning || effort === 'off') return {}
 
-  const reasoning: Record<string, unknown> = {}
-  if (summary !== 'off') {
-    reasoning.summary = summary
-  }
+  const reasoning: Record<string, unknown> = { summary }
   if (effort !== 'auto') {
     reasoning.effort = effort
   }

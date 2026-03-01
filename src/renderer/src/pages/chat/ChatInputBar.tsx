@@ -92,6 +92,7 @@ interface Props {
   reasoningEffort?: EffortValue
   onReasoningEffortChange?: (v: EffortValue) => void
   allowXHighReasoning?: boolean
+  availableEffortLevels?: string[]
   showResponsesOptions?: boolean
   responsesReasoningSummary?: ResponsesReasoningSummary
   onResponsesReasoningSummaryChange?: (v: ResponsesReasoningSummary) => void
@@ -139,6 +140,7 @@ export function ChatInputBar(props: Props) {
     reasoningEffort = -1,
     onReasoningEffortChange,
     allowXHighReasoning = false,
+    availableEffortLevels,
     showResponsesOptions = false,
     responsesReasoningSummary = 'detailed',
     onResponsesReasoningSummaryChange,
@@ -498,6 +500,7 @@ export function ChatInputBar(props: Props) {
           value={reasoningEffort}
           onChange={(v) => onReasoningEffortChange?.(v)}
           allowXHigh={allowXHighReasoning}
+          availableLevels={availableEffortLevels}
           showResponsesOptions={showResponsesOptions}
           responsesReasoningSummary={responsesReasoningSummary}
           onResponsesReasoningSummaryChange={onResponsesReasoningSummaryChange}

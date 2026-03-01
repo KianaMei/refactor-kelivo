@@ -12,7 +12,8 @@ import type {
   ToolDefinition,
   OnToolCallFn,
   ToolCallInfo,
-  ToolResultInfo
+  ToolResultInfo,
+  RoundUsage
 } from '../../chatStream'
 import type { SendStreamParams, UserImage } from '../adapterParams'
 import { sendMessageStream } from '../chatApiService'
@@ -90,6 +91,7 @@ export async function* sendPromptToolStream(
 
   let currentMessages = messagesWithPrompt
   let totalToolCallCount = 0
+  const roundUsages: RoundUsage[] = []
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -172,12 +174,33 @@ export async function* sendPromptToolStream(
             { role: 'user', content: toolResultMsg }
           ]
 
+          // 记录本轮 usage
+          if (lastUsage) {
+            roundUsages.push({
+              promptTokens: lastUsage.promptTokens,
+              completionTokens: lastUsage.completionTokens,
+              cachedTokens: lastUsage.cachedTokens,
+              totalTokens: lastUsage.totalTokens
+            })
+            lastUsage.roundUsages = roundUsages
+          }
+
           // 重置状态，进入下一轮
           totalToolCallCount++
           detectedToolCall = null
           accumulatedContent = ''
           break
         } else {
+          // 记录本轮 usage
+          if (lastUsage) {
+            roundUsages.push({
+              promptTokens: lastUsage.promptTokens,
+              completionTokens: lastUsage.completionTokens,
+              cachedTokens: lastUsage.cachedTokens,
+              totalTokens: lastUsage.totalTokens
+            })
+            lastUsage.roundUsages = roundUsages
+          }
           // 无工具调用，完成
           yield {
             content: '',
@@ -254,8 +277,10 @@ export async function* sendPromptToolStream(
     signal
   })
 
+  let finalUsage: ChatStreamChunk['usage']
   try {
     for await (const chunk of finalStream) {
+      if (chunk.usage) finalUsage = chunk.usage
       if (chunk.content || chunk.reasoning) {
         yield {
           content: chunk.content,
@@ -271,9 +296,20 @@ export async function* sendPromptToolStream(
     // 最终请求失败时静默处理
   }
 
+  if (finalUsage) {
+    roundUsages.push({
+      promptTokens: finalUsage.promptTokens,
+      completionTokens: finalUsage.completionTokens,
+      cachedTokens: finalUsage.cachedTokens,
+      totalTokens: finalUsage.totalTokens
+    })
+    finalUsage.roundUsages = roundUsages
+  }
+
   yield {
     content: '',
     isDone: true,
-    totalTokens: 0
+    totalTokens: 0,
+    usage: finalUsage
   }
 }

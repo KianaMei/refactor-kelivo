@@ -8,6 +8,7 @@ import type { ProviderConfigV2 } from '../../types'
 import type {
   ChatStreamChunk,
   TokenUsage,
+  RoundUsage,
   ToolCallInfo,
   ToolResultInfo,
   ChatMessage,
@@ -126,6 +127,7 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
 
   let usage: TokenUsage | undefined
   let totalToolCallCount = 0
+  const roundUsages: RoundUsage[] = []
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -194,6 +196,17 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
 
     // After stream completes, get accumulated state
     usage = streamState.usage
+
+    // 记录本轮 usage
+    if (usage) {
+      roundUsages.push({
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        cachedTokens: usage.cachedTokens,
+        totalTokens: usage.totalTokens
+      })
+      usage.roundUsages = roundUsages
+    }
 
     if (streamState.toolCalls.length > 0 && onToolCall) {
       yield {
@@ -302,11 +315,20 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
         state: finalState
       })
       usage = finalState.usage
+      if (usage) {
+        roundUsages.push({
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          cachedTokens: usage.cachedTokens,
+          totalTokens: usage.totalTokens
+        })
+      }
     }
   } catch {
     // 最终请求失败时静默处理
   }
 
+  if (usage) usage.roundUsages = roundUsages
   yield { content: '', isDone: true, totalTokens: usage?.totalTokens ?? 0, usage }
 }
 

@@ -24,7 +24,7 @@ import { useChatStream } from './chat/useChatStream'
 import { useChatActions } from './chat/useChatActions'
 import type { EffortValue } from '../components/ReasoningBudgetPopover'
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from '../../../shared/responsesOptions'
-import { supportsResponsesXHighEffort } from '../../../shared/chatApiHelper'
+import { getAvailableEffortKeys } from '../../../shared/chatApiHelper'
 import type { AssistantUpdateInput } from '../../../shared/db-types'
 
 
@@ -132,12 +132,13 @@ export function ChatPage(props: Props) {
   const effectiveModelId = activeAssistant?.boundModelId ?? config.currentModelId
   const currentProvider = effectiveProviderId ? config.providerConfigs[effectiveProviderId] : null
   const isOpenAIResponsesMode =
-    (currentProvider?.providerType === 'openai' || currentProvider?.providerType === 'openai_response') &&
-    currentProvider.useResponseApi === true
-  const allowXHighReasoning =
-    isOpenAIResponsesMode &&
-    !!effectiveModelId &&
-    supportsResponsesXHighEffort(effectiveModelId)
+    (currentProvider?.providerType === 'openai' || currentProvider?.providerType === 'openai_response' || currentProvider?.providerType === 'codex_oauth') &&
+    (currentProvider?.providerType === 'codex_oauth' || currentProvider?.useResponseApi === true)
+  const availableEffortLevels = getAvailableEffortKeys(
+    currentProvider?.providerType,
+    effectiveModelId ?? undefined,
+    currentProvider?.useResponseApi
+  )
   const responsesReasoningSummary =
     (activeConversation?.responsesReasoningSummary ?? 'detailed') as ResponsesReasoningSummary
   const responsesTextVerbosity =
@@ -686,7 +687,7 @@ export function ChatPage(props: Props) {
 
           reasoningEffort={(activeConversation?.thinkingBudget ?? -1) as EffortValue}
           onReasoningEffortChange={(v) => void setConversationThinkingBudget(v)}
-          allowXHighReasoning={allowXHighReasoning}
+          availableEffortLevels={availableEffortLevels}
           showResponsesOptions={isOpenAIResponsesMode}
           responsesReasoningSummary={responsesReasoningSummary}
           onResponsesReasoningSummaryChange={(v) => void setConversationResponsesReasoningSummary(v)}

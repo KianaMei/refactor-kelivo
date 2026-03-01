@@ -22,6 +22,7 @@ interface Props {
   value: EffortValue
   onChange: (v: EffortValue) => void
   allowXHigh?: boolean
+  availableLevels?: string[]
   showResponsesOptions?: boolean
   responsesReasoningSummary?: ResponsesReasoningSummary
   onResponsesReasoningSummaryChange?: (v: ResponsesReasoningSummary) => void
@@ -30,7 +31,6 @@ interface Props {
 }
 
 const RESPONSES_SUMMARY_LEVELS: Array<{ key: ResponsesReasoningSummary; label: string }> = [
-  { key: 'off', label: 'off' },
   { key: 'auto', label: 'auto' },
   { key: 'concise', label: 'concise' },
   { key: 'detailed', label: 'detailed' }
@@ -59,13 +59,16 @@ export function ReasoningBudgetPopover({
   value,
   onChange,
   allowXHigh = false,
+  availableLevels,
   showResponsesOptions = false,
   responsesReasoningSummary = 'detailed',
   onResponsesReasoningSummaryChange,
   responsesTextVerbosity = 'high',
   onResponsesTextVerbosityChange
 }: Props) {
-  const effortLevels = allowXHigh ? EFFORT_LEVELS : EFFORT_LEVELS.filter((l) => l.value !== -50)
+  const effortLevels = availableLevels
+    ? EFFORT_LEVELS.filter((l) => availableLevels.includes(l.key))
+    : (allowXHigh ? EFFORT_LEVELS : EFFORT_LEVELS.filter((l) => l.value !== -50))
   const selectedIndex = valueToIndex(value, effortLevels)
 
   return (

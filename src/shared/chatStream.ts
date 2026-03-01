@@ -5,6 +5,14 @@
 
 import type { ResponsesReasoningSummary, ResponsesTextVerbosity } from './responsesOptions'
 
+/** 单轮 API 请求的 Token 使用 */
+export interface RoundUsage {
+  promptTokens: number
+  completionTokens: number
+  cachedTokens?: number
+  totalTokens: number
+}
+
 /** Token 使用统计 */
 export interface TokenUsage {
   promptTokens: number
@@ -12,6 +20,8 @@ export interface TokenUsage {
   cachedTokens?: number
   thoughtTokens?: number
   totalTokens: number
+  /** 每轮 API 请求的独立 token 统计 */
+  roundUsages?: RoundUsage[]
 }
 
 /** Tool 调用信息 */

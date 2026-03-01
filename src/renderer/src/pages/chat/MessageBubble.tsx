@@ -90,6 +90,13 @@ export interface ChatMessage {
     promptTokens: number
     completionTokens: number
     totalTokens: number
+    cachedTokens?: number
+    roundUsages?: Array<{
+      promptTokens: number
+      completionTokens: number
+      cachedTokens?: number
+      totalTokens: number
+    }>
   }
   // 性能时间戳
   finishedAt?: number

@@ -248,6 +248,42 @@ export function supportsResponsesXHighEffort(modelId: string): boolean {
   return false
 }
 
+/**
+ * 根据供应商类型和模型返回可用的 effort level key 列表
+ *
+ * 各供应商 API 实际支持的推理等级：
+ * - OpenAI (Responses & Chat Completions): none, minimal, low, medium, high, xhigh
+ *   · gpt-5.1: none, low, medium, high（不支持 minimal）
+ *   · gpt-5-pro: 仅 high
+ *   · xhigh: gpt-5.1-codex-max 之后的模型
+ *   · gpt-5.1 之前的模型不支持 none
+ * - Claude: 使用 budget_tokens（数值），effort 等级为我们内部映射
+ * - Google Gemini 3+: ThinkingLevel 枚举 = MINIMAL, LOW, MEDIUM, HIGH
+ * - Google Gemini 2.5: thinkingBudget（数值），同 Claude
+ *
+ * 基础集: auto, off, minimal, low, medium, high
+ * xhigh 仅特定 OpenAI 模型可用
+ */
+export function getAvailableEffortKeys(
+  providerType: string | undefined,
+  modelId: string | undefined,
+  useResponseApi?: boolean
+): string[] {
+  const pt = providerType ?? ''
+  const base = ['auto', 'off', 'minimal', 'low', 'medium', 'high']
+
+  // OpenAI 系列（含 codex_oauth、kimi_oauth、qwen_oauth）：检查是否支持 xhigh
+  const isOpenAIFamily =
+    pt === 'openai' || pt === 'openai_response' || pt === 'codex_oauth' ||
+    pt === 'kimi_oauth' || pt === 'qwen_oauth'
+
+  if (isOpenAIFamily && modelId && supportsResponsesXHighEffort(modelId)) {
+    return [...base, 'xhigh']
+  }
+
+  return base
+}
+
 // ========== Grok Detection ==========
 
 export function isGrokModel(cfg: ProviderConfigV2, modelId: string): boolean {
