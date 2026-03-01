@@ -80,9 +80,13 @@ function _selectKey(cfg: ProviderConfigV2, keys: ApiKeyConfig[]): string {
 }
 
 export function effectiveApiKey(cfg: ProviderConfigV2): string {
+  // OAuth 优先
+  if (cfg.oauthEnabled && cfg.oauthData?.accessToken) {
+    return cfg.oauthData.accessToken
+  }
   const keys = _getEnabledKeys(cfg)
   if (keys) return _selectKey(cfg, keys)
-  // 多 Key 模式下不回退到单 key（避免“看起来开了多 key，实际还在用 apiKey”的特殊情况）
+  // 多 Key 模式下不回退到单 key（避免”看起来开了多 key，实际还在用 apiKey”的特殊情况）
   if (cfg.multiKeyEnabled) return ''
   return cfg.apiKey
 }
@@ -511,6 +515,12 @@ export function classifyProviderKind(
   if (explicitType === 'openai_response') {
     return 'openai'
   }
+  // OAuth 类型映射到对应的基础 adapter
+  if (explicitType === 'claude_oauth') return 'claude'
+  if (explicitType === 'codex_oauth') return 'openai'
+  if (explicitType === 'gemini_cli_oauth' || explicitType === 'antigravity_oauth') return 'google'
+  if (explicitType === 'kimi_oauth' || explicitType === 'qwen_oauth') return 'openai'
+
   if (explicitType === 'claude' || explicitType === 'google' || explicitType === 'openai') {
     return explicitType
   }

@@ -59,29 +59,48 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   const effort = rawEffort === 'minimal' ? 'low' : (rawEffort === 'xhigh' && !xhighSupported ? 'high' : rawEffort)
 
   const { input, instructions } = buildResponsesInputPayload(messages, userImages)
-  const toolList = buildToolList(tools, config, modelId)
+  const isCodex = config.providerType === 'codex_oauth'
+  const toolList = buildToolList(tools, config, modelId, isCodex)
+
+  // Codex 对齐 CPA：system prompt → developer role 消息放入 input，instructions 保持空
+  const codexInput = isCodex ? prependDeveloperMessage(input, instructions) : input
 
   const body: Record<string, unknown> = {
     model: upstreamModelId,
-    input,
+    input: codexInput,
     stream: true,
-    ...(instructions && { instructions }),
-    ...(temperature !== undefined && { temperature }),
-    ...(topP !== undefined && { top_p: topP }),
-    ...(maxTokens !== undefined && maxTokens > 0 && { max_output_tokens: maxTokens }),
+    // Codex: instructions 始终为空字符串（system 内容已转为 developer message），store=false
+    ...(isCodex
+      ? { instructions: '', store: false }
+      : instructions ? { instructions } : {}),
+    // Codex 不支持 temperature/top_p/max_output_tokens，发了会被拒绝
+    ...(!isCodex && temperature !== undefined && { temperature }),
+    ...(!isCodex && topP !== undefined && { top_p: topP }),
+    ...(!isCodex && maxTokens !== undefined && maxTokens > 0 && { max_output_tokens: maxTokens }),
     ...(toolList.length > 0 && {
       tools: toolList,
       tool_choice: 'auto'
     }),
-    ...buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary }),
+    ...(isCodex
+      ? buildCodexReasoningConfig(effort)
+      : buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary })),
     ...buildResponsesTextConfig(responsesTextVerbosity)
+  }
+
+  // Codex 特有字段（对齐 CPA codex_openai_request / codex_openai-responses_request）
+  if (isCodex) {
+    body['parallel_tool_calls'] = true
+    body['include'] = ['reasoning.encrypted_content']
   }
 
   try {
     const ov = helper.modelOverride(config, modelId)
     const ws = ov['webSearch'] as Record<string, unknown> | undefined
     if (ws?.['include_sources'] === true) {
-      body['include'] = ['web_search_call.action.sources']
+      // Codex 的 include 已在上方设置，这里仅对非 Codex 供应商追加
+      if (!isCodex) {
+        body['include'] = ['web_search_call.action.sources']
+      }
     }
   } catch {
     // ignore
@@ -94,6 +113,14 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     Accept: 'text/event-stream',
     ...helper.customHeaders(config, modelId),
     ...extraHeaders
+  }
+
+  // Codex OAuth 特殊请求头（对齐 CPA codex_executor）
+  if (config.providerType === 'codex_oauth') {
+    headers['Version'] = '0.101.0'
+    headers['User-Agent'] = 'codex_cli_rs/0.101.0'
+    headers['Originator'] = 'codex_cli_rs'
+    headers['Session_id'] = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
   }
 
   const extraBodyCfg = helper.customBody(config, modelId)
@@ -431,21 +458,35 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
   }
   conversation.push(...toolOutputs)
 
+  const isCodexLoop = config.providerType === 'codex_oauth'
+
   for (let round = 0; round < maxToolLoopIterations; round++) {
     const body: Record<string, unknown> = {
       model: upstreamModelId,
       input: conversation,
       stream: true,
-      ...(systemInstructions && { instructions: systemInstructions }),
-      ...buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary }),
+      // Codex: instructions 为空（system 内容在初始请求中已作为 developer message），store=false
+      ...(isCodexLoop
+        ? { instructions: '', store: false }
+        : systemInstructions ? { instructions: systemInstructions } : {}),
+      ...(isCodexLoop
+        ? buildCodexReasoningConfig(effort)
+        : buildResponsesReasoningConfig({ isReasoning, effort, summary: responsesReasoningSummary })),
       ...buildResponsesTextConfig(responsesTextVerbosity),
-      ...(temperature !== undefined && { temperature }),
-      ...(topP !== undefined && { top_p: topP }),
-      ...(maxTokens !== undefined && maxTokens > 0 && { max_output_tokens: maxTokens }),
+      // Codex 不支持 temperature/top_p/max_output_tokens
+      ...(!isCodexLoop && temperature !== undefined && { temperature }),
+      ...(!isCodexLoop && topP !== undefined && { top_p: topP }),
+      ...(!isCodexLoop && maxTokens !== undefined && maxTokens > 0 && { max_output_tokens: maxTokens }),
       ...(toolList.length > 0 && {
         tools: toolList,
         tool_choice: 'auto'
       })
+    }
+
+    // Codex 特有字段
+    if (isCodexLoop) {
+      body['parallel_tool_calls'] = true
+      body['include'] = ['reasoning.encrypted_content']
     }
 
     const response = await postJsonStream({
@@ -462,10 +503,17 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
 
     toolAccResp.clear()
     itemIdToCallId.clear()
+    let responseCompleted = false
 
     for await (const line of response.lines) {
+      if (responseCompleted) break
+
       const data = parseSSELine(line)
-      if (data === null) continue
+      if (data === null) {
+        // 处理 [DONE] 信号
+        if (line.startsWith('data:') && line.substring(5).trim() === '[DONE]') break
+        continue
+      }
 
       try {
         const json = JSON.parse(data)
@@ -531,6 +579,7 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
               })
               totalTokens = usage.totalTokens
             }
+            responseCompleted = true
             break
           }
         }
@@ -585,7 +634,8 @@ async function* executeToolsAndContinue(params: ExecuteToolsParams): AsyncGenera
 function buildToolList(
   tools: ToolDefinition[] | undefined,
   config: ProviderConfigV2,
-  modelId: string
+  modelId: string,
+  isCodexProvider = false
 ): Array<Record<string, unknown>> {
   const toolList: Array<Record<string, unknown>> = []
 
@@ -603,7 +653,9 @@ function buildToolList(
   }
 
   // OpenAI Responses 支持模型 + xAI 端点（Agent Tools）
-  if (isResponsesWebSearchSupported(modelId) || helper.isXAIEndpoint(config)) {
+  // Codex OAuth 不注入内置 web_search：CPA 不添加内置工具，且内置搜索不受 maxToolLoop 控制
+  // 会导致模型疯狂调用 40+ 次搜索。Codex 用户的搜索走自定义 function tool（可控）。
+  if (!isCodexProvider && (isResponsesWebSearchSupported(modelId) || helper.isXAIEndpoint(config))) {
     const builtIns = helper.builtInTools(config, modelId)
     if (builtIns.has('search')) {
       const ov = helper.modelOverride(config, modelId)
@@ -717,4 +769,41 @@ function checkModelIsReasoning(modelId: string): boolean {
   // GPT-5 系列在 Responses API 下也可能返回 reasoning summary
   if (m.startsWith('gpt-5')) return true
   return false
+}
+
+// ========== Codex-Specific Helpers ==========
+
+/**
+ * Codex 思考配置（对齐 CPA codex_openai_request.go）
+ * - 格式: { reasoning: { effort, summary } }
+ * - effort 默认 "medium"（CPA: reasoning_effort 不存在时 fallback "medium"）
+ * - summary 固定 "auto"
+ */
+function buildCodexReasoningConfig(effort: string): Record<string, unknown> {
+  return {
+    reasoning: {
+      effort: effort === 'off' || effort === 'auto' ? 'medium' : effort,
+      summary: 'auto'
+    }
+  }
+}
+
+/**
+ * Codex: 将 instructions（system prompt）转为 developer role 消息插入 input 头部
+ * CPA 的做法：system 消息不进 instructions 字段，而是作为 developer role 放在 input 中
+ * instructions 字段保持空字符串
+ */
+function prependDeveloperMessage(
+  input: Array<Record<string, unknown>>,
+  instructions: string
+): Array<Record<string, unknown>> {
+  if (!instructions) return input
+  return [
+    {
+      type: 'message',
+      role: 'developer',
+      content: [{ type: 'input_text', text: instructions }]
+    },
+    ...input
+  ]
 }

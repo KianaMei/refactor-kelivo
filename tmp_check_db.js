@@ -1,0 +1,1 @@
+const Database=require('better-sqlite3'); const db=new Database('C:/Users/jaqenze/AppData/Roaming/refactor-kelivo/kelivo.db',{readonly:true}); const c=db.prepare('select count(1) n from conversations').get().n; const m=db.prepare('select count(1) n from messages').get().n; console.log('conversations='+c); console.log('messages='+m);  

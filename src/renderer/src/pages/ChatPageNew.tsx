@@ -3,7 +3,7 @@
  * 对齐旧版 Kelivo 的 home_page.dart
  * 包括：双栏布局（会话列表 + 消息区）
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 
 import { useConfig } from '../contexts/ConfigContext'
@@ -220,7 +220,7 @@ export function ChatPage(props: Props) {
     selectedVersions, setSelectedVersions,
     streamingRef, isGenerating, setIsGenerating, setLoadingConversationIds,
     runRendererStream, assistantMemories, recentChats, scrollTargetRef,
-    setModelPickerOpen, setPendingReAnswerMsgId, pendingReAnswerMsgId,
+    modelPickerOpen, setModelPickerOpen, setPendingReAnswerMsgId, pendingReAnswerMsgId,
     onSave
   })
 
@@ -333,6 +333,60 @@ export function ChatPage(props: Props) {
   const { translatingMsgId, handleTranslateMessage, setMessageTranslationExpanded } =
     useMessageTranslation({ activeConvId, activeAssistant, config, setMessagesByConv })
 
+  // 避免与模型选择器开关等无关状态导致整段消息列表重算
+  const messageHandlersRef = useRef({
+    onEdit: handleEditMessage,
+    onDelete: handleDeleteMessage,
+    onRegenerate: handleRegenerateMessage,
+    onResend: handleResendMessage,
+    onMentionReAnswer: handleMentionReAnswer,
+    onSpeak: handleSpeakMessage,
+    onTranslate: handleTranslateMessage,
+    onTranslationExpandChange: setMessageTranslationExpanded,
+    onFork: handleForkMessage,
+    onVersionChange: handleVersionChange
+  })
+  messageHandlersRef.current = {
+    onEdit: handleEditMessage,
+    onDelete: handleDeleteMessage,
+    onRegenerate: handleRegenerateMessage,
+    onResend: handleResendMessage,
+    onMentionReAnswer: handleMentionReAnswer,
+    onSpeak: handleSpeakMessage,
+    onTranslate: handleTranslateMessage,
+    onTranslationExpandChange: setMessageTranslationExpanded,
+    onFork: handleForkMessage,
+    onVersionChange: handleVersionChange
+  }
+
+  const handleToggleModelPicker = useCallback(() => {
+    setPendingReAnswerMsgId(null)
+    setModelPickerOpen((v) => !v)
+  }, [])
+  const handleToggleAssistantPicker = useCallback(() => {
+    setAssistantPickerOpen((v) => !v)
+  }, [])
+  const handleCloseModelPicker = useCallback(() => {
+    setModelPickerOpen(false)
+    setPendingReAnswerMsgId(null)
+  }, [])
+  const handleCloseAssistantPicker = useCallback(() => {
+    setAssistantPickerOpen(false)
+  }, [])
+
+  const handleScrollToMessage = useCallback((id: string) => {
+    const el = document.getElementById(`msg-${id}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
+  const handleScrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  const handleRenameCurrentConversation = useCallback((newTitle: string) => {
+    handleRenameConversation(activeConvId, newTitle)
+  }, [activeConvId, handleRenameConversation])
+
   // MCP：切换当前助手绑定的 serverIds（与 Flutter 的“助手 MCP”行为对齐）
   async function toggleAssistantMcpServer(serverId: string) {
     if (!activeAssistant) return
@@ -347,11 +401,11 @@ export function ChatPage(props: Props) {
   }
 
   // 侧边栏拖动处理
-  function handleSidebarDrag(delta: number) {
+  const handleSidebarDrag = useCallback((delta: number) => {
     setSidebarWidth((prev) => Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, prev + delta)))
-  }
+  }, [])
 
-  function handleSelectConversation(conversationId: string) {
+  const handleSelectConversation = useCallback((conversationId: string) => {
     const targetConversation = conversations.find((c) => c.id === conversationId)
     if (targetConversation && activeWorkspaceId !== null) {
       const targetWorkspaceId = targetConversation.workspaceId ?? 'default'
@@ -360,10 +414,77 @@ export function ChatPage(props: Props) {
       }
     }
     setActiveConvId(conversationId)
-  }
+  }, [activeWorkspaceId, conversations, setActiveConvId, setActiveWorkspaceId])
+
+  const renderedMessageRows = useMemo(() => {
+    const truncIdx = activeConversation?.truncateIndex ?? -1
+    const truncateMsgId = truncIdx > 0 && truncIdx <= activeMessages.length
+      ? activeMessages[truncIdx - 1]?.id
+      : null
+
+    return displayMessages.map((m) => (
+      <React.Fragment key={m.id}>
+        <MessageBubble
+          message={{ ...m, version: m._versionIndex, totalVersions: m._totalVersions }}
+          displayContent={applyAssistantRegex(m.content, m.role, activeAssistant?.regexRules, 'display')}
+          assistantName={activeAssistant?.name}
+          assistantAvatar={activeAssistant?.avatar}
+          useAssistantAvatar={activeAssistant?.useAssistantAvatar}
+          isLoading={m.id === streamingMsgId}
+          displaySettings={config.display}
+          providerName={m.providerId ? (config.providerConfigs[m.providerId]?.name ?? m.providerId) : undefined}
+          onEdit={(msg) => messageHandlersRef.current.onEdit(msg)}
+          onDelete={(msg) => messageHandlersRef.current.onDelete(msg)}
+          onRegenerate={(msg) => messageHandlersRef.current.onRegenerate(msg)}
+          onResend={(msg) => messageHandlersRef.current.onResend(msg)}
+          onMentionReAnswer={(msg) => messageHandlersRef.current.onMentionReAnswer(msg)}
+          onSpeak={(msg) => messageHandlersRef.current.onSpeak(msg)}
+          onTranslate={(msg) => messageHandlersRef.current.onTranslate(msg)}
+          onTranslationExpandChange={(msg, expanded) => messageHandlersRef.current.onTranslationExpandChange(msg.id, expanded)}
+          onFork={(msg) => messageHandlersRef.current.onFork(msg)}
+          onVersionChange={(msg, versionIndex) => messageHandlersRef.current.onVersionChange(msg, versionIndex)}
+          isTranslating={translatingMsgId === m.id}
+          isSpeaking={speakingMsgId === m.id}
+          user={config.user}
+        />
+        {truncateMsgId && m.id === truncateMsgId && (
+          <div className="contextTruncateDivider">
+            <div className="contextTruncateLine" />
+            <span className="contextTruncateLabel">上下文已清除</span>
+            <div className="contextTruncateLine" />
+          </div>
+        )}
+      </React.Fragment>
+    ))
+  }, [
+    activeAssistant?.avatar,
+    activeAssistant?.name,
+    activeAssistant?.regexRules,
+    activeAssistant?.useAssistantAvatar,
+    activeConversation?.truncateIndex,
+    activeMessages,
+    config.display,
+    config.providerConfigs,
+    config.user,
+    displayMessages,
+    speakingMsgId,
+    streamingMsgId,
+    translatingMsgId
+  ])
+
+  const workspaceSelectorNode = useMemo(() => (
+    <WorkspaceSelector
+      workspaces={workspaces}
+      activeWorkspaceId={activeWorkspaceId}
+      onSelect={setActiveWorkspaceId}
+      onCreate={handleCreateWorkspace}
+      onRename={handleRenameWorkspace}
+      onDelete={handleDeleteWorkspace}
+    />
+  ), [activeWorkspaceId, handleCreateWorkspace, handleDeleteWorkspace, handleRenameWorkspace, setActiveWorkspaceId, workspaces])
 
   // 渲染侧边栏内容
-  const sidebarContent = (
+  const sidebarContent = useMemo(() => (
     <div style={{ width: sidebarWidth, height: '100%', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <ConversationSidebar
         conversations={conversations}
@@ -378,21 +499,29 @@ export function ChatPage(props: Props) {
         onDelete={handleDeleteConversation}
         onTogglePin={handleTogglePinConversation}
         onRegenerateTitle={handleRegenerateConversationTitle}
-        workspaceSelector={(
-          <WorkspaceSelector
-            workspaces={workspaces}
-            activeWorkspaceId={activeWorkspaceId}
-            onSelect={setActiveWorkspaceId}
-            onCreate={handleCreateWorkspace}
-            onRename={handleRenameWorkspace}
-            onDelete={handleDeleteWorkspace}
-          />
-        )}
+        workspaceSelector={workspaceSelectorNode}
         workspaces={workspaces}
         onMoveToWorkspace={(conversationId, workspaceId) => void handleMoveConversationToWorkspace(conversationId, workspaceId)}
       />
     </div>
-  )
+  ), [
+    activeConvId,
+    activeWorkspaceId,
+    config.display,
+    conversations,
+    handleDeleteConversation,
+    handleMoveConversationToWorkspace,
+    handleNewConversation,
+    handleRegenerateConversationTitle,
+    handleRenameConversation,
+    handleSelectConversation,
+    handleTogglePinConversation,
+    loadingConversationIds,
+    sidebarWidth,
+    titleGeneratingConversationIds,
+    workspaces,
+    workspaceSelectorNode
+  ])
 
   return (
     <div style={{ display: 'flex', height: '100%' }}>
@@ -419,9 +548,9 @@ export function ChatPage(props: Props) {
           providerName={currentProvider?.name}
           modelId={effectiveModelId ?? undefined}
           modelCapsuleRef={modelCapsuleRef}
-          onRenameConversation={(newTitle) => handleRenameConversation(activeConvId, newTitle)}
-          onShowAssistantSelect={() => setAssistantPickerOpen((v) => !v)}
-          onShowModelSelect={() => setModelPickerOpen((v) => !v)}
+          onRenameConversation={handleRenameCurrentConversation}
+          onShowAssistantSelect={handleToggleAssistantPicker}
+          onShowModelSelect={handleToggleModelPicker}
           onNewConversation={handleNewConversation}
         />
 
@@ -503,46 +632,9 @@ export function ChatPage(props: Props) {
                 <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
                 <div>开始新对话</div>
               </div>
-            ) : (() => {
-              const truncIdx = activeConversation?.truncateIndex ?? -1
-              const truncateMsgId = truncIdx > 0 && truncIdx <= activeMessages.length
-                ? activeMessages[truncIdx - 1]?.id
-                : null
-              return displayMessages.map((m) => (
-                <React.Fragment key={m.id}>
-                  <MessageBubble
-                    message={{ ...m, version: m._versionIndex, totalVersions: m._totalVersions }}
-                    displayContent={applyAssistantRegex(m.content, m.role, activeAssistant?.regexRules, 'display')}
-                    assistantName={activeAssistant?.name}
-                    assistantAvatar={activeAssistant?.avatar}
-                    useAssistantAvatar={activeAssistant?.useAssistantAvatar}
-                    isLoading={m.id === streamingMsgId}
-                    displaySettings={config.display}
-                    providerName={m.providerId ? (config.providerConfigs[m.providerId]?.name ?? m.providerId) : undefined}
-                    onEdit={handleEditMessage}
-                    onDelete={handleDeleteMessage}
-                    onRegenerate={handleRegenerateMessage}
-                    onResend={handleResendMessage}
-                    onMentionReAnswer={handleMentionReAnswer}
-                    onSpeak={handleSpeakMessage}
-                    onTranslate={handleTranslateMessage}
-                    onTranslationExpandChange={(msg, expanded) => setMessageTranslationExpanded(msg.id, expanded)}
-                    onFork={handleForkMessage}
-                    onVersionChange={handleVersionChange}
-                    isTranslating={translatingMsgId === m.id}
-                    isSpeaking={speakingMsgId === m.id}
-                    user={config.user}
-                  />
-                  {truncateMsgId && m.id === truncateMsgId && (
-                    <div className="contextTruncateDivider">
-                      <div className="contextTruncateLine" />
-                      <span className="contextTruncateLabel">上下文已清除</span>
-                      <div className="contextTruncateLine" />
-                    </div>
-                  )}
-                </React.Fragment>
-              ))
-            })()
+            ) : (
+              renderedMessageRows
+            )
             }
             <div ref={messagesEndRef} />
           </div>
@@ -550,11 +642,8 @@ export function ChatPage(props: Props) {
           {/* 消息锚点导航（Cherry Studio 风格） */}
           <MessageAnchorLine
             messages={displayMessages}
-            onScrollToMessage={(id) => {
-              const el = document.getElementById(`msg-${id}`)
-              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }}
-            onScrollToBottom={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            onScrollToMessage={handleScrollToMessage}
+            onScrollToBottom={handleScrollToBottom}
             userName={config.user.name}
             userAvatarType={config.user.avatarType}
             userAvatarValue={config.user.avatarValue}
@@ -613,17 +702,14 @@ export function ChatPage(props: Props) {
           isContextCleared={(activeConversation?.truncateIndex ?? -1) >= 0}
           toolLoopIterations={activeAssistant?.maxToolLoopIterations ?? 10}
           onToolLoopIterationsChange={(v) => void patchActiveAssistant({ maxToolLoopIterations: v })}
-          onOpenModelPicker={() => setModelPickerOpen((v) => !v)}
+          onOpenModelPicker={handleToggleModelPicker}
           enableUserMarkdown={config.display?.enableUserMarkdown !== false}
         />
 
         <ChatPagePopovers
           modelCapsuleRef={modelCapsuleRef}
           modelPickerOpen={modelPickerOpen}
-          onCloseModelPicker={() => {
-            setModelPickerOpen(false)
-            setPendingReAnswerMsgId(null)
-          }}
+          onCloseModelPicker={handleCloseModelPicker}
           providers={providers}
           currentProviderId={config.currentModelProvider ?? undefined}
           currentModelId={config.currentModelId ?? undefined}
@@ -631,7 +717,7 @@ export function ChatPage(props: Props) {
 
           assistantCapsuleRef={assistantCapsuleRef}
           assistantPickerOpen={assistantPickerOpen}
-          onCloseAssistantPicker={() => setAssistantPickerOpen(false)}
+          onCloseAssistantPicker={handleCloseAssistantPicker}
           assistants={assistants}
           activeAssistantId={activeAssistantId ?? null}
           onSelectAssistant={(id) => {

@@ -186,7 +186,7 @@ function ModelCard(props: ModelCardProps) {
         <span style={styles.cardTitle}>{props.title}</span>
         <div style={{ flex: 1 }} />
         {props.configButton && (
-          <IconButton icon={<Settings size={16} />} onClick={() => setPromptOpen(true)} />
+          <IconButton icon={<Settings size={16} />} onClick={() => setPromptOpen((v) => !v)} />
         )}
         {props.trailing}
       </div>
@@ -198,7 +198,7 @@ function ModelCard(props: ModelCardProps) {
         }}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        onClick={() => setSelectorOpen(true)}
+        onClick={() => setSelectorOpen((v) => !v)}
       >
         {/* 有具体模型时使用 BrandAvatar，否则使用首字母头像 */}
         {hasModel ? (

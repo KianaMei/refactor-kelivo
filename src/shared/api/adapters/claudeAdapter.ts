@@ -49,7 +49,8 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
 
   const upstreamModelId = helper.apiModelId(config, modelId)
   const base = config.baseUrl.replace(/\/+$/, '')
-  const url = joinUrl(base, '/messages')
+  const isOAuth = !!(config.oauthEnabled && config.oauthData?.accessToken)
+  const url = joinUrl(base, '/messages') + (isOAuth ? '?beta=true' : '')
 
   const isReasoning = checkModelIsReasoning(modelId)
   const actualBudget = helper.effortToBudget(thinkingBudget, upstreamModelId)
@@ -98,16 +99,29 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
   }
 
   const apiKey = helper.effectiveApiKey(config)
+
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
-    'x-api-key': apiKey,
     'anthropic-version': '2023-06-01',
     'anthropic-dangerous-direct-browser-access': 'true',
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',
-    'anthropic-beta': 'web-fetch-2025-09-10,interleaved-thinking-2025-05-14,context-1m-2025-08-07',
     ...helper.customHeaders(config, modelId),
     ...extraHeaders
+  }
+
+  // OAuth 模式：只用 Authorization Bearer，加 oauth beta
+  // API Key 模式：Anthropic 端点用 x-api-key，其他用 Bearer
+  if (isOAuth) {
+    headers['Authorization'] = `Bearer ${apiKey}`
+    headers['anthropic-beta'] = 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05'
+  } else {
+    const isAnthropicBase = config.baseUrl.includes('api.anthropic.com')
+    if (isAnthropicBase) {
+      headers['x-api-key'] = apiKey
+    } else {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
+    headers['anthropic-beta'] = 'web-fetch-2025-09-10,interleaved-thinking-2025-05-14,context-1m-2025-08-07'
   }
 
   let usage: TokenUsage | undefined

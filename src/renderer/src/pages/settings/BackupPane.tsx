@@ -74,6 +74,7 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
 
   // 远程文件列表
   const [remoteFiles, setRemoteFiles] = useState<BackupFileItem[]>([])
+  const [remoteFilesLoaded, setRemoteFilesLoaded] = useState(false)
   const [loadingFiles, setLoadingFiles] = useState(false)
 
   // 操作状态
@@ -283,10 +284,12 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
     if (!currentConfig || !currentConfig.url) return
 
     setLoadingFiles(true)
+    setRemoteFilesLoaded(true)
     try {
       const result = await window.api.backup.webdavList(currentConfig)
       if (result.success) {
         setRemoteFiles(result.items)
+        setStatus({ type: 'success', message: `远程备份加载完成：${result.items.length} 个` })
       } else {
         setStatus({ type: 'error', message: result.error || '获取文件列表失败' })
       }
@@ -328,6 +331,10 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
     })
   }
 
+  const reloadAfterRestore = () => {
+    window.setTimeout(() => window.location.reload(), 250)
+  }
+
   // 在弹窗中确认恢复模式后执行
   const handleConfirmRestore = async () => {
     if (!restoreDialog.open) return
@@ -340,14 +347,15 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
         const result = await window.api.backup.importLocal({
           buffer: restoreDialog.localBuffer,
           mode: restoreDialog.mode,
-          includeChats: currentConfig?.includeChats ?? true,
-          includeAttachments: currentConfig?.includeAttachments ?? true,
-          includeGeneratedImages: currentConfig?.includeGeneratedImages ?? false
+          includeChats: true,
+          includeAttachments: true,
+          includeGeneratedImages: true
         })
 
         if (result.success) {
           setStatus({ type: 'success', message: result.message || '导入成功，部分更改需要重启应用生效。' })
           closeRestoreDialog(true)
+          reloadAfterRestore()
         } else {
           setStatus({ type: 'error', message: result.error || '导入失败' })
         }
@@ -367,6 +375,7 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
       if (result.success) {
         setStatus({ type: 'success', message: result.message || '恢复成功，部分更改需要重启应用生效。' })
         closeRestoreDialog(true)
+        reloadAfterRestore()
       } else {
         setStatus({ type: 'error', message: result.error || '恢复失败' })
       }
@@ -753,7 +762,7 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
                 onClick={() => setRestoreDialog((prev) => ({ ...prev, mode: 'merge' }))}
               >
                 <div style={s.restoreModeCardTitle}>增量合并</div>
-                <div style={s.restoreModeCardDesc}>仅导入新增内容，尽量保留当前数据。</div>
+                <div style={s.restoreModeCardDesc}>仅导入新增内容；当前版本不会合并历史聊天记录。</div>
               </button>
             </div>
 
@@ -925,7 +934,7 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
               </div>
 
               {/* 远程文件列表 */}
-              {remoteFiles.length > 0 && (
+              {remoteFilesLoaded && (
                 <div style={s.fileList}>
                   <div style={s.fileListHeader}>
                     <span>远程备份列表</span>
@@ -934,42 +943,46 @@ export function BackupPane({ config, onSave }: BackupPaneProps) {
                     </span>
                   </div>
                   <div style={s.fileListBody}>
-                    {remoteFiles.map((file) => (
-                      <div key={file.href} style={s.fileItem}>
-                        <div style={s.fileInfo}>
-                          <FileArchive size={14} style={{ color: 'var(--text-secondary)' }} />
-                          <div>
-                            <div style={s.fileName}>{file.displayName}</div>
-                            <div style={s.fileMeta}>
-                              <Clock size={10} />
-                              <span>{formatTime(file.lastModified)}</span>
-                              <span style={{ margin: '0 6px' }}>·</span>
-                              <span>{formatSize(file.size)}</span>
+                    {remoteFiles.length === 0 ? (
+                      <div style={s.fileListEmpty}>未找到远程备份文件</div>
+                    ) : (
+                      remoteFiles.map((file) => (
+                        <div key={file.href} style={s.fileItem}>
+                          <div style={s.fileInfo}>
+                            <FileArchive size={14} style={{ color: 'var(--text-secondary)' }} />
+                            <div>
+                              <div style={s.fileName}>{file.displayName}</div>
+                              <div style={s.fileMeta}>
+                                <Clock size={10} />
+                                <span>{formatTime(file.lastModified)}</span>
+                                <span style={{ margin: '0 6px' }}>·</span>
+                                <span>{formatSize(file.size)}</span>
+                              </div>
                             </div>
                           </div>
+                          <div style={s.fileActions}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-primary"
+                              onClick={() => handleRestore(file)}
+                              disabled={restoring}
+                              title="恢复此备份"
+                            >
+                              <Download size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-primary"
+                              onClick={(event) => openDeleteConfirm(file, event)}
+                              disabled={deletingRemoteHref === file.href}
+                              title="删除此备份"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
-                        <div style={s.fileActions}>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-primary"
-                            onClick={() => handleRestore(file)}
-                            disabled={restoring}
-                            title="恢复此备份"
-                          >
-                            <Download size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-primary"
-                            onClick={(event) => openDeleteConfirm(file, event)}
-                            disabled={deletingRemoteHref === file.href}
-                            title="删除此备份"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -1390,6 +1403,12 @@ const s: Record<string, React.CSSProperties> = {
     maxHeight: 280,
     overflowY: 'auto',
     overscrollBehavior: 'contain'
+  },
+  fileListEmpty: {
+    padding: '14px 12px',
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    fontStyle: 'italic'
   },
   fileItem: {
     display: 'flex',

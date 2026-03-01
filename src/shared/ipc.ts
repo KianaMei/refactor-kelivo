@@ -154,5 +154,10 @@ export const IpcChannel = {
   PromptLibraryClear: 'promptLibrary:clear',
 
   // Proxy
-  ProxyTest: 'proxy:test'
+  ProxyTest: 'proxy:test',
+
+  // OAuth
+  OAuthLogin: 'oauth:login',
+  OAuthRefresh: 'oauth:refresh',
+  OAuthCancel: 'oauth:cancel'
 } as const

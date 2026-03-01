@@ -2,7 +2,7 @@
  * 消息锚点导航 - Cherry Studio 风格
  * 显示在消息区域右侧的锚点列表，鼠标悬停时展开显示消息预览
  */
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { memo, useState, useCallback, useMemo, useRef } from 'react'
 import { ChevronsDown } from 'lucide-react'
 // import type { DbMessage } from '../../../shared/db-types'
 import type { UserAvatarType } from '../../../shared/types'
@@ -29,7 +29,7 @@ interface Props {
   useAssistantAvatar?: boolean
 }
 
-export function MessageAnchorLine({
+function MessageAnchorLineInner({
   messages,
   onScrollToMessage,
   onScrollToBottom,
@@ -214,3 +214,5 @@ export function MessageAnchorLine({
     </div>
   )
 }
+
+export const MessageAnchorLine = memo(MessageAnchorLineInner)

@@ -4,7 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import { IpcChannel } from '../shared/ipc'
 import type { AppConfig } from '../shared/types'
 import type { ModelsListResult } from '../shared/models'
-import type { ProviderConfigV2 } from '../shared/types'
+import type { ProviderConfigV2, OAuthProvider, OAuthTokenData } from '../shared/types'
 import type {
   WebDavConfig,
   BackupFileItem,
@@ -350,6 +350,14 @@ const api = {
   proxy: {
     test: (proxyConfig: { enabled: boolean; type: string; host: string; port: string; username: string; password: string; bypass: string }, testUrl: string) =>
       ipcRenderer.invoke(IpcChannel.ProxyTest, proxyConfig, testUrl) as Promise<{ ok: boolean; message: string; statusCode?: number; elapsed?: number }>
+  },
+  oauth: {
+    login: (provider: OAuthProvider) =>
+      ipcRenderer.invoke(IpcChannel.OAuthLogin, provider) as Promise<OAuthTokenData>,
+    refresh: (tokenData: OAuthTokenData) =>
+      ipcRenderer.invoke(IpcChannel.OAuthRefresh, tokenData) as Promise<OAuthTokenData>,
+    cancel: () =>
+      ipcRenderer.invoke(IpcChannel.OAuthCancel) as Promise<void>
   },
   promptLibrary: {
     list: (request: PromptLibraryListRequest) =>

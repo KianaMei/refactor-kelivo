@@ -113,7 +113,9 @@ function modelSupportsTools(
   // Fallback：按模型名称模式匹配（已知支持 function calling 的系列）
   return (
     id.includes('gpt-4') ||
+    id.includes('gpt-5') ||
     id.includes('gpt-3.5') ||
+    /^o[134]/.test(id) ||
     id.includes('claude') ||
     id.includes('gemini') ||
     id.includes('qwen') ||
@@ -121,7 +123,9 @@ function modelSupportsTools(
     id.includes('deepseek') ||
     id.includes('mistral') ||
     id.includes('llama') ||
-    id.includes('grok')
+    id.includes('grok') ||
+    id.includes('kimi') ||
+    id.includes('moonshot')
   )
 }
 

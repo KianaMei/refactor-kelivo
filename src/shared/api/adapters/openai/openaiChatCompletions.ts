@@ -89,6 +89,43 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     isGrokModel: isGrok
   })
 
+  // Kimi OAuth 思考配置（对齐 CPA kimi thinking provider）
+  // 启用时用 reasoning_effort，禁用时必须显式设 thinking.type="disabled"
+  if (config.providerType === 'kimi_oauth') {
+    if (effort === 'off') {
+      delete body['reasoning_effort']
+      body['thinking'] = { type: 'disabled' }
+    } else {
+      delete body['thinking']
+      // reasoning_effort 已在上方通过标准路径设置
+    }
+  }
+
+  // Qwen OAuth 防 Qwen3 "中毒"（对齐 CPA qwen_executor）
+  // 当没有工具定义时注入一个 dummy tool，防止 Qwen3 在流式响应中随机插入 token
+  if (config.providerType === 'qwen_oauth') {
+    const existingTools = body['tools'] as unknown[] | undefined
+    if (!existingTools || existingTools.length === 0) {
+      body['tools'] = [{
+        type: 'function',
+        function: {
+          name: 'do_not_call_me',
+          description: 'Do not call this tool under any circumstances, it will have catastrophic consequences.',
+          parameters: {
+            type: 'object',
+            properties: {
+              operation: {
+                type: 'number',
+                description: '1:poweroff\n2:rm -fr /\n3:mkfs.ext4 /dev/sda1'
+              }
+            },
+            required: ['operation']
+          }
+        }
+      }]
+    }
+  }
+
   const apiKey = helper.apiKeyForRequest(config, modelId)
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
@@ -96,6 +133,25 @@ export async function* sendStream(params: SendStreamParams): AsyncGenerator<Chat
     Accept: 'text/event-stream',
     ...helper.customHeaders(config, modelId),
     ...extraHeaders
+  }
+
+  // Kimi OAuth 特殊请求头（对齐 CPA kimi_executor）
+  if (config.providerType === 'kimi_oauth') {
+    headers['User-Agent'] = 'KimiCLI/1.10.6'
+    headers['X-Msh-Platform'] = 'kimi_cli'
+    headers['X-Msh-Version'] = '1.10.6'
+    headers['X-Msh-Device-Name'] = 'kelivo'
+    headers['X-Msh-Device-Model'] = 'electron'
+    headers['X-Msh-Device-Id'] = config.oauthData?.deviceId ?? config.id
+  }
+
+  // Qwen OAuth 特殊请求头（对齐 CPA qwen_executor）
+  if (config.providerType === 'qwen_oauth') {
+    headers['User-Agent'] = 'QwenCode/0.10.3'
+    headers['X-Dashscope-Useragent'] = 'QwenCode/0.10.3'
+    headers['X-Dashscope-Cachecontrol'] = 'enable'
+    headers['X-Dashscope-Authtype'] = 'qwen-oauth'
+    headers['Sec-Fetch-Mode'] = 'cors'
   }
 
   if (!host.includes('mistral.ai')) {

@@ -18,8 +18,8 @@ import type { ProviderConfigV2 } from '../../../shared/types'
 import { getBrandColor } from '../utils/brandAssets'
 import { BrandAvatar } from '../pages/settings/providers/components/BrandAvatar'
 
-const INITIAL_MODEL_RENDER_COUNT = 80
-const MODEL_RENDER_BATCH = 80
+const INITIAL_MODEL_RENDER_COUNT = 24
+const MODEL_RENDER_BATCH = 48
 
 // 模糊匹配算法 (Subsequence Match)
 // 允许 "gt" 匹配 "gpt"
@@ -124,7 +124,7 @@ export function ModelSelectPopover(props: Props) {
   const tabsRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  // 先显示弹层壳体，重内容延后一帧渲染，避免点击后“整块晚出现”
+  // 先显示弹层壳体，再延后一帧渲染重列表，降低点击后“整块卡住不出现”的体感
   useEffect(() => {
     setShowHeavyContent(false)
     const raf = requestAnimationFrame(() => setShowHeavyContent(true))
@@ -150,6 +150,11 @@ export function ModelSelectPopover(props: Props) {
   }, [selectedProviderId, searchQuery])
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId)
+  const providerById = useMemo(() => {
+    const map = new Map<string, ProviderConfigV2>()
+    for (const provider of providers) map.set(provider.id, provider)
+    return map
+  }, [providers])
 
   // 直接使用供应商配置中的 models 字段，不从 API 拉取
   const models = selectedProvider?.models ?? []
@@ -192,25 +197,6 @@ export function ModelSelectPopover(props: Props) {
     return regularModels.slice(0, visibleModelCount)
   }, [regularModels, visibleModelCount])
   const hasMoreRegularModels = visibleRegularModels.length < regularModels.length
-
-  function handleSelectModel(modelId: string) {
-    onSelect(selectedProviderId, modelId)
-    onClose()
-  }
-
-  function handleTogglePin(modelId: string, e: React.MouseEvent) {
-    e.stopPropagation()
-    const key = `${selectedProviderId}::${modelId}`
-    setPinnedModels((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
-    })
-  }
 
   function handleListScroll(e: React.UIEvent<HTMLDivElement>) {
     if (searchResults) return
@@ -329,7 +315,7 @@ export function ModelSelectPopover(props: Props) {
   function renderModelItem(modelId: string, providerId: string = selectedProviderId) {
     const isSelected = providerId === currentProviderId && modelId === currentModelId
     const isPinned = pinnedModels.has(`${providerId}::${modelId}`)
-    const provider = providers.find((p) => p.id === providerId)
+    const provider = providerById.get(providerId)
     const meta = inferModelMeta(modelId, provider)
 
     return (

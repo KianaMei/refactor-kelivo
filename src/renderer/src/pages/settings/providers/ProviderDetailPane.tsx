@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import type { ProviderConfigV2 } from '../../../../../shared/types'
+import type { ProviderConfigV2, OAuthProvider, ProviderKind } from '../../../../../shared/types'
 import { LOAD_BALANCE_STRATEGIES, type ModelOverride } from './types'
 import { AbilityCapsule } from './components/AbilityCapsule'
 import { BrandAvatar } from './components/BrandAvatar'
@@ -9,6 +9,24 @@ import { ShareProviderDialog } from './dialogs/ShareProviderDialog'
 import { ModelDetailDialog } from './dialogs/ModelDetailDialog'
 import { MultiKeyManagerDialog } from './dialogs/MultiKeyManagerDialog'
 import { ModelFetchDialog } from './dialogs/ModelFetchDialog'
+
+const OAUTH_KIND_MAP: Partial<Record<ProviderKind, OAuthProvider>> = {
+  claude_oauth: 'claude',
+  codex_oauth: 'codex',
+  gemini_cli_oauth: 'gemini_cli',
+  antigravity_oauth: 'antigravity',
+  kimi_oauth: 'kimi',
+  qwen_oauth: 'qwen'
+}
+
+const OAUTH_PROVIDER_LABELS: Record<OAuthProvider, string> = {
+  claude: 'Claude',
+  codex: 'Codex / OpenAI',
+  gemini_cli: 'Gemini CLI',
+  antigravity: 'Antigravity',
+  kimi: 'Kimi',
+  qwen: 'Qwen'
+}
 
 // Emoji 列表
 const EMOJI_LIST = [
@@ -97,6 +115,40 @@ export function ProviderDetailPane({
   // 名称编辑状态
   const [editingName, setEditingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
+
+  // OAuth 状态（仅 OAuth 类型供应商使用）
+  const oauthProvider = OAUTH_KIND_MAP[provider.providerType ?? 'openai'] ?? null
+  const isOAuthKind = !!oauthProvider
+  const [oauthLoading, setOauthLoading] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+
+  const handleOAuthLogin = useCallback(async () => {
+    if (!oauthProvider) return
+    setOauthLoading(true)
+    setOauthError(null)
+    try {
+      const tokenData = await window.api.oauth.login(oauthProvider)
+      await onSave({
+        ...provider,
+        oauthEnabled: true,
+        oauthData: tokenData,
+        updatedAt: new Date().toISOString()
+      })
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOauthLoading(false)
+    }
+  }, [oauthProvider, provider, onSave])
+
+  const handleOAuthLogout = useCallback(async () => {
+    await onSave({
+      ...provider,
+      oauthEnabled: false,
+      oauthData: null,
+      updatedAt: new Date().toISOString()
+    })
+  }, [provider, onSave])
 
   // 对话框状态
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
@@ -499,88 +551,122 @@ export function ProviderDetailPane({
           </div>
         )}
 
-        {/* API Key */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, paddingLeft: 2 }}>
-            <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>
-              {isMultiKeyMode ? '多 Key' : 'API Key'}
+        {/* ── 认证区域 ── */}
+        {isOAuthKind ? (
+          /* OAuth 类型供应商：只显示登录/登出 */
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>
+              账号
             </label>
-            <button type="button" className="desk-button" style={{ padding: '4px 10px', fontSize: 12 }} title="管理多个 API Key" onClick={() => setMultiKeyDialogOpen(true)}>
-              多Key管理
-            </button>
-          </div>
-
-          {isMultiKeyMode ? (
-            <>
+            {provider.oauthEnabled && provider.oauthData ? (
               <div style={{
-                fontSize: 12,
-                color: 'var(--text-3)',
-                paddingLeft: 2,
-                lineHeight: 1.4,
-                marginBottom: 10
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 8,
+                background: 'var(--success-bg, rgba(34,197,94,0.1))',
+                border: '1px solid var(--success-border, rgba(34,197,94,0.2))'
               }}>
-                已启用多 Key：{enabledMultiKeyCount}/{providerApiKeys.length}；策略：{multiKeyStrategyLabel}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success, #22c55e)" strokeWidth="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <span style={{ flex: 1, fontSize: 13 }}>
+                  {provider.oauthData.userEmail || `已登录 ${OAUTH_PROVIDER_LABELS[oauthProvider!]}`}
+                </span>
+                <button type="button" className="desk-button" style={{ padding: '4px 10px', fontSize: 12 }} onClick={handleOAuthLogout}>
+                  登出
+                </button>
               </div>
-            </>
-          ) : (
-            <div style={{ position: 'relative' }}>
+            ) : (
+              <div>
+                <button
+                  type="button"
+                  className="desk-button filled"
+                  style={{ padding: '6px 16px', fontSize: 13 }}
+                  disabled={oauthLoading}
+                  onClick={handleOAuthLogin}
+                >
+                  {oauthLoading ? '登录中...' : `登录 ${OAUTH_PROVIDER_LABELS[oauthProvider!]}`}
+                </button>
+                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>使用订阅账号登录，无需 API Key</div>
+                {oauthError && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--danger, #ef4444)' }}>{oauthError}</div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* 传统供应商：Key / URL / Path */
+          <>
+            {/* API Key */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, paddingLeft: 2 }}>
+                <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>
+                  {isMultiKeyMode ? '多 Key' : 'API Key'}
+                </label>
+                <button type="button" className="desk-button" style={{ padding: '4px 10px', fontSize: 12 }} title="管理多个 API Key" onClick={() => setMultiKeyDialogOpen(true)}>
+                  多Key管理
+                </button>
+              </div>
+              {isMultiKeyMode ? (
+                <div style={{ fontSize: 12, color: 'var(--text-3)', paddingLeft: 2, lineHeight: 1.4, marginBottom: 10 }}>
+                  已启用多 Key：{enabledMultiKeyCount}/{providerApiKeys.length}；策略：{multiKeyStrategyLabel}
+                </div>
+              ) : (
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="input-detail"
+                    style={{ paddingRight: 40 }}
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => { setApiKey(e.target.value); saveChanges({ apiKey: e.target.value }) }}
+                    placeholder="请输入 API Key"
+                  />
+                  <button type="button" className="eye-toggle-btn" onClick={() => setShowApiKey(!showApiKey)} title={showApiKey ? '隐藏' : '显示'}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      {showApiKey ? (
+                        <>
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                        </>
+                      ) : (
+                        <>
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </>
+                      )}
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* API Base URL */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API Base URL</label>
               <input
                 className="input-detail"
-                style={{ paddingRight: 40 }}
-                type={showApiKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => { setApiKey(e.target.value); saveChanges({ apiKey: e.target.value }) }}
-                placeholder="请输入 API Key"
+                value={baseUrl}
+                onChange={(e) => { setBaseUrl(e.target.value); saveChanges({ baseUrl: e.target.value }) }}
+                placeholder="https://api.openai.com/v1"
               />
-              <button type="button" className="eye-toggle-btn" onClick={() => setShowApiKey(!showApiKey)} title={showApiKey ? '隐藏' : '显示'}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  {showApiKey ? (
-                    <>
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                    </>
-                  ) : (
-                    <>
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                      <circle cx="12" cy="12" r="3"/>
-                    </>
-                  )}
-                </svg>
-              </button>
             </div>
-          )}
-        </div>
 
-        {/* API Base URL */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API Base URL</label>
-          <input
-            className="input-detail"
-            value={baseUrl}
-            onChange={(e) => { setBaseUrl(e.target.value); saveChanges({ baseUrl: e.target.value }) }}
-            placeholder="https://api.openai.com/v1"
-          />
-        </div>
-
-        {/* API 路径 */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API 路径</label>
-
-          {useResponseApi ? (
-            <input
-              className="input-detail"
-              value="/responses"
-              disabled
-            />
-          ) : (
-            <input
-              className="input-detail"
-              value={chatPath}
-              onChange={(e) => { setChatPath(e.target.value); saveChanges({ chatPath: e.target.value }) }}
-              placeholder="/chat/completions"
-            />
-          )}
-        </div>
+            {/* API 路径 */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API 路径</label>
+              {useResponseApi ? (
+                <input className="input-detail" value="/responses" disabled />
+              ) : (
+                <input
+                  className="input-detail"
+                  value={chatPath}
+                  onChange={(e) => { setChatPath(e.target.value); saveChanges({ chatPath: e.target.value }) }}
+                  placeholder="/chat/completions"
+                />
+              )}
+            </div>
+          </>
+        )}
 
         {/* 模型区域 */}
         <div>

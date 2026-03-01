@@ -660,13 +660,23 @@ function normalizeProviderConfig(key: string, input: unknown): ProviderConfigV2 
   const enabled = typeof input['enabled'] === 'boolean' ? (input['enabled'] as boolean) : def.enabled
   const name = typeof input['name'] === 'string' && input['name'].trim() ? (input['name'] as string) : def.name
   const apiKey = typeof input['apiKey'] === 'string' ? (input['apiKey'] as string) : def.apiKey
-  const baseUrl = typeof input['baseUrl'] === 'string' && input['baseUrl'].trim() ? (input['baseUrl'] as string) : def.baseUrl
+  const rawBaseUrl = typeof input['baseUrl'] === 'string' && input['baseUrl'].trim() ? (input['baseUrl'] as string) : def.baseUrl
   const providerType: ProviderKind | undefined = (() => {
     const t = input['providerType']
-    if (t === 'openai' || t === 'openai_response' || t === 'claude' || t === 'google') return t
+    if (t === 'openai' || t === 'openai_response' || t === 'claude' || t === 'google'
+      || t === 'claude_oauth' || t === 'codex_oauth' || t === 'gemini_cli_oauth' || t === 'antigravity_oauth'
+      || t === 'kimi_oauth' || t === 'qwen_oauth') return t
     // 兼容旧数据：尝试从 baseUrl 推断
-    return classifyProviderKindByUrl(baseUrl)
+    return classifyProviderKindByUrl(rawBaseUrl)
   })()
+
+  // OAuth 供应商强制使用正确的 base URL（修正旧配置）
+  const OAUTH_BASE_URLS: Partial<Record<ProviderKind, string>> = {
+    codex_oauth: 'https://chatgpt.com/backend-api/codex',
+    kimi_oauth: 'https://api.kimi.com/coding/v1',
+    qwen_oauth: 'https://portal.qwen.ai/v1'
+  }
+  const baseUrl = (providerType && OAUTH_BASE_URLS[providerType]) || rawBaseUrl
 
   return {
     ...def,
@@ -677,11 +687,13 @@ function normalizeProviderConfig(key: string, input: unknown): ProviderConfigV2 
     baseUrl,
     providerType,
     chatPath: typeof input['chatPath'] === 'string' ? (input['chatPath'] as string) : def.chatPath,
-    useResponseApi: typeof input['useResponseApi'] === 'boolean'
-      ? (input['useResponseApi'] as boolean)
-      : providerType === 'openai_response'
-        ? true
-        : def.useResponseApi,
+    useResponseApi: providerType === 'codex_oauth'
+      ? true
+      : typeof input['useResponseApi'] === 'boolean'
+        ? (input['useResponseApi'] as boolean)
+        : providerType === 'openai_response'
+          ? true
+          : def.useResponseApi,
     vertexAI: typeof input['vertexAI'] === 'boolean' ? (input['vertexAI'] as boolean) : def.vertexAI,
     location: typeof input['location'] === 'string' ? (input['location'] as string) : def.location,
     projectId: typeof input['projectId'] === 'string' ? (input['projectId'] as string) : def.projectId,
@@ -701,6 +713,8 @@ function normalizeProviderConfig(key: string, input: unknown): ProviderConfigV2 
     allowInsecureConnection:
       typeof input['allowInsecureConnection'] === 'boolean' ? (input['allowInsecureConnection'] as boolean) : def.allowInsecureConnection,
     customAvatarPath: typeof input['customAvatarPath'] === 'string' ? (input['customAvatarPath'] as string) : def.customAvatarPath,
+    oauthEnabled: typeof input['oauthEnabled'] === 'boolean' ? (input['oauthEnabled'] as boolean) : def.oauthEnabled,
+    oauthData: isRecord(input['oauthData']) ? (input['oauthData'] as ProviderConfigV2['oauthData']) : def.oauthData,
     createdAt: typeof input['createdAt'] === 'string' ? (input['createdAt'] as string) : def.createdAt,
     updatedAt: typeof input['updatedAt'] === 'string' ? (input['updatedAt'] as string) : def.updatedAt
   }

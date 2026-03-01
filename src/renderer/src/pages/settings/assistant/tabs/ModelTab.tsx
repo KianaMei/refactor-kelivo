@@ -55,7 +55,7 @@ export function ModelTab(props: {
           className="btn btn-ghost"
           style={{ minWidth: 240, textAlign: 'left', justifyContent: 'flex-start' }}
           disabled={!assistant.boundModelProvider}
-          onClick={() => setPickerOpen(true)}
+          onClick={() => setPickerOpen((v) => !v)}
         >
           {assistant.boundModelId ?? '选择模型'}
         </button>
@@ -64,7 +64,7 @@ export function ModelTab(props: {
           className="btn btn-ghost"
           style={{ padding: '6px 10px' }}
           disabled={!assistant.boundModelProvider}
-          onClick={() => setPickerOpen(true)}
+          onClick={() => setPickerOpen((v) => !v)}
         >
           获取
         </button>

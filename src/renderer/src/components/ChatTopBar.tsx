@@ -3,7 +3,7 @@
  * 对齐 Flutter Kelivo 的 home_app_bar_builder.dart
  * 包括：对话标题、模型胶囊、新建对话按钮
  */
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { MessageCirclePlus, Boxes, Edit3, Check, X } from 'lucide-react'
 import { getBrandIcon, getBrandColor } from '../utils/brandAssets'
 import { BrandAvatar } from '../pages/settings/providers/components/BrandAvatar'
@@ -22,7 +22,7 @@ interface Props {
   onNewConversation?: () => void
 }
 
-export function ChatTopBar(props: Props) {
+function ChatTopBarInner(props: Props) {
   const {
     title,
     assistantName,
@@ -150,3 +150,5 @@ export function ChatTopBar(props: Props) {
     </div>
   )
 }
+
+export const ChatTopBar = memo(ChatTopBarInner)

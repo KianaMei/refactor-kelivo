@@ -229,16 +229,149 @@ async function fetchClaudeModels(provider: ProviderConfig): Promise<string[]> {
 /** Claude 默认模型列表 */
 function getDefaultClaudeModels(): string[] {
   return [
-    'claude-sonnet-4-20250514',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'claude-opus-4-5-20251101',
+    'claude-opus-4-1-20250805',
     'claude-opus-4-20250514',
+    'claude-sonnet-4-20250514',
+    'claude-sonnet-4-5-20250929',
+    'claude-haiku-4-5-20251001',
     'claude-3-7-sonnet-20250219',
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-    'claude-3-opus-20240229',
-    'claude-3-sonnet-20240229',
-    'claude-3-haiku-20240307'
+    'claude-3-5-haiku-20241022'
   ]
 }
+
+// ============================================================================
+// OAuth 供应商静态模型列表（对齐 CPA model_definitions_static_data.go）
+// ============================================================================
+
+function getCodexOAuthModels(): string[] {
+  return [
+    'gpt-5',
+    'gpt-5-codex',
+    'gpt-5-codex-mini',
+    'gpt-5.1',
+    'gpt-5.1-codex',
+    'gpt-5.1-codex-mini',
+    'gpt-5.1-codex-max',
+    'gpt-5.2',
+    'gpt-5.2-codex',
+    'gpt-5.3-codex',
+    'gpt-5.3-codex-spark'
+  ]
+}
+
+function getGeminiCLIOAuthModels(): string[] {
+  return [
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-3-pro-preview',
+    'gemini-3.1-pro-preview',
+    'gemini-3-flash-preview',
+    'gemini-3-pro-image-preview'
+  ]
+}
+
+function getKimiOAuthModels(): string[] {
+  return [
+    'kimi-k2',
+    'kimi-k2-thinking',
+    'kimi-k2.5'
+  ]
+}
+
+function getQwenOAuthModels(): string[] {
+  return [
+    'qwen3-coder-plus',
+    'qwen3-coder-flash',
+    'coder-model',
+    'vision-model'
+  ]
+}
+
+/** Antigravity：从 Google Cloud Code API 动态拉取模型列表 */
+async function fetchAntigravityModels(accessToken: string): Promise<string[]> {
+  const urls = [
+    'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+    'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels'
+  ]
+
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          'User-Agent': 'antigravity/1.104.0'
+        },
+        body: '{}'
+      })
+      if (!resp.ok) continue
+
+      const data = (await resp.json()) as { models?: Record<string, unknown> }
+      if (!data.models || typeof data.models !== 'object') continue
+
+      const skipSet = new Set(['chat_20706', 'chat_23310', 'gemini-2.5-flash-thinking', 'gemini-3-pro-low', 'gemini-2.5-pro'])
+      return Object.keys(data.models).filter(k => !skipSet.has(k))
+    } catch {
+      continue
+    }
+  }
+
+  // 如果都失败，返回默认列表
+  return [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-3-pro-high',
+    'gemini-3-pro-image',
+    'gemini-3.1-pro-high',
+    'gemini-3-flash',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6-thinking'
+  ]
+}
+
+/** Google Gemini OAuth 模式：用 Bearer token 获取模型列表 */
+async function fetchGoogleModelsWithBearer(provider: ProviderConfig, accessToken: string): Promise<string[]> {
+  const baseUrl = provider.baseUrl.endsWith('/') ? provider.baseUrl.slice(0, -1) : provider.baseUrl
+  const url = `${baseUrl}/models`
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json'
+    }
+  })
+
+  if (!resp.ok) {
+    // 如果 API 不支持模型列表，返回静态列表
+    return getGeminiCLIOAuthModels()
+  }
+
+  const data = (await resp.json()) as Record<string, unknown>
+  const rawList = Array.isArray(data?.models) ? data.models : []
+  const ids = rawList
+    .map((m: unknown) => {
+      if (m && typeof m === 'object') {
+        const obj = m as Record<string, unknown>
+        const name = typeof obj.name === 'string' ? obj.name : ''
+        return name.startsWith('models/') ? name.substring(7) : name
+      }
+      return ''
+    })
+    .filter((x: string) => x.trim().length > 0 && !x.includes('embedding'))
+
+  return ids.length > 0 ? ids : getGeminiCLIOAuthModels()
+}
+
+const OAUTH_KINDS = new Set([
+  'claude_oauth', 'codex_oauth', 'gemini_cli_oauth',
+  'antigravity_oauth', 'kimi_oauth', 'qwen_oauth'
+])
 
 export function registerModelsIpc(): void {
   ipcMain.handle(IpcChannel.ModelsList, async (_event, params: ModelsListParams) => {
@@ -247,15 +380,49 @@ export function registerModelsIpc(): void {
     if (!provider) throw new Error(`未找到供应商：${params.providerId}`)
 
     const kind = provider.providerType ?? 'openai'
-    if (!provider.apiKey) throw new Error('该供应商未配置 API Key')
+    const isOAuth = OAUTH_KINDS.has(kind)
+
+    // OAuth 供应商用 accessToken，传统供应商用 apiKey
+    if (isOAuth) {
+      if (!provider.oauthData?.accessToken) {
+        throw new Error('请先完成 OAuth 登录')
+      }
+    } else {
+      if (!provider.apiKey) throw new Error('该供应商未配置 API Key')
+    }
 
     let ids: string[] = []
-    if (kind === 'google') {
-      ids = await fetchGoogleModels(provider)
-    } else if (kind === 'claude') {
-      ids = await fetchClaudeModels(provider)
-    } else {
-      ids = await fetchOpenAIModels(provider)
+
+    switch (kind) {
+      // --- OAuth 供应商 ---
+      case 'claude_oauth':
+        ids = getDefaultClaudeModels()
+        break
+      case 'codex_oauth':
+        ids = getCodexOAuthModels()
+        break
+      case 'gemini_cli_oauth':
+        ids = await fetchGoogleModelsWithBearer(provider, provider.oauthData!.accessToken)
+        break
+      case 'antigravity_oauth':
+        ids = await fetchAntigravityModels(provider.oauthData!.accessToken)
+        break
+      case 'kimi_oauth':
+        ids = getKimiOAuthModels()
+        break
+      case 'qwen_oauth':
+        ids = getQwenOAuthModels()
+        break
+      // --- 传统供应商 ---
+      case 'google':
+        ids = await fetchGoogleModels(provider)
+        break
+      case 'claude':
+        ids = await fetchClaudeModels(provider)
+        break
+      default:
+        ids = await fetchOpenAIModels(provider)
+        break
     }
 
     const uniq = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b))

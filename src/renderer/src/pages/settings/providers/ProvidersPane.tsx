@@ -8,12 +8,19 @@ import { ImportProviderDialog } from './dialogs/ImportProviderDialog'
 import { ProviderDetailPane } from './ProviderDetailPane'
 import { ExportProviderDialog } from './dialogs/ExportProviderDialog'
 import { CustomSelect } from '../../../components/ui/CustomSelect'
+import { BrandAvatar } from './components/BrandAvatar'
 
 const PROVIDER_TYPES = [
   { value: 'openai', label: 'OpenAI Chat' },
   { value: 'openai_response', label: 'OpenAI Response' },
   { value: 'google', label: 'Google AI' },
-  { value: 'claude', label: 'Anthropic Claude' }
+  { value: 'claude', label: 'Anthropic Claude' },
+  { value: 'claude_oauth', label: 'Claude (OAuth)' },
+  { value: 'codex_oauth', label: 'Codex / OpenAI (OAuth)' },
+  { value: 'gemini_cli_oauth', label: 'Gemini CLI (OAuth)' },
+  { value: 'antigravity_oauth', label: 'Antigravity (OAuth)' },
+  { value: 'kimi_oauth', label: 'Kimi (OAuth)' },
+  { value: 'qwen_oauth', label: 'Qwen (OAuth)' }
 ]
 
 function isHttpUrl(v: string): boolean {
@@ -108,6 +115,12 @@ export function ProvidersPane(props: {
   const importMenuRef = useRef<HTMLDivElement>(null)
   const exportMenuRef = useRef<HTMLDivElement>(null)
   const selectionExportMenuRef = useRef<HTMLDivElement>(null)
+
+  // 右键菜单状态
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; providerId: string } | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   // 拖拽排序状态
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -221,13 +234,18 @@ export function ProvidersPane(props: {
     setEditModalOpen(true)
   }
 
+  const isOAuthKind = (k: ProviderKind) =>
+    k === 'claude_oauth' || k === 'codex_oauth' || k === 'gemini_cli_oauth' || k === 'antigravity_oauth'
+    || k === 'kimi_oauth' || k === 'qwen_oauth'
+
   async function handleSave() {
     setFormError(null)
     const name = formName.trim()
-    const baseUrl = formBaseUrl.trim()
-    const apiKey = formApiKey.trim()
+    const isOAuth = isOAuthKind(formProviderType)
+    const baseUrl = isOAuth ? '' : formBaseUrl.trim()
+    const apiKey = isOAuth ? '' : formApiKey.trim()
     if (!name) { setFormError('名称不能为空'); return }
-    if (!isHttpUrl(baseUrl)) { setFormError('请输入有效的 http(s) 地址'); return }
+    if (!isOAuth && !isHttpUrl(baseUrl)) { setFormError('请输入有效的 http(s) 地址'); return }
 
     setBusy(true)
     try {
@@ -239,9 +257,10 @@ export function ProvidersPane(props: {
         ...base,
         id: key,
         name,
-        baseUrl,
+        baseUrl: isOAuth ? base.baseUrl : baseUrl,
         apiKey,
         providerType: formProviderType,
+        oauthEnabled: isOAuth,
         useResponseApi: formProviderType === 'openai_response' ? true : (existing?.useResponseApi ?? base.useResponseApi),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now
@@ -377,6 +396,18 @@ export function ProvidersPane(props: {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectionMode, exitSelectionMode])
+
+  // 点击外部关闭右键菜单
+  useEffect(() => {
+    if (!contextMenu) return
+    const handleClick = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [contextMenu])
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
@@ -730,27 +761,92 @@ export function ProvidersPane(props: {
             const isEnabled = p.enabled !== false
             const isSelected = selectedIds.has(p.id)
             return (
-              <ProviderCard
+              <div
                 key={p.id}
-                provider={p}
-                isEnabled={isEnabled}
-                isSelected={isSelected}
-                selectionMode={selectionMode}
-                onToggleSelect={() => toggleSelect(p.id)}
-                onClick={() => {
-                  if (selectionMode) {
-                    toggleSelect(p.id)
-                  } else {
-                    setDetailProviderId(p.id)
-                  }
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setContextMenu({ x: e.clientX, y: e.clientY, providerId: p.id })
                 }}
-                onToggleEnabled={() => void handleToggleEnabled(p.id)}
-                onDragStart={(e) => handleDragStart(p.id, e)}
-                onDragOver={(e) => handleDragOver(p.id, e)}
-                onDragEnd={handleDragEnd}
-                onDrop={(e) => void handleDrop(p.id, e)}
-                isDragging={draggedId === p.id}
-              />
+              >
+                {renamingId === p.id ? (
+                  /* 重命名模式：内联输入框 */
+                  <div
+                    className={`provider-card`}
+                    style={{
+                      position: 'relative',
+                      borderRadius: 12,
+                      border: '2px solid var(--primary)',
+                      padding: '10px 10px 10px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <div style={{ borderRadius: 12, overflow: 'hidden', width: '100%', aspectRatio: '1' }}>
+                      <BrandAvatar name={p.name} size={999} customAvatarPath={p.customAvatarPath} square fill />
+                    </div>
+                    <input
+                      className="input"
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const v = renameValue.trim()
+                          if (v && v !== p.name) {
+                            void props.onSave({
+                              ...props.config,
+                              providerConfigs: {
+                                ...props.config.providerConfigs,
+                                [p.id]: { ...p, name: v, updatedAt: new Date().toISOString() }
+                              }
+                            })
+                          }
+                          setRenamingId(null)
+                        } else if (e.key === 'Escape') {
+                          setRenamingId(null)
+                        }
+                      }}
+                      onBlur={() => {
+                        const v = renameValue.trim()
+                        if (v && v !== p.name) {
+                          void props.onSave({
+                            ...props.config,
+                            providerConfigs: {
+                              ...props.config.providerConfigs,
+                              [p.id]: { ...p, name: v, updatedAt: new Date().toISOString() }
+                            }
+                          })
+                        }
+                        setRenamingId(null)
+                      }}
+                      style={{ width: '100%', fontSize: 13, textAlign: 'center', padding: '2px 4px' }}
+                    />
+                  </div>
+                ) : (
+                  <ProviderCard
+                    provider={p}
+                    isEnabled={isEnabled}
+                    isSelected={isSelected}
+                    selectionMode={selectionMode}
+                    onToggleSelect={() => toggleSelect(p.id)}
+                    onClick={() => {
+                      if (selectionMode) {
+                        toggleSelect(p.id)
+                      } else {
+                        setDetailProviderId(p.id)
+                      }
+                    }}
+                    onToggleEnabled={() => void handleToggleEnabled(p.id)}
+                    onDragStart={(e) => handleDragStart(p.id, e)}
+                    onDragOver={(e) => handleDragOver(p.id, e)}
+                    onDragEnd={handleDragEnd}
+                    onDrop={(e) => void handleDrop(p.id, e)}
+                    isDragging={draggedId === p.id}
+                  />
+                )}
+              </div>
             )
           })}
         </div>
@@ -784,26 +880,106 @@ export function ProvidersPane(props: {
                 <input className="input" placeholder="OpenAI" value={formName} onChange={(e) => setFormName(e.target.value)} />
               </div>
 
-              <div className="form-group">
-                <label>Base URL</label>
-                <input className="input" placeholder="https://api.openai.com/v1" value={formBaseUrl} onChange={(e) => setFormBaseUrl(e.target.value)} />
-              </div>
+              {!isOAuthKind(formProviderType) && (
+                <>
+                  <div className="form-group">
+                    <label>Base URL</label>
+                    <input className="input" placeholder="https://api.openai.com/v1" value={formBaseUrl} onChange={(e) => setFormBaseUrl(e.target.value)} />
+                  </div>
 
-              <div className="form-group">
-                <label>API Key</label>
-                <input className="input" type="password" placeholder="sk-..." value={formApiKey} onChange={(e) => setFormApiKey(e.target.value)} />
-              </div>
+                  <div className="form-group">
+                    <label>API Key</label>
+                    <input className="input" type="password" placeholder="sk-..." value={formApiKey} onChange={(e) => setFormApiKey(e.target.value)} />
+                  </div>
+                </>
+              )}
+
+              {isOAuthKind(formProviderType) && (
+                <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '4px 2px' }}>
+                  创建后在供应商详情页中登录账号即可使用，无需 API Key
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">
               <button type="button" className="btn" onClick={() => setEditModalOpen(false)}>取消</button>
-              <button type="button" className="btn btn-primary" disabled={busy || !formName.trim() || !formBaseUrl.trim()} onClick={() => void handleSave()}>
+              <button type="button" className="btn btn-primary" disabled={busy || !formName.trim() || (!isOAuthKind(formProviderType) && !formBaseUrl.trim())} onClick={() => void handleSave()}>
                 {busy ? '保存中...' : '保存'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* 右键菜单 */}
+      {contextMenu && (() => {
+        const p = props.config.providerConfigs[contextMenu.providerId]
+        if (!p) return null
+        return (
+          <div
+            ref={contextMenuRef}
+            className="context-menu"
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              zIndex: 9999,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+              padding: '4px 0',
+              minWidth: 140
+            }}
+          >
+            <button
+              type="button"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', padding: '8px 14px', border: 'none',
+                background: 'none', color: 'var(--text)', fontSize: 13,
+                cursor: 'pointer', textAlign: 'left'
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+              onClick={() => {
+                setRenamingId(contextMenu.providerId)
+                setRenameValue(p.name)
+                setContextMenu(null)
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+              </svg>
+              重命名
+            </button>
+            <button
+              type="button"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', padding: '8px 14px', border: 'none',
+                background: 'none', color: 'var(--danger, #ef4444)', fontSize: 13,
+                cursor: 'pointer', textAlign: 'left'
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+              onClick={() => {
+                setDeleteTargetId(contextMenu.providerId)
+                setDeleteTargetName(p.name)
+                setDeletePosition({ x: contextMenu.x, y: contextMenu.y })
+                setDeleteConfirmOpen(true)
+                setContextMenu(null)
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              删除
+            </button>
+          </div>
+        )
+      })()}
 
       {/* 删除确认对话框 */}
       <ConfirmDialog

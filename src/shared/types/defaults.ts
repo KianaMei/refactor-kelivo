@@ -39,16 +39,24 @@ export function inferDefaultBaseUrl(idOrName: string, kind: ProviderKind): strin
   if (s.includes('cohere')) return 'https://api.cohere.com/v1'
   if (/hunyuan|tencent|腾讯/.test(s)) return 'https://api.hunyuan.cloud.tencent.com/v1'
   if (/internlm|书生/.test(s)) return 'https://internlm-chat.intern-ai.org.cn/puyu/api/v1'
-  if (kind === 'claude') return 'https://api.anthropic.com/v1'
-  if (kind === 'google') return 'https://generativelanguage.googleapis.com/v1beta'
+  if (kind === 'claude' || kind === 'claude_oauth') return 'https://api.anthropic.com/v1'
+  if (kind === 'google' || kind === 'gemini_cli_oauth' || kind === 'antigravity_oauth') return 'https://generativelanguage.googleapis.com/v1beta'
+  if (kind === 'codex_oauth') return 'https://chatgpt.com/backend-api/codex'
+  if (kind === 'kimi_oauth') return 'https://api.kimi.com/coding/v1'
+  if (kind === 'qwen_oauth') return 'https://portal.qwen.ai/v1'
   return 'https://api.openai.com/v1'
 }
+
+const OAUTH_KINDS = new Set(['claude_oauth', 'codex_oauth', 'gemini_cli_oauth', 'antigravity_oauth', 'kimi_oauth', 'qwen_oauth'])
 
 export function createDefaultProviderConfig(id: string, name?: string): ProviderConfigV2 {
   const lower = (name ?? id).toLowerCase()
   const kind = inferProviderKindFromName(lower)
-  const normalizedKind = kind === 'openai_response' ? 'openai' : kind
-  const baseUrl = inferDefaultBaseUrl(lower, normalizedKind)
+  const normalizedKind = kind === 'openai_response' || kind === 'codex_oauth' || kind === 'kimi_oauth' || kind === 'qwen_oauth' ? 'openai'
+    : kind === 'claude_oauth' ? 'claude'
+    : kind === 'gemini_cli_oauth' || kind === 'antigravity_oauth' ? 'google'
+    : kind
+  const baseUrl = inferDefaultBaseUrl(lower, kind)
 
   return {
     id,
@@ -58,7 +66,7 @@ export function createDefaultProviderConfig(id: string, name?: string): Provider
     baseUrl,
     providerType: kind,
     chatPath: normalizedKind === 'openai' ? '/chat/completions' : undefined,
-    useResponseApi: kind === 'openai_response',
+    useResponseApi: kind === 'openai_response' || kind === 'codex_oauth',
     vertexAI: false,
     location: '',
     projectId: '',
@@ -75,6 +83,8 @@ export function createDefaultProviderConfig(id: string, name?: string): Provider
     keyManagement: defaultKeyManagement(),
     allowInsecureConnection: false,
     customAvatarPath: '',
+    oauthEnabled: OAUTH_KINDS.has(kind),
+    oauthData: null,
     createdAt: nowIso(),
     updatedAt: nowIso()
   }

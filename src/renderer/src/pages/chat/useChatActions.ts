@@ -45,6 +45,7 @@ export interface UseChatActionsParams {
   assistantMemories: Array<{ id: number; assistantId: string; content: string }>
   recentChats: Array<{ timestamp: string; title: string }>
   scrollTargetRef: React.MutableRefObject<string | null>
+  modelPickerOpen: boolean
   setModelPickerOpen: React.Dispatch<React.SetStateAction<boolean>>
   setPendingReAnswerMsgId: React.Dispatch<React.SetStateAction<string | null>>
   pendingReAnswerMsgId: string | null
@@ -58,7 +59,7 @@ export function useChatActions(params: UseChatActionsParams) {
     selectedVersions, setSelectedVersions,
     streamingRef, isGenerating, setIsGenerating, setLoadingConversationIds,
     runRendererStream, assistantMemories, recentChats, scrollTargetRef,
-    setModelPickerOpen, setPendingReAnswerMsgId, pendingReAnswerMsgId, onSave
+    modelPickerOpen, setModelPickerOpen, setPendingReAnswerMsgId, pendingReAnswerMsgId, onSave
   } = params
   const activeAssistant = params.activeAssistant ?? null
 
@@ -449,6 +450,11 @@ export function useChatActions(params: UseChatActionsParams) {
 
   function handleMentionReAnswer(msg: ChatMessage) {
     if (msg.role !== 'assistant') return
+    if (modelPickerOpen && pendingReAnswerMsgId === msg.id) {
+      setModelPickerOpen(false)
+      setPendingReAnswerMsgId(null)
+      return
+    }
     setModelPickerOpen(true)
     setPendingReAnswerMsgId(msg.id)
   }

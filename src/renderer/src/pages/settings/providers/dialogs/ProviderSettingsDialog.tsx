@@ -7,7 +7,13 @@ const PROVIDER_TYPES = [
   { value: 'openai', label: 'OpenAI Chat' },
   { value: 'openai_response', label: 'OpenAI Response' },
   { value: 'google', label: 'Google AI' },
-  { value: 'claude', label: 'Anthropic Claude' }
+  { value: 'claude', label: 'Anthropic Claude' },
+  { value: 'claude_oauth', label: 'Claude (OAuth)' },
+  { value: 'codex_oauth', label: 'Codex / OpenAI (OAuth)' },
+  { value: 'gemini_cli_oauth', label: 'Gemini CLI (OAuth)' },
+  { value: 'antigravity_oauth', label: 'Antigravity (OAuth)' },
+  { value: 'kimi_oauth', label: 'Kimi (OAuth)' },
+  { value: 'qwen_oauth', label: 'Qwen (OAuth)' }
 ]
 
 export function ProviderSettingsDialog({

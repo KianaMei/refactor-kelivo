@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, protocol, dialog, session } from 'electron'
 import { readFile } from 'fs/promises'
+import { existsSync } from 'fs'
 import { join } from 'path'
 
 import { registerConfigIpc } from './configIpc'
@@ -25,6 +26,8 @@ import { registerStorageIpc } from './storageIpc'
 import { registerDepsIpc } from './deps/depsIpc'
 import { registerImageStudioIpc } from './imageStudioIpc'
 import { registerPromptLibraryIpc } from './promptLibraryIpc'
+import { registerOAuthIpc } from './oauthIpc'
+import { startOAuthRefreshScheduler } from './services/oauth/oauthRefreshScheduler'
 import { IpcChannel } from '../shared/ipc'
 import { initDatabase, closeDatabase } from './db/database'
 import { ensureDefaultWorkspace } from './db/repositories/workspaceRepo'
@@ -44,13 +47,25 @@ import { normalizeAssistantConfig } from '../shared/types'
 // Main 进程注入代理版 HTTP 客户端，shared adapters 自动走代理
 setPostJsonStream(proxyPostJsonStream)
 
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    join(process.resourcesPath, 'build', 'icon.ico'),
+    join(app.getAppPath(), 'build', 'icon.ico'),
+    join(process.cwd(), 'build', 'icon.ico'),
+    join(app.getAppPath(), 'src/renderer/public/icons/app_icon.ico'),
+    join(process.cwd(), 'src/renderer/public/icons/app_icon.ico'),
+    join(__dirname, '../../src/renderer/public/icons/app_icon.ico')
+  ]
+  return candidates.find((candidate) => existsSync(candidate))
+}
+
 function createMainWindow(): void {
-  const windowIcon = join(__dirname, '../renderer/icons/app_icon.ico')
+  const windowIcon = resolveWindowIcon()
 
   const mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
-    icon: windowIcon,
+    icon: process.platform === 'win32' ? windowIcon : undefined,
     show: false,
     autoHideMenuBar: true,
     frame: false, // 无边框窗口
@@ -217,6 +232,7 @@ app.whenReady().then(async () => {
   registerDepsIpc()
   registerImageStudioIpc()
   registerPromptLibraryIpc()
+  registerOAuthIpc()
 
   createMainWindow()
 
@@ -246,6 +262,9 @@ app.whenReady().then(async () => {
       }
     })
     .catch((err) => console.warn('[ProxyManager] Failed to apply proxy config:', err))
+
+  // Start OAuth token refresh scheduler
+  startOAuthRefreshScheduler()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()

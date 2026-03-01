@@ -344,6 +344,9 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
   border-radius: var(--radius-lg);
   background: var(--surface-2);
   border: 1px solid var(--border);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .chatBubbleUser {
   /* 用户气泡保持相对紧凑 */
@@ -640,10 +643,14 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 }
 .msgAvatarUser { color: var(--primary); }
 /* 消息区域整体宽度：
- * - 助手：固定 920px，与深度思考卡片一致
+ * - 助手：自适应宽度，上限可配置（默认 1200px）
  * - 用户：保持 70% 的常见聊天布局
  */
-.msgBubbleWrapper { width: 920px; max-width: 92%; }
+.msgBubbleWrapper {
+  width: 100%;
+  max-width: min(var(--assistant-bubble-max-width, 1200px), 92%);
+  min-width: 0;
+}
 .msgBubbleWrapperUser { align-items: flex-end; width: auto; max-width: 70%; }
 .msgToolbar { display: flex; gap: 4px; padding: 4px 0; opacity: 0; transition: opacity 0.15s; }
 .msgBubbleWrapper:hover .msgToolbar { opacity: 1; }
@@ -873,7 +880,13 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .storageDetailItemInfo { flex: 1; min-width: 0; }
 
 /* ========== Markdown ========== */
-.markdown { font-size: 13px; line-height: 1.5; }
+.markdown {
+  font-size: 13px;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .markdown p { margin: 0 0 8px; }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown a { color: var(--primary); text-decoration: none; }
@@ -889,6 +902,11 @@ code { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 13px; }
 .markdown ul, .markdown ol { margin: 6px 0; padding-left: 20px; }
 .markdown li { margin: 3px 0; }
 .markdown h1, .markdown h2, .markdown h3 { margin: 12px 0 6px; font-weight: 600; }
+.mdInlineCode {
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .mdCodeBlock { margin: 8px 0; border-radius: var(--radius); background: var(--surface-3); overflow: hidden; }
 .mdCodeHeader { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .mdCodeLang { font-size: 10px; color: var(--text-3); font-weight: 500; }

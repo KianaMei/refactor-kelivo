@@ -6,7 +6,7 @@
  * - 右键菜单为玻璃质感（带删除二次确认）
  * - 重命名使用对话框（不做列表内联编辑）
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Edit2, FolderOpen, History, Pin, RotateCw, Search, Trash2, X } from 'lucide-react'
 
@@ -113,7 +113,7 @@ function groupByDate(items: Conversation[]): DateGroup[] {
   })
 }
 
-export function ConversationSidebar(props: Props) {
+function ConversationSidebarInner(props: Props) {
   const {
     conversations,
     activeConvId,
@@ -550,6 +550,8 @@ export function ConversationSidebar(props: Props) {
     </div>
   )
 }
+
+export const ConversationSidebar = memo(ConversationSidebarInner)
 
 function formatTime(ts: number): string {
   const d = new Date(ts)

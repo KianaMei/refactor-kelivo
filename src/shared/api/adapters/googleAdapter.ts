@@ -316,6 +316,8 @@ async function downloadRemoteAsBase64(
     if (token) headers['Authorization'] = `Bearer ${token}`
     const proj = (config.projectId ?? '').trim()
     if (proj) headers['X-Goog-User-Project'] = proj
+  } else if (config.oauthEnabled && config.oauthData?.accessToken) {
+    headers['Authorization'] = `Bearer ${config.oauthData.accessToken}`
   }
 
   const resp = await fetch(url, { headers, signal })
@@ -373,7 +375,8 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
   }
 
   const url = new URL(baseUrl)
-  if (!config.vertexAI) {
+  const isOAuth = !!(config.oauthEnabled && config.oauthData?.accessToken)
+  if (!config.vertexAI && !isOAuth) {
     const eff = effectiveApiKey(config)
     if (eff) url.searchParams.set('key', eff)
   }
@@ -567,6 +570,8 @@ export async function* sendStream(params: GoogleStreamParams): AsyncGenerator<Ch
       if (token) hdrs['Authorization'] = `Bearer ${token}`
       const proj = (config.projectId ?? '').trim()
       if (proj) hdrs['X-Goog-User-Project'] = proj
+    } else if (isOAuth && config.oauthData?.accessToken) {
+      hdrs['Authorization'] = `Bearer ${config.oauthData.accessToken}`
     }
     Object.assign(hdrs, customHeaders(config, modelId))
     if (extraHeaders) Object.assign(hdrs, extraHeaders)

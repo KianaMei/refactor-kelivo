@@ -5,6 +5,7 @@ import { readFile, writeFile, mkdir, readdir, stat, copyFile } from 'fs/promises
 import { Readable } from 'stream'
 import AdmZip from 'adm-zip'
 import { loadConfig, saveConfig } from '../../configStore'
+import { closeDatabase, initDatabase } from '../../db/database'
 import type { WebDavConfig, BackupFileItem, RestoreMode, AppConfig, BackupWebdavProgress } from '../../../shared/types'
 import type { DbAssistant } from '../../../shared/db-types'
 import {
@@ -46,6 +47,11 @@ function getDataPath(): string {
 
 function getDbPath(): string {
   return join(getDataPath(), 'kelivo.db')
+}
+
+function removeDbSidecarFiles(dbPath: string): void {
+  rmSync(`${dbPath}-wal`, { force: true })
+  rmSync(`${dbPath}-shm`, { force: true })
 }
 
 function getConfigPath(): string {
@@ -256,7 +262,10 @@ export async function exportLocalBackup(
   includeAttachments: boolean,
   includeGeneratedImages: boolean
 ): Promise<Buffer> {
-  const zip = new AdmZip()
+  let dbNeedsReopen = false
+
+  try {
+    const zip = new AdmZip()
 
   // 添加配置文件
   const configPath = getConfigPath()
@@ -270,6 +279,9 @@ export async function exportLocalBackup(
 
   // 添加数据库
   if (includeChats) {
+    // Ensure SQLite WAL content is flushed before snapshotting the db file.
+    closeDatabase()
+    dbNeedsReopen = true
     const dbPath = getDbPath()
     if (existsSync(dbPath)) {
       zip.addLocalFile(dbPath, '', 'kelivo.db')
@@ -297,7 +309,12 @@ export async function exportLocalBackup(
     }
   }
 
-  return zip.toBuffer()
+    return zip.toBuffer()
+  } finally {
+    if (dbNeedsReopen) {
+      initDatabase()
+    }
+  }
 }
 
 // ================== 本地备份导入 ==================
@@ -311,6 +328,10 @@ export async function importLocalBackup(
 ): Promise<{ success: boolean; message: string }> {
   const tmpDir = app.getPath('temp')
   const extractDir = join(tmpDir, `kelivo_restore_${Date.now()}`)
+  let dbNeedsReopen = false
+  let dbFoundInBackup = false
+  let dbRestored = false
+  let dbSkippedByMerge = false
 
   try {
     // 解压到临时目录
@@ -337,9 +358,24 @@ export async function importLocalBackup(
     if (includeChats) {
       const dbSrc = join(extractDir, 'kelivo.db')
       if (existsSync(dbSrc)) {
+        dbFoundInBackup = true
         const dbDst = getDbPath()
         if (mode === 'overwrite') {
-          await copyFile(dbSrc, dbDst)
+          closeDatabase()
+          dbNeedsReopen = true
+          try {
+            removeDbSidecarFiles(dbDst)
+            await copyFile(dbSrc, dbDst)
+            removeDbSidecarFiles(dbDst)
+            dbRestored = true
+          } finally {
+            if (dbNeedsReopen) {
+              initDatabase()
+              dbNeedsReopen = false
+            }
+          }
+        } else {
+          dbSkippedByMerge = true
         }
         // 合并模式的数据库合并较复杂，暂时跳过
       }
@@ -364,6 +400,11 @@ export async function importLocalBackup(
       await restoreDirectory(join(extractDir, 'images'), getImagesDir(), mode)
     }
 
+    if (dbNeedsReopen) {
+      initDatabase()
+      dbNeedsReopen = false
+    }
+
     // 清理临时文件
     try {
       rmSync(extractDir, { recursive: true })
@@ -371,7 +412,18 @@ export async function importLocalBackup(
       // ignore
     }
 
-    return { success: true, message: '导入成功' }
+    let message = '导入成功'
+    if (includeChats) {
+      if (dbRestored) {
+        message = '导入成功（已恢复聊天记录）'
+      } else if (!dbFoundInBackup) {
+        message = '导入成功（该备份不包含聊天记录数据库）'
+      } else if (dbSkippedByMerge) {
+        message = '导入成功（增量合并暂不支持聊天记录，聊天未恢复）'
+      }
+    }
+
+    return { success: true, message }
   } catch (err) {
     // 清理临时文件
     try {
@@ -643,7 +695,8 @@ export async function restoreFromWebDav(
 
   console.log(`[WebDAV Restore] Downloaded: ${buffer.length} bytes`)
 
-  return importLocalBackup(buffer, mode, cfg.includeChats, cfg.includeAttachments, cfg.includeGeneratedImages)
+  // Restore should be based on backup content itself, not the current profile include flags.
+  return importLocalBackup(buffer, mode, true, true, true)
 }
 
 // ================== WebDAV 删除 ==================

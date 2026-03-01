@@ -795,7 +795,7 @@ export function ApiTestPage(props: Props) {
             currentProviderName={selectedProvider}
             reasoningEffort={reasoningEffort as any}
             onReasoningEffortChange={setReasoningEffort as any}
-            onOpenModelPicker={() => setModelPickerOpen(true)}
+            onOpenModelPicker={() => setModelPickerOpen((v) => !v)}
             onClearContext={handleClear}
           />
         </div>

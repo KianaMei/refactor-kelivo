@@ -147,6 +147,15 @@ export function TranslatePage(props: {
     void navigator.clipboard.writeText(output)
   }, [output])
 
+  const handleToggleModelPicker = useCallback(() => {
+    if (isTranslating) return
+    setModelPickerOpen((prev) => !prev)
+  }, [isTranslating])
+
+  const handleCloseModelPicker = useCallback(() => {
+    setModelPickerOpen(false)
+  }, [])
+
   // Brand icon for current model
   const brandIcon = model.modelId ? getBrandIcon(model.modelId) : null
 
@@ -159,9 +168,7 @@ export function TranslatePage(props: {
           ref={modelBtnRef}
           type="button"
           className="chatTopBarModelCapsule"
-          onClick={() => {
-            if (!isTranslating) setModelPickerOpen(true)
-          }}
+          onClick={handleToggleModelPicker}
           style={{ opacity: isTranslating ? 0.5 : 1 }}
         >
           {brandIcon ? (
@@ -179,7 +186,7 @@ export function TranslatePage(props: {
       <DesktopPopover
         anchorRef={modelBtnRef}
         open={modelPickerOpen}
-        onClose={() => setModelPickerOpen(false)}
+        onClose={handleCloseModelPicker}
         minWidth={600}
         maxHeight={600}
         placement="below"
@@ -189,7 +196,7 @@ export function TranslatePage(props: {
           currentProviderId={model.providerId ?? undefined}
           currentModelId={model.modelId ?? undefined}
           onSelect={(pid, mid) => void handleSelectModel(pid, mid)}
-          onClose={() => setModelPickerOpen(false)}
+          onClose={handleCloseModelPicker}
         />
       </DesktopPopover>
 

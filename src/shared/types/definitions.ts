@@ -29,7 +29,10 @@ export interface UserConfig {
   avatarValue: string // emoji字符、URL或本地文件路径
 }
 
-export type ProviderKind = 'openai' | 'openai_response' | 'claude' | 'google'
+export type ProviderKind =
+  | 'openai' | 'openai_response' | 'claude' | 'google'
+  | 'claude_oauth' | 'codex_oauth' | 'gemini_cli_oauth' | 'antigravity_oauth'
+  | 'kimi_oauth' | 'qwen_oauth'
 
 export type LoadBalanceStrategy = 'roundRobin' | 'priority' | 'leastUsed' | 'random'
 
@@ -88,8 +91,27 @@ export interface ProviderConfigV2 {
   allowInsecureConnection?: boolean
   // 自定义头像（本地路径）
   customAvatarPath?: string
+  // OAuth 登录
+  oauthEnabled?: boolean
+  oauthData?: OAuthTokenData | null
   createdAt: string
   updatedAt: string
+}
+
+export type OAuthProvider = 'claude' | 'codex' | 'gemini_cli' | 'antigravity' | 'kimi' | 'qwen'
+
+export interface OAuthTokenData {
+  provider: OAuthProvider
+  accessToken: string
+  refreshToken?: string
+  expiresAt: number         // Unix timestamp (ms)
+  tokenType: string         // 'Bearer'
+  scope?: string
+  idToken?: string          // OpenAI OIDC
+  projectId?: string        // Antigravity 项目 ID
+  userEmail?: string        // 显示用
+  accountId?: string        // Codex account ID (JWT sub)
+  deviceId?: string         // Kimi device ID (UUID)
 }
 
 export type SettingsMenuKey =

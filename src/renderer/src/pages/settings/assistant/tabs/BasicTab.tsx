@@ -370,7 +370,7 @@ export function BasicTab(props: {
         <button
           type="button"
           className="assistantModelRow"
-          onClick={() => providers.length > 0 && setModelSelectorOpen(true)}
+          onClick={() => providers.length > 0 && setModelSelectorOpen((v) => !v)}
           disabled={providers.length === 0}
           title={providers.length === 0 ? "请先在「提供商」中配置模型" : "选择模型"}
         >
