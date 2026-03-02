@@ -382,12 +382,17 @@ export function registerModelsIpc(): void {
     const kind = provider.providerType ?? 'openai'
     const isOAuth = OAUTH_KINDS.has(kind)
 
-    // OAuth 供应商用 accessToken，传统供应商用 apiKey
-    if (isOAuth) {
+    // codex_oauth 支持双模式：有 accessToken 走 OAuth，否则降级到 API Key
+    const codexUseApiKey = kind === 'codex_oauth'
+      && !provider.oauthData?.accessToken
+      && !!provider.apiKey
+
+    // 认证前置检查
+    if (isOAuth && !codexUseApiKey) {
       if (!provider.oauthData?.accessToken) {
         throw new Error('请先完成 OAuth 登录')
       }
-    } else {
+    } else if (!isOAuth) {
       if (!provider.apiKey) throw new Error('该供应商未配置 API Key')
     }
 
@@ -399,7 +404,12 @@ export function registerModelsIpc(): void {
         ids = getDefaultClaudeModels()
         break
       case 'codex_oauth':
-        ids = getCodexOAuthModels()
+        // API Key 模式：直接从第三方端点获取
+        if (codexUseApiKey) {
+          ids = await fetchOpenAIModels(provider)
+        } else {
+          ids = getCodexOAuthModels()
+        }
         break
       case 'gemini_cli_oauth':
         ids = await fetchGoogleModelsWithBearer(provider, provider.oauthData!.accessToken)
