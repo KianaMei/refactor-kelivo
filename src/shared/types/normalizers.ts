@@ -671,12 +671,14 @@ function normalizeProviderConfig(key: string, input: unknown): ProviderConfigV2 
   })()
 
   // OAuth 供应商强制使用正确的 base URL（修正旧配置）
+  // codex_oauth 特殊处理：当用户配置了自定义 API Key（第三方反代），尊重用户的 URL
   const OAUTH_BASE_URLS: Partial<Record<ProviderKind, string>> = {
     codex_oauth: 'https://chatgpt.com/backend-api/codex',
     kimi_oauth: 'https://api.kimi.com/coding/v1',
     qwen_oauth: 'https://portal.qwen.ai/v1'
   }
-  const baseUrl = (providerType && OAUTH_BASE_URLS[providerType]) || rawBaseUrl
+  const hasCustomApiKey = providerType === 'codex_oauth' && typeof apiKey === 'string' && apiKey.trim() !== ''
+  const baseUrl = (providerType && !hasCustomApiKey && OAUTH_BASE_URLS[providerType]) || rawBaseUrl
 
   return {
     ...def,
