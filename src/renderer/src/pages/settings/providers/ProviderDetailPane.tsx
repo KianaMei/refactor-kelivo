@@ -122,6 +122,15 @@ export function ProviderDetailPane({
   const [oauthLoading, setOauthLoading] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
 
+  // codex_oauth 双模式 tab（OAuth ↔ API Key）
+  const isCodexOAuth = provider.providerType === 'codex_oauth'
+  const [authTab, setAuthTab] = useState<'oauth' | 'apikey'>(() => {
+    if (!isCodexOAuth) return 'oauth'
+    return provider.oauthEnabled && provider.oauthData ? 'oauth'
+      : provider.apiKey ? 'apikey'
+      : 'oauth'
+  })
+
   const handleOAuthLogin = useCallback(async () => {
     if (!oauthProvider) return
     setOauthLoading(true)
@@ -553,9 +562,127 @@ export function ProviderDetailPane({
 
         {/* ── 认证区域 ── */}
         {isOAuthKind ? (
-          /* OAuth 类型供应商：登录/登出 + Codex 双模式支持 */
-          <>
-            <div style={{ marginBottom: 16 }}>
+          isCodexOAuth ? (
+            /* Codex OAuth：左右 Tab 切换，要么 OAuth 要么 API Key */
+            <div style={{ marginBottom: 20 }}>
+              {/* Tab 切换器 */}
+              <div style={{
+                display: 'flex',
+                background: 'var(--surface-2)',
+                borderRadius: 8,
+                padding: 3,
+                marginBottom: 14,
+                gap: 2,
+              }}>
+                {([['oauth', '账号登录'], ['apikey', 'API Key']] as const).map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setAuthTab(tab)}
+                    style={{
+                      flex: 1,
+                      padding: '5px 0',
+                      borderRadius: 6,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      transition: 'background 0.15s, color 0.15s, box-shadow 0.15s',
+                      background: authTab === tab ? 'var(--surface)' : 'transparent',
+                      color: authTab === tab ? 'var(--text)' : 'var(--text-3)',
+                      boxShadow: authTab === tab ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* OAuth Tab 内容 */}
+              {authTab === 'oauth' && (
+                provider.oauthEnabled && provider.oauthData ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', borderRadius: 8,
+                    background: 'var(--success-bg, rgba(34,197,94,0.1))',
+                    border: '1px solid var(--success-border, rgba(34,197,94,0.2))'
+                  }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success, #22c55e)" strokeWidth="2">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                      <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <span style={{ flex: 1, fontSize: 13 }}>
+                      {provider.oauthData.userEmail || `已登录 ${OAUTH_PROVIDER_LABELS[oauthProvider!]}`}
+                    </span>
+                    <button type="button" className="desk-button" style={{ padding: '4px 10px', fontSize: 12 }} onClick={handleOAuthLogout}>
+                      登出
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <button
+                      type="button"
+                      className="desk-button filled"
+                      style={{ padding: '6px 16px', fontSize: 13 }}
+                      disabled={oauthLoading}
+                      onClick={handleOAuthLogin}
+                    >
+                      {oauthLoading ? '登录中...' : `登录 ${OAUTH_PROVIDER_LABELS[oauthProvider!]}`}
+                    </button>
+                    <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>使用订阅账号登录，无需 API Key</div>
+                    {oauthError && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--danger, #ef4444)' }}>{oauthError}</div>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* API Key Tab 内容 */}
+              {authTab === 'apikey' && (
+                <>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API Key</label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        className="input-detail"
+                        style={{ paddingRight: 40 }}
+                        type={showApiKey ? 'text' : 'password'}
+                        value={apiKey}
+                        onChange={(e) => { setApiKey(e.target.value); saveChanges({ apiKey: e.target.value }) }}
+                        placeholder="输入第三方 Codex API Key"
+                      />
+                      <button type="button" className="eye-toggle-btn" onClick={() => setShowApiKey(!showApiKey)} title={showApiKey ? '隐藏' : '显示'}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          {showApiKey ? (
+                            <>
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </>
+                          ) : (
+                            <>
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </>
+                          )}
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API Base URL</label>
+                    <input
+                      className="input-detail"
+                      value={baseUrl}
+                      onChange={(e) => { setBaseUrl(e.target.value); saveChanges({ baseUrl: e.target.value }) }}
+                      placeholder="https://your-cpa-proxy.com/v1"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            /* 其他 OAuth 类型（Claude、Gemini 等）：仅显示账号登录 */
+            <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>
                 账号
               </label>
@@ -595,63 +722,7 @@ export function ProviderDetailPane({
                 </div>
               )}
             </div>
-
-            {/* Codex OAuth 双模式：可额外配置 API Key + URL（用于 CPA 反代等第三方端点） */}
-            {provider.providerType === 'codex_oauth' && (
-              <>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 12px',
-                  fontSize: 12, color: 'var(--text-3)'
-                }}>
-                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                  <span>或使用 API Key（第三方反代）</span>
-                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                </div>
-                {provider.oauthEnabled && provider.oauthData && (
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8, paddingLeft: 2 }}>
-                    已登录 OAuth，以下配置仅在登出后生效
-                  </div>
-                )}
-                <div style={{ marginBottom: 16, opacity: provider.oauthEnabled && provider.oauthData ? 0.5 : 1 }}>
-                  <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API Key</label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      className="input-detail"
-                      style={{ paddingRight: 40 }}
-                      type={showApiKey ? 'text' : 'password'}
-                      value={apiKey}
-                      onChange={(e) => { setApiKey(e.target.value); saveChanges({ apiKey: e.target.value }) }}
-                      placeholder="输入第三方 Codex API Key"
-                    />
-                    <button type="button" className="eye-toggle-btn" onClick={() => setShowApiKey(!showApiKey)} title={showApiKey ? '隐藏' : '显示'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        {showApiKey ? (
-                          <>
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                          </>
-                        ) : (
-                          <>
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </>
-                        )}
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div style={{ marginBottom: 20, opacity: provider.oauthEnabled && provider.oauthData ? 0.5 : 1 }}>
-                  <label style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginBottom: 6, display: 'block', paddingLeft: 2 }}>API Base URL</label>
-                  <input
-                    className="input-detail"
-                    value={baseUrl}
-                    onChange={(e) => { setBaseUrl(e.target.value); saveChanges({ baseUrl: e.target.value }) }}
-                    placeholder="https://your-cpa-proxy.com/v1"
-                  />
-                </div>
-              </>
-            )}
-          </>
+          )
         ) : (
           /* 传统供应商：Key / URL / Path */
           <>
