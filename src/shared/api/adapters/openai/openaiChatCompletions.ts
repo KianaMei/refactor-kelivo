@@ -258,6 +258,8 @@ async function* processStream(params: ProcessStreamParams): AsyncGenerator<ChatS
   let usage: TokenUsage | undefined
   const toolAcc = new Map<number, { id: string; name: string; args: string }>()
   let finishReason: string | null = null
+  // Codex 格式去重：防止同一个 tool_uses JSON 块被多个 chunk 重复添加
+  const codexToolUseSeen = new Set<string>()
 
   const approxPromptChars = messages.reduce((acc, m) => {
     const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
@@ -319,9 +321,15 @@ async function* processStream(params: ProcessStreamParams): AsyncGenerator<ChatS
 
         if (message?.content) {
           content = extractContent(message.content)
+          // Codex 格式：{"tool_uses":[...]} 嵌在文本里
+          const codexResult = extractCodexToolUses(content, toolAcc, codexToolUseSeen)
+          content = codexResult.cleanText
           if (content) approxCompletionChars += content.length
         } else if (delta) {
           content = extractContent(delta.content)
+          // Codex 格式：{"tool_uses":[...]} 嵌在文本里
+          const codexResult = extractCodexToolUses(content, toolAcc, codexToolUseSeen)
+          content = codexResult.cleanText
           if (content) approxCompletionChars += content.length
 
           const rc = (delta.reasoning_content ?? delta.reasoning) as string | undefined
@@ -857,6 +865,73 @@ function extractContent(content: unknown): string {
     return sb.join('')
   }
   return ''
+}
+
+/**
+ * Codex 格式工具调用提取
+ * 模型把 {"tool_uses":[{"recipient_name":"functions.xxx","parameters":{...}}]} 嵌在文本里
+ * 提取后从 content 中删除，同时写入 toolAcc；seen Set 防止多 chunk 重复添加
+ */
+function extractCodexToolUses(
+  text: string,
+  toolAcc: Map<number, { id: string; name: string; args: string }>,
+  seen: Set<string>
+): { cleanText: string } {
+  if (!text.includes('"tool_uses"')) return { cleanText: text }
+
+  // 匹配完整的 {"tool_uses":[...]} 块（非贪婪，允许嵌套 JSON）
+  // 用简单的括号计数法来处理嵌套
+  let cleanText = text
+  let searchFrom = 0
+
+  while (true) {
+    const start = cleanText.indexOf('{"tool_uses"', searchFrom)
+    if (start === -1) break
+
+    // 找到匹配的闭合括号
+    let depth = 0
+    let end = -1
+    for (let i = start; i < cleanText.length; i++) {
+      if (cleanText[i] === '{') depth++
+      else if (cleanText[i] === '}') {
+        depth--
+        if (depth === 0) { end = i + 1; break }
+      }
+    }
+    if (end === -1) { searchFrom = start + 1; break }
+
+    const jsonStr = cleanText.slice(start, end)
+
+    // 去重
+    if (!seen.has(jsonStr)) {
+      seen.add(jsonStr)
+      try {
+        const parsed = JSON.parse(jsonStr) as { tool_uses?: unknown[] }
+        if (Array.isArray(parsed.tool_uses)) {
+          for (const tu of parsed.tool_uses as Array<Record<string, unknown>>) {
+            const recipientName = String(tu.recipient_name ?? '')
+            // "functions.toolName" → "toolName"
+            const name = recipientName.startsWith('functions.')
+              ? recipientName.slice('functions.'.length)
+              : recipientName
+            if (!name) continue
+            const idx = toolAcc.size
+            toolAcc.set(idx, {
+              id: `codex_call_${idx}_${Date.now()}`,
+              name,
+              args: JSON.stringify(tu.parameters ?? {})
+            })
+          }
+        }
+      } catch { /* 解析失败则原样保留 */ }
+    }
+
+    // 从文本中删除该块（包括前后空白行）
+    cleanText = cleanText.slice(0, start).trimEnd() + cleanText.slice(end).trimStart()
+    searchFrom = start
+  }
+
+  return { cleanText }
 }
 
 function checkModelIsReasoning(modelId: string): boolean {
