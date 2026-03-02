@@ -2,7 +2,7 @@
  * 工具调用卡片组件
  * 可折叠面板，展示工具调用的输入参数和执行结果
  */
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   ChevronRight,
   Globe,
@@ -17,6 +17,7 @@ import {
   Code,
   LayoutList
 } from 'lucide-react'
+import { JsonTreeView } from './components/JsonTreeView'
 
 export interface ToolCallData {
   id: string
@@ -244,19 +245,68 @@ function SearchResultView({ raw, args }: { raw: string; args?: Record<string, un
   )
 }
 
-function PlainResultView({ text }: { text: string }) {
-  const formatted = useMemo(() => {
-    try {
-      const obj = JSON.parse(text)
-      return JSON.stringify(obj, null, 2)
-    } catch {
-      return text
+// 递归解开多层 JSON 字符串编码（处理双重/三重编码的情况）
+function deepParse(text: string, maxDepth = 5): unknown {
+  try {
+    const parsed = JSON.parse(text)
+    if (typeof parsed === 'string' && maxDepth > 0) {
+      return deepParse(parsed, maxDepth - 1)
     }
+    return parsed
+  } catch {
+    return text
+  }
+}
+
+// 提取 Anthropic 标准 content 格式中的纯文本
+// 支持: [{type:"text",text:"..."}] 和 {type:"text",text:"..."}
+function extractTextContent(obj: unknown): string | null {
+  if (Array.isArray(obj)) {
+    const textParts = obj
+      .filter((item): item is { type: 'text'; text: string } =>
+        item !== null &&
+        typeof item === 'object' &&
+        (item as Record<string, unknown>).type === 'text' &&
+        typeof (item as Record<string, unknown>).text === 'string'
+      )
+      .map((item) => item.text)
+    if (textParts.length > 0 && textParts.length === obj.length) {
+      return textParts.join('\n\n')
+    }
+  }
+  if (obj !== null && typeof obj === 'object' && !Array.isArray(obj)) {
+    const o = obj as Record<string, unknown>
+    if (o.type === 'text' && typeof o.text === 'string') {
+      return o.text
+    }
+  }
+  return null
+}
+
+function PlainResultView({ text }: { text: string }) {
+  const result = useMemo(() => {
+    const parsed = deepParse(text)
+
+    // 解析后仍是字符串 → 纯文本展示
+    if (typeof parsed === 'string') {
+      return { type: 'text' as const, content: parsed }
+    }
+
+    // Anthropic [{type:"text",text:"..."}] 格式 → 提取纯文本
+    const extracted = extractTextContent(parsed)
+    if (extracted !== null) {
+      return { type: 'text' as const, content: extracted }
+    }
+
+    // JSON 结构 → 语义化折叠树
+    return { type: 'json' as const, data: parsed }
   }, [text])
 
-  return (
-    <pre className="tcResultPlain">{formatted}</pre>
-  )
+  if (result.type === 'json') {
+    return <JsonTreeView data={result.data} />
+  }
+
+  return <pre className="tcResultPlain">{result.content}</pre>
 }
 
 // ─── 主组件 ───

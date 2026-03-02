@@ -2380,6 +2380,177 @@ code, pre, .mdCodeBlock {
   line-height: 1.5;
 }
 
+/* ─── DataView (JsonTreeView) ─── */
+.dv-root {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+/* badge: API 状态标签 */
+.dv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-family: var(--font-sans, sans-serif);
+  font-weight: 500;
+}
+.dv-badge-ok {
+  background: color-mix(in srgb, #4ade80 12%, transparent);
+  color: #4ade80;
+  border: 1px solid color-mix(in srgb, #4ade80 25%, transparent);
+}
+.dv-badge-err {
+  background: color-mix(in srgb, #f87171 12%, transparent);
+  color: #f87171;
+  border: 1px solid color-mix(in srgb, #f87171 25%, transparent);
+}
+[data-theme='light'] .dv-badge-ok  { color: #16a34a; background: #f0fdf4; border-color: #86efac; }
+[data-theme='light'] .dv-badge-err { color: #dc2626; background: #fef2f2; border-color: #fca5a5; }
+
+/* 属性行 */
+.dv-rows { display: flex; flex-direction: column; gap: 1px; }
+
+.dv-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 38%) 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 6px;
+  border-radius: 4px;
+  min-height: 22px;
+}
+.dv-row:hover { background: rgba(128,128,128,0.06); }
+
+.dv-label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: lowercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+/* 值类型着色 */
+.dv-str      { color: var(--text-1); word-break: break-word; }
+.dv-num      { color: #79b8ff; font-variant-numeric: tabular-nums; }
+.dv-bool-true  { color: #4ade80; font-size: 11px; }
+.dv-bool-false { color: #f87171; font-size: 11px; }
+.dv-null     { color: var(--text-3); font-style: italic; font-size: 11px; }
+.dv-empty    { color: var(--text-3); font-style: italic; font-size: 11px; }
+.dv-url {
+  color: #79b8ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.dv-more {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(128,128,128,0.25);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+.dv-more:hover { background: rgba(128,128,128,0.1); }
+
+[data-theme='light'] .dv-num        { color: #0550ae; }
+[data-theme='light'] .dv-bool-true  { color: #16a34a; }
+[data-theme='light'] .dv-bool-false { color: #dc2626; }
+[data-theme='light'] .dv-url        { color: #0550ae; }
+
+/* 嵌套对象区块 */
+.dv-nested {
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 2px 0;
+}
+.dv-nested-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 6px;
+  background: rgba(128,128,128,0.05);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-2);
+  font-size: 11.5px;
+  transition: background 0.1s;
+}
+.dv-nested-header:hover { background: rgba(128,128,128,0.1); }
+.dv-nested-label { font-weight: 500; color: var(--text-2); flex: 1; }
+.dv-nested-hint  { color: var(--text-3); font-size: 10.5px; margin-left: auto; }
+
+.dv-nested-body {
+  padding: 4px 0 2px 12px;
+  border-left: 2px solid rgba(128,128,128,0.15);
+  margin-left: 8px;
+  margin-top: 2px;
+}
+
+/* 标量 chips（短数组） */
+.dv-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; }
+.dv-chip {
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(128,128,128,0.1);
+  font-size: 11px;
+}
+
+/* 对象数组卡片 */
+.dv-arr-section { margin: 2px 0; }
+.dv-arr-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dv-arr-toggle:hover { background: rgba(128,128,128,0.08); color: var(--text-2); }
+.dv-arr-cards { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.dv-arr-card {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: rgba(128,128,128,0.04);
+  border: 1px solid rgba(128,128,128,0.1);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.dv-arr-card-idx {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(128,128,128,0.12);
+  color: var(--text-3);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+.dv-arr-card-body { flex: 1; min-width: 0; }
+
+
 /* 输入参数区 */
 .tcArgs {
   padding: 6px 8px;

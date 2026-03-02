@@ -679,6 +679,15 @@ function TokenTrend(props: { rows: MessageTokenDay[]; maxValue: number }) {
       </div>
 
       <div style={styles.trendTooltipSlot}>
+        <div style={styles.trendMeta}>
+          <div style={styles.trendLegend}>
+            <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, var(--primary) 82%, var(--surface-3))' }} />输入</span>
+            <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, #60a5fa 78%, var(--surface-3))' }} />输出</span>
+            <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, #f59e0b 82%, var(--surface-3))' }} />缓存</span>
+          </div>
+          <div style={styles.trendHint}>支持：鼠标滚轮横向滚动，或按住拖拽查看两侧</div>
+        </div>
+
         {hoveredRow && (
           <div style={{ ...styles.trendTooltip, left: tooltipLeft }}>
             <div style={styles.trendTooltipArrowUp} />
@@ -699,13 +708,6 @@ function TokenTrend(props: { rows: MessageTokenDay[]; maxValue: number }) {
           </div>
         )}
       </div>
-
-      <div style={styles.trendLegend}>
-        <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, var(--primary) 82%, var(--surface-3))' }} />输入</span>
-        <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, #60a5fa 78%, var(--surface-3))' }} />输出</span>
-        <span><i style={{ ...styles.dot, background: 'color-mix(in srgb, #f59e0b 82%, var(--surface-3))' }} />缓存</span>
-      </div>
-      <div style={styles.trendHint}>支持：鼠标滚轮横向滚动，或按住拖拽查看两侧</div>
     </div>
   )
 }
@@ -810,17 +812,28 @@ const styles: Record<string, React.CSSProperties> = {
   },
   trendTooltipSlot: {
     position: 'relative',
-    height: 176
+    height: 188,
+    marginTop: 2
+  },
+  trendMeta: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 6,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    pointerEvents: 'none'
   },
   trendTooltip: {
     position: 'absolute',
-    top: 8,
+    bottom: 4,
     transform: 'translateX(-50%)',
     pointerEvents: 'none',
     zIndex: 12,
-    maxWidth: 330,
-    minWidth: 240,
-    padding: '9px 11px',
+    maxWidth: 316,
+    minWidth: 228,
+    padding: '8px 10px',
     borderRadius: 12,
     border: '1px solid color-mix(in srgb, var(--primary) 35%, var(--border))',
     background: 'color-mix(in srgb, var(--surface) 94%, transparent)',
@@ -842,7 +855,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     fontWeight: 600,
     color: 'var(--text)',
-    marginBottom: 4
+    marginBottom: 3
   },
   trendTooltipRow: {
     display: 'flex',
@@ -853,8 +866,8 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.45
   },
   trendTooltipTotal: {
-    marginTop: 5,
-    paddingTop: 5,
+    marginTop: 4,
+    paddingTop: 4,
     borderTop: '1px dashed var(--border)',
     fontSize: 11,
     fontWeight: 600,
@@ -899,7 +912,6 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 12
   },
   trendLegend: {
-    marginTop: 10,
     display: 'flex',
     alignItems: 'center',
     gap: 12,
@@ -907,7 +919,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-3)'
   },
   trendHint: {
-    marginTop: 8,
     fontSize: 11,
     color: 'var(--text-3)'
   },
